@@ -93,11 +93,6 @@
   "note": "slide.c's drag alone, from its first frame (57-69 fps in the October 2 runs)",
   "ref": 66.0
  },
- "drag_fps.screen_weather_to_radar": {
-  "min": 45,
-  "note": "slide.c's drag alone, from its first frame (57-69 fps in the October 2 runs)",
-  "ref": 68.2
- },
  "drag_start_ms.drag_hourly_day": {
   "max": 100,
   "note": "finger recognised -> first frame; 15-18 ms with the pictures ready (70 once); the user noticed 0.1 s",
@@ -137,11 +132,6 @@
   "max": 100,
   "note": "finger recognised -> first frame; 15-18 ms with the pictures ready (70 once); the user noticed 0.1 s",
   "ref": 16
- },
- "drag_start_ms.screen_weather_to_radar": {
-  "max": 100,
-  "note": "finger recognised -> first frame; 15-18 ms with the pictures ready (70 once); the user noticed 0.1 s",
-  "ref": 15
  },
  "failed_allocs": {
   "max": 0,
@@ -352,11 +342,6 @@
   "note": "v1.10.1-perf.33, one run; generous limit",
   "ref": 63.8
  },
- "swipe_fps.screen_weather_to_radar": {
-  "min": 18,
-  "note": "v1.10.1-perf.33, one run; generous limit",
-  "ref": 31.6
- },
  "swipe_fps.scroll_hourly_list": {
   "min": 25,
   "note": "frames < 250 ms apart, the slow end of the flick included (19 ms frames while moving); LVGL scrolled it at 17.5",
@@ -407,11 +392,6 @@
   "note": "longest gap between two frames of the move (16-87 ms in October 2 runs); over ~0.1 s is a visible stutter",
   "ref": 17
  },
- "swipe_gap_max_ms.screen_weather_to_radar": {
-  "max": 120,
-  "note": "longest gap between two frames of the move (16-87 ms in October 2 runs); over ~0.1 s is a visible stutter",
-  "ref": 16
- },
  "swipe_gap_max_ms.scroll_hourly_list": {
   "max": 120,
   "note": "longest gap between two frames of the move (16-87 ms in October 2 runs); over ~0.1 s is a visible stutter",
@@ -461,11 +441,6 @@
   "max": 10,
   "note": "LVGL render time per frame during the move (pictures: ~0-4 ms); high = LVGL drew the move itself",
   "ref": 2.5
- },
- "swipe_render_avg_ms.screen_weather_to_radar": {
-  "max": 10,
-  "note": "LVGL render time per frame during the move (pictures: ~0-4 ms); high = LVGL drew the move itself",
-  "ref": 3.5
  },
  "swipe_render_avg_ms.scroll_hourly_list": {
   "max": 10,

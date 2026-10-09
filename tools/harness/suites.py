@@ -23,6 +23,13 @@ def check(cond, msg):
         raise Fail(msg)
 
 
+def open_radar(ctx):
+    """From the weather screen: a tap on the weather icon (its radar badge) opens the radar (MeteoBus v0.2.0)."""
+    b = ctx.board
+    m = b.cmd('page', r'test: page .*icon=(\d+),(\d+)')
+    b.cmd(f'tap {m.group(1)} {m.group(2)}')
+
+
 def go_weather(ctx):
     """Back to the weather screen from wherever the display is."""
     b = ctx.board
@@ -82,13 +89,17 @@ def every_screen(ctx):
              ('swipe right', 'status'),                  # the left end: bounces back
              ('swipe left', 'extras'),
              ('drag 233 233 300 233 600', 'extras'),     # short and slow: snaps back
-             ('swipe left', 'weather'), ('swipe left', 'radar'),
-             ('swipe left', 'radar'),                    # the right end: bounces back
-             ('swipe right', 'weather'),
+             ('swipe left', 'weather'),
+             ('swipe left', 'weather'),                  # the right end: bounces back (the radar opens from the icon)
+             ('icon', 'radar'), ('swipe left', 'weather'),   # a sideways swipe closes the radar
+             ('icon', 'radar'), ('swipe right', 'weather'),
              ('press 233 233', 'settings'), ('tap 233 45', 'weather'),
              ('tap 125 350', 'hourly'), ('swipe left', 'hourly'), ('tap 233 233', 'weather')]
     for cmd, want in route:
-        b.cmd(cmd)
+        if cmd == 'icon':
+            open_radar(ctx)
+        else:
+            b.cmd(cmd)
         b.wait_screen(want, 6)
         if want not in ctx.snapped:
             ms = b.snap({'hourly': 'current'}.get(want, want), ctx.out(f'screen_{want}.png'))
@@ -440,12 +451,12 @@ def render_bench(ctx):
 
 @test('perf')
 def radar_timing(ctx):
-    """Swipe to the radar: time to the first new frame; play the animation and read the frame rate."""
+    """Open the radar (tap on the weather icon): time to the first new frame; play the animation and read the frame rate."""
     b = ctx.board
     go_weather(ctx)
     at = len(ctx.log.lines())
     t0 = time.time()
-    b.cmd('swipe left')
+    open_radar(ctx)
     b.wait_screen('radar', 6)
     try:
         m = ctx.log.wait(r'radar: Frame ', 30, 'a radar frame after opening the radar', start=at)
@@ -581,8 +592,6 @@ def swipes(ctx):
     time.sleep(1)
     measure(ctx, 'screen_weather_to_extras', ['swipe right'])
     measure(ctx, 'screen_extras_to_weather', ['swipe left'])
-    measure(ctx, 'screen_weather_to_radar', ['swipe left'])
-    b.cmd('swipe right')
     b.wait_screen('weather', 6)
     places = len(b.api('/api/config').get('places', []))
     since = len(ctx.log.lines())

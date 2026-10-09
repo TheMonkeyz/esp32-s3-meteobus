@@ -197,6 +197,8 @@ X(T_PILL_UPDATE,    "Update %s",                   "Mise à jour %s",
                     "ᓄᑖᖅ %s")
 X(T_PILL_UPDATING,  "Updating %d%%",               "Mise à jour %d %%",
                     "ᓄᑖᕈᕆᐊᖅᑐᖅ %d%%")
+X(T_ALERT_UPDATE,   "Update available  >",         "Nouvelle version  >",
+                    "ᓄᑖᖅ ᐊᑐᐃᓐᓇᖅ  >")
 X(T_UP_DOWNLOADING, "Downloading... keep it plugged in", "Téléchargement... laissez-le branché",
                     "ᒥᓇᕆᔪᖅ... ᑲᓱᖅᓯᒪᑎᓪᓗᒍ")
 X(T_UP_INSTALLED,   "Installed. Restarting...",    "Installée. Redémarrage...",
@@ -309,9 +311,9 @@ X(T_HINT_HELP,      "%s\nScan with your phone to choose\nyour city and other set
                     "%s\nᐊᔾᔨᓕᐅᕐᓕ ᐅᖄᓚᐅᑎᕋᓛᕐᒧᑦ\nᓄᓇᓖᑦ ᐋᖅᑭᔅᓯᒪᐅᑎᓪᓗ ᕿᓂᕐᓗᒋᑦ.\n\nᓇᕿᓪᓕ: ᒪᑐᓕ")
 X(T_GEST_TITLE,     "Getting around",              "Pour naviguer",
                     "ᖃᓄᖅ ᐊᑐᖅᑕᐅᕚ")
-X(T_GEST_HELP,      "Swipe sideways: other screens\nDrag up or down: your places\nTap a day: hour by hour\nPress and hold: settings\n\nTap to close",
-                    "Glissez de côté : autres écrans\nVers le haut ou le bas : endroits\nTouchez un jour : heure par heure\nAppuyez longuement : réglages\n\nTouchez pour fermer",
-                    "ᓂᕈᓗᓪᓕ ᓴᐅᒥᒧᑦ ᑕᓕᕐᐱᒧᓪᓗ: ᐊᓯᖏᑦ\nᖁᓕᒧᑦ ᐊᑖᓄᓪᓗ: ᐃᓂᒋᔭᑎᑦ\nᐅᓪᓗ ᓇᕿᓗᒍ: ᐃᑲᕐᕌᓂ\nᓇᕿᓪᓗᒍ ᓇᕿᒻᒥᓕ: ᐋᖅᑭᔅᓯᒪᐅᑎᑦ\n\nᓇᕿᓪᓕ: ᒪᑐᓕ")
+X(T_GEST_HELP,      "Swipe sideways: other screens\nDrag up or down: your places\nTap the weather icon: radar\nTap a day: hour by hour\nPress and hold: settings\n\nTap to close",
+                    "Glissez de côté : autres écrans\nVers le haut ou le bas : endroits\nTouchez l'icône météo : radar\nTouchez un jour : heure par heure\nAppuyez longuement : réglages\n\nTouchez pour fermer",
+                    "ᓂᕈᓗᓪᓕ ᓴᐅᒥᒧᑦ ᑕᓕᕐᐱᒧᓪᓗ: ᐊᓯᖏᑦ\nᖁᓕᒧᑦ ᐊᑖᓄᓪᓗ: ᐃᓂᒋᔭᑎᑦ\nᓯᓚᐅᑉ ᐊᔾᔨᖓ ᓇᕿᓗᒍ: Radar\nᐅᓪᓗ ᓇᕿᓗᒍ: ᐃᑲᕐᕌᓂ\nᓇᕿᓪᓗᒍ ᓇᕿᒻᒥᓕ: ᐋᖅᑭᔅᓯᒪᐅᑎᑦ\n\nᓇᕿᓪᓕ: ᒪᑐᓕ")
 X(T_OV_HELP,        "%s\nScan with your phone and accept\nthe certificate warning.\n\nLong-press for Wi-Fi setup\nTap to close",
                     "%s\nBalayez le code avec votre\ntéléphone et acceptez\nl'avertissement de certificat.\n\nAppuyez longuement : Wi-Fi\nTouchez pour fermer",
                     "%s\nᐊᔾᔨᓕᐅᕐᓕ ᐅᖄᓚᐅᑎᕋᓛᕐᒧᑦ ᐊᒻᒪᓗ\nᐃᓂᕐᑎᕈᑎ ᐊᖏᖅᑕᐅᓕ.\n\nᓇᕿᓪᓗᒍ ᓇᕿᒻᒥᓕ: Wi-Fi\nᓇᕿᓪᓕ: ᒪᑐᓕ")

@@ -70,10 +70,11 @@ static void cmd_screen(int argc, char **argv)
 static void cmd_page(int argc, char **argv)
 {
     if (!display_lock(2000)) { ESP_LOGW(TAG, "error page: display busy for 2 s (send 'where')"); return; }
-    int place, day, places, days;
+    int place, day, places, days, ix, iy;
     ui_pages(&place, &day, &places, &days);
+    ui_hero_icon(&ix, &iy);
     display_unlock();
-    ESP_LOGI(TAG, "page place=%d places=%d day=%d days=%d", place, places, day, days);
+    ESP_LOGI(TAG, "page place=%d places=%d day=%d days=%d icon=%d,%d", place, places, day, days, ix, iy);
 }
 
 static void cmd_tap(int argc, char **argv)

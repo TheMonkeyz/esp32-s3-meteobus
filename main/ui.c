@@ -44,7 +44,8 @@ extern const uint8_t syl_end[]   asm("_binary_syllabics_ttf_end");
 
 static lv_font_t *f_time, *f_city, *f_big, *f_cond, *f_small, *f_tiny, *f_micro;
 static lv_obj_t *scr_radar, *scr_extras, *scr_status, *scr_update, *up_pill, *up_pill_lbl;
-static void update_show(void);
+static void update_show(lv_obj_t *back);
+static bool up_want;                       // update_render: an update to offer (available, downloading, installed)
 static void extras_refresh(void);
 static void status_refresh(void);
 static lv_obj_t *scr_msg, *msg_title, *msg_body, *msg_qr;
@@ -55,7 +56,7 @@ static int ov_state;          // 0 hidden, 1 settings QR, 2 gesture hint (text o
 static lv_obj_t *scr_hour;       // hourly detail screen
 static int hr_day;
 static void hour_fill(int day);
-static lv_obj_t *al_pill, *al_pill_lbl, *scr_alert, *al_title, *al_sub, *al_body, *al_map, *al_attr;
+static lv_obj_t *al_pill, *al_pill_lbl, *al_pill_dot, *scr_alert, *al_title, *al_sub, *al_body, *al_map, *al_attr;
 static lv_image_dsc_t al_map_dsc;
 static uint16_t *al_map_buf;
 static EXT_RAM_BSS_ATTR alerts_t alerts;           // ~4 KB, in PSRAM
@@ -454,8 +455,8 @@ static lv_obj_t *make_qr(lv_obj_t *parent, int size)
     return qr;
 }
 
-#define N_PAGES 4
-static void page_dots(lv_obj_t *scr, int active)   // 0 status, 1 extras, 2 weather, 3 radar
+#define N_PAGES 3
+static void page_dots(lv_obj_t *scr, int active)   // 0 status, 1 extras, 2 weather
 {
     for (int i = 0; i < N_PAGES; i++) {
         lv_obj_t *d = lv_obj_create(scr);
@@ -771,27 +772,108 @@ static void hour_fill(int day)       // refresh one day's page (new data / new h
     fill_page(day);
 }
 
+/* ---------- The radar, on top of the weather screen ----------
+ * Opened by a tap on the weather icon (it carries a small radar badge, badge_draw), closed by a sideways swipe or after
+ * RADAR_IDLE_US untouched. Its own taps play the last 3 hours and its vertical swipes zoom (radar.c, gesture_cb). */
+#define RADAR_IDLE_US (5 * 60 * 1000000LL)
+static int64_t drag_seen;                 // drag_read: the last read with a finger down
+
+static void radar_open(void)
+{
+    printf("ui: radar open (icon)\n");
+    radar_set_visible(true);
+    slide_screen(scr_radar, LV_SCR_LOAD_ANIM_MOVE_TOP, 260);
+}
+
+static void radar_close(const char *why)
+{
+    printf("ui: radar closed (%s)\n", why);
+    slide_screen(scr_main, LV_SCR_LOAD_ANIM_MOVE_BOTTOM, 260);    // radar_unloaded stops it
+}
+
+static void radar_unloaded(lv_event_t *e) { radar_set_visible(false); }   // however it was left
+
+static void radar_idle(lv_timer_t *t)
+{
+    if (lv_screen_active() != scr_radar || slide_running()) return;
+    int64_t seen = slide_last_touch() > drag_seen ? slide_last_touch() : drag_seen;
+    if (esp_timer_get_time() - seen > RADAR_IDLE_US) radar_close("idle");
+}
+
+// The badge on the weather icon: a small radar (two rings and a sweep), so the icon reads as something to tap. Drawn
+// over the icon's corner (LV_EVENT_DRAW_POST: the icon's own children change with each forecast).
+#define BADGE_R 15
+static void badge_draw(lv_event_t *e)
+{
+    lv_obj_t *o = lv_event_get_current_target(e);
+    lv_layer_t *layer = lv_event_get_layer(e);
+    lv_area_t a;
+    lv_obj_get_coords(o, &a);
+    int cx = a.x2 - 6, cy = a.y1 + 8;
+    lv_draw_rect_dsc_t r;
+    lv_draw_rect_dsc_init(&r);
+    r.radius = LV_RADIUS_CIRCLE;
+    r.bg_color = lv_color_hex(0x11161C);
+    r.bg_opa = LV_OPA_COVER;
+    r.border_color = C_ACCENT;
+    r.border_width = 2;
+    r.border_opa = LV_OPA_COVER;
+    lv_area_t ra = { cx - BADGE_R, cy - BADGE_R, cx + BADGE_R, cy + BADGE_R };
+    lv_draw_rect(layer, &r, &ra);
+    lv_draw_arc_dsc_t c;
+    lv_draw_arc_dsc_init(&c);
+    c.color = C_ACCENT;
+    c.width = 2;
+    c.center.x = cx;
+    c.center.y = cy;
+    c.start_angle = 0;
+    c.end_angle = 360;
+    c.radius = 9;
+    lv_draw_arc(layer, &c);
+    c.radius = 4;
+    lv_draw_arc(layer, &c);
+    lv_draw_line_dsc_t l;
+    lv_draw_line_dsc_init(&l);
+    l.color = C_ACCENT;
+    l.width = 2;
+    l.round_end = 1;
+    l.p1.x = cx; l.p1.y = cy;
+    l.p2.x = cx + 7; l.p2.y = cy - 7;
+    lv_draw_line(layer, &l);
+}
+
+static void badge_ext(lv_event_t *e) { lv_event_set_ext_draw_size(e, BADGE_R + 4); }
+
+// The icon's tap zone, on screen: the icon and its badge, with a margin for a finger
+static bool on_hero_icon(lv_point_t p)
+{
+    lv_area_t a;
+    lv_obj_get_coords(pp[cur_place].icon, &a);
+    return p.x >= a.x1 - 12 && p.x <= a.x2 + BADGE_R + 12 && p.y >= a.y1 - BADGE_R - 12 && p.y <= a.y2 + 12;
+}
+
 static void hour_close(void)
 {
     slide_screen(scr_main, LV_SCR_LOAD_ANIM_MOVE_BOTTOM, 260);
 }
 
-// Tap on a forecast column of the weather screen
+// Tap on the weather screen: the icon (radar), a forecast column (hourly view), the bottom pill (alert or update)
+#define PILL_Y      (DISP_H - 62)                       // the bottom pill's top (alert, else update): 404..434
+#define PILL_TAP_Y  (PILL_Y - 8)
 static void main_tap(lv_event_t *e)
 {
     lv_indev_t *in = lv_indev_active();
     if (!in || ov_state || !have_wx) return;
     lv_point_t p;
     lv_indev_get_point(in, &p);
-    if (p.y > 408 && !lv_obj_has_flag(up_pill, LV_OBJ_FLAG_HIDDEN)) {   // the "Update" pill
-        update_show();
+    if (p.y >= PILL_TAP_Y) {                            // the bottom pill: the alert, else the update
+        if (!lv_obj_has_flag(al_pill, LV_OBJ_FLAG_HIDDEN)) {
+            printf("ui: tap alert\n");
+            slide_screen(scr_alert, LV_SCR_LOAD_ANIM_MOVE_TOP, 260);
+        } else if (!lv_obj_has_flag(up_pill, LV_OBJ_FLAG_HIDDEN)) update_show(scr_main);
         return;
     }
-    if (p.y < 200 && alerts.n) {                        // top half with an alert: its details
-        printf("ui: tap alert\n");
-        slide_screen(scr_alert, LV_SCR_LOAD_ANIM_MOVE_TOP, 260);
-        return;
-    }
+    if (on_hero_icon(p)) { radar_open(); return; }
     if (p.y < 296) return;                              // only the forecast row
     int col = p.x < DISP_W / 2 - 49 ? 0 : p.x > DISP_W / 2 + 49 ? 2 : 1;
     if (col >= wx.ndays) return;
@@ -885,7 +967,7 @@ static void hour_create(void)
 }
 
 /* ---------- drags that follow the finger (slide.c) ----------
- * Screens, left to right: status | extras | weather | radar. Places: the weather screen's vertical pager. Days: the
+ * Screens, left to right: status | extras | weather (the radar opens on top: a tap on the weather icon). Places: the weather screen's vertical pager. Days: the
  * hourly view's horizontal pager. A drag (10 px, along the larger axis) is handed to slide_drag(): the neighbour comes
  * in under the finger, the ends resist and bounce back. The pagers are frozen (LVGL no longer scrolls them). A
  * vertical drag on any other list goes to slide_scroll(); the radar's zoom swipes stay with LVGL (gestures). Pictures
@@ -895,9 +977,9 @@ static void place_dots(int active);
 
 static lv_obj_t **drag_screens(int *n)
 {
-    static lv_obj_t *s[4];
-    s[0] = scr_status; s[1] = scr_extras; s[2] = scr_main; s[3] = scr_radar;
-    *n = 4;
+    static lv_obj_t *s[3];
+    s[0] = scr_status; s[1] = scr_extras; s[2] = scr_main;
+    *n = 3;
     return s;
 }
 
@@ -929,8 +1011,6 @@ static void screen_commit(int side, void *user)
     int n, cur = drag_index(lv_screen_active()), i = cur + side;
     lv_obj_t **s = drag_screens(&n);
     if (!side || cur < 0 || i < 0 || i >= n) return;
-    if (s[cur] == scr_radar) radar_set_visible(false);
-    if (s[i] == scr_radar) radar_set_visible(true);
     if (s[i] == scr_status) svc_probe_stale();           // the status page checks stale services when shown
     lv_screen_load(s[i]);
 }
@@ -975,7 +1055,7 @@ static bool drag_paint(const void *key, lv_draw_buf_t *dst, int y0, int y1)
         lv_obj_t *pager = places ? place_pager : hr_pager;
         int i = places ? ip : ih, cur = pager_current(pager);
         // Another place: drawn as it will look once shown, without the pill of this place's alerts (a switch
-        // clears them until the new place's are fetched)
+        // clears them until the new place's are fetched): the update pill instead, if an update waits
         bool pill = places && i != cur && !lv_obj_has_flag(al_pill, LV_OBJ_FLAG_HIDDEN);
         // The dots only if these rows show them: moving them there and back lays out the whole screen twice (~50 ms
         // for a clock's rows after the minute tick, instead of ~10)
@@ -990,9 +1070,9 @@ static bool drag_paint(const void *key, lv_draw_buf_t *dst, int y0, int y1)
         }
         bool dots = i != cur && y1 >= dy0 - 16 && y0 <= dy1 + 16;    // (16: the active dot is longer)
         if (i != cur) { pager_peek(pager, i); if (dots) { if (places) place_dots(i); else set_dots(i); } }
-        if (pill) lv_obj_add_flag(al_pill, LV_OBJ_FLAG_HIDDEN);      // (its city name is only hidden on the place shown)
+        if (pill) { lv_obj_add_flag(al_pill, LV_OBJ_FLAG_HIDDEN); if (up_want) lv_obj_remove_flag(up_pill, LV_OBJ_FLAG_HIDDEN); }
         bool ok = slide_picture_rows(places ? scr_main : scr_hour, dst, y0, y1);
-        if (pill) lv_obj_remove_flag(al_pill, LV_OBJ_FLAG_HIDDEN);
+        if (pill) { lv_obj_remove_flag(al_pill, LV_OBJ_FLAG_HIDDEN); if (up_want) lv_obj_add_flag(up_pill, LV_OBJ_FLAG_HIDDEN); }
         if (i != cur) pager_peek(pager, cur);
         if (dots) {
             if (places) place_dots(cur); else set_dots(cur);
@@ -1015,7 +1095,6 @@ static bool drag_paint(const void *key, lv_draw_buf_t *dst, int y0, int y1)
 // ui_init). With 16 px here and LVGL's 10, a quick flick read at 10-15 px went to LVGL, which scrolled the hours
 // list itself at 17-28 fps and read the touch only between its 35-60 ms frames: flicks missed, scrolls sluggish.
 #define DRAG_PX 10
-static int64_t drag_seen;                 // drag_read: the last read with a finger down ("untouched" below)
 
 // Every 30 ms: keep the pictures of what's shown and its neighbours ready (slide.c's cache), a 64-row strip at a time
 // (~15-25 ms), once nothing has changed on screen for 0.8 s and no finger is down (or a picture has been out of date
@@ -1149,16 +1228,11 @@ static void gesture_cb(lv_event_t *e)
     } else if (cur == scr_extras && dir == LV_DIR_LEFT) {
         slide_screen(scr_main, LV_SCR_LOAD_ANIM_MOVE_LEFT, 280);
         lv_indev_wait_release(in);
-    } else if (cur == scr_main && dir == LV_DIR_LEFT) {
-        radar_set_visible(true);
-        slide_screen(scr_radar, LV_SCR_LOAD_ANIM_MOVE_LEFT, 280);
-        lv_indev_wait_release(in);
     } else if (cur == scr_radar && (dir == LV_DIR_TOP || dir == LV_DIR_BOTTOM)) {
         radar_zoom(dir == LV_DIR_BOTTOM ? +1 : -1);  // swipe down = zoom in, up = zoom out
         lv_indev_wait_release(in);
-    } else if (cur == scr_radar && dir == LV_DIR_RIGHT) {
-        radar_set_visible(false);
-        slide_screen(scr_main, LV_SCR_LOAD_ANIM_MOVE_RIGHT, 280);
+    } else if (cur == scr_radar && (dir == LV_DIR_LEFT || dir == LV_DIR_RIGHT)) {
+        radar_close("swipe");
         lv_indev_wait_release(in);
     } else {
         lv_indev_wait_release(in);      // unused swipe: don't let its release open the hourly view
@@ -1429,7 +1503,22 @@ static void fmt_until(time_t t, char *out, size_t n)
     } else out[0] = 0;
 }
 
-static void alert_close(lv_event_t *e) { slide_screen(scr_main, LV_SCR_LOAD_ANIM_MOVE_BOTTOM, 260); }
+static lv_obj_t *al_upd;                   // the alert screen's last row: "Update available >" (pills_show)
+
+static void alert_close(lv_event_t *e)
+{
+    lv_indev_t *in = lv_indev_active();
+    lv_point_t p = {0, 0};
+    lv_area_t a;
+    if (in) lv_indev_get_point(in, &p);
+    lv_obj_get_coords(al_upd, &a);
+    if (!lv_obj_has_flag(al_upd, LV_OBJ_FLAG_HIDDEN) && p.y >= a.y1 - 10 && p.y <= a.y2 + 10) {
+        printf("ui: alert screen: update\n");
+        update_show(scr_alert);
+        return;
+    }
+    slide_screen(scr_main, LV_SCR_LOAD_ANIM_MOVE_BOTTOM, 260);
+}
 
 static void alert_gesture(lv_event_t *e)
 {
@@ -1495,23 +1584,35 @@ static void alert_create(void)
     lv_obj_set_style_text_align(al_sub, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_pad_bottom(al_sub, 10, 0);
     al_body = al_label(box, f_tiny, C_TEXT);
+    al_upd = al_label(box, f_tiny, C_ACCENT);
+    lv_obj_set_style_text_align(al_upd, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_pad_top(al_upd, 14, 0);
+    lv_label_set_text(al_upd, tr(T_ALERT_UPDATE));
+    lv_obj_add_flag(al_upd, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_event_cb(scr_alert, alert_close, LV_EVENT_SHORT_CLICKED, NULL);
     lv_obj_add_event_cb(scr_alert, alert_gesture, LV_EVENT_GESTURE, NULL);
 }
 
 static void dirty_hidden_one(const void *key);
 
-// The rows of the alert pill and of the city name it replaces, on place i's page: out of date in its picture, unless
-// that page is shown (slide.c). Only those rows: ~40, rendered again at once, so a drag right after finds it ready.
+// The rows of the bottom pill (alert or update), on place i's page: out of date in its picture, unless that page is
+// shown (slide.c). Only those rows: ~40, rendered again at once, so a drag right after finds it ready.
 static void pill_rows_dirty(int i)
 {
     lv_obj_t *page = pager_page(place_pager, i);
     if (page == key_of(lv_screen_active())) return;
-    lv_area_t a, c, pa;
-    lv_obj_get_coords(al_pill, &a);                     // on scr_main: rows of the screen
-    lv_obj_get_coords(pp[i].city, &c);                  // on the page: rows within it (= on screen when it's shown)
-    lv_obj_get_coords(page, &pa);
-    slide_cache_dirty_rows(page, LV_MIN(a.y1, c.y1 - pa.y1) - 2, LV_MAX(a.y2, c.y2 - pa.y1) + 2);
+    slide_cache_dirty_rows(page, PILL_Y - 2, PILL_Y + 32);
+}
+
+// The bottom slot: the alert pill while there is an alert (with a dot when an update waits too), else the update
+// pill. And the alert screen's "Update available >" row. Display lock held.
+static void pills_show(void)
+{
+    bool al = alerts.n > 0;
+    set_hidden(al_pill, !al);
+    set_hidden(up_pill, !(up_want && !al));
+    set_hidden(al_pill_dot, !(up_want && al));
+    if (lv_obj_has_flag(al_upd, LV_OBJ_FLAG_HIDDEN) == up_want) { set_hidden(al_upd, !up_want); dirty_hidden_one(scr_alert); }
 }
 
 void ui_alert_map(uint16_t *buf, int w, int h)
@@ -1576,16 +1677,14 @@ void ui_alerts(const alerts_t *al)
     // The same alerts again (each fetch, and "none" at every place switch): nothing to redraw, and the cached
     // pictures for drags (slide.c) stay valid. al == &alerts: redraw anyway (language or units changed).
     if (al != &alerts && alerts_same(al, &alerts)) { display_unlock(); return; }
-    // New content, shown in two places: the pill (in place of the city name) on the place shown's page, and the alert
-    // screen. Until v1.14.1 every picture was marked: at a switch away from a place with an alert ("none" until the
+    // New content, shown in two places: the bottom pill on the place shown's page, and the alert screen. Until v1.14.1 every picture was marked: at a switch away from a place with an alert ("none" until the
     // new place's are fetched) the drag back waited for both places' pictures (124-142 ms, October 5).
     dirty_hidden_one(scr_alert);
     pill_rows_dirty(cur_place);
     if (al != &alerts) alerts = *al;
     if (!alerts.n) {
         lv_obj_add_flag(al_map, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(al_pill, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(pp[cur_place].city, LV_OBJ_FLAG_HIDDEN);
+        pills_show();
         if (lv_screen_active() == scr_alert) lv_screen_load(scr_main);
         display_unlock();
         return;
@@ -1596,8 +1695,7 @@ void ui_alerts(const alerts_t *al)
     lv_obj_set_style_text_color(al_pill_lbl, a->colour == 'r' ? lv_color_white() : lv_color_black(), 0);
     if (alerts.n > 1) lv_label_set_text_fmt(al_pill_lbl, "%s +%d", a->name[AL], alerts.n - 1);
     else lv_label_set_text(al_pill_lbl, a->name[AL]);
-    lv_obj_remove_flag(al_pill, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(pp[cur_place].city, LV_OBJ_FLAG_HIDDEN);
+    pills_show();
 
     char until[32];
     fmt_until(a->ends, until, sizeof(until));
@@ -2065,8 +2163,9 @@ static void update_render(void)       // display lock held
     if (show_pill) {
         if (o->state == OTA_AVAILABLE) lv_label_set_text_fmt(up_pill_lbl, tr(T_PILL_UPDATE), o->latest);
         else lv_label_set_text_fmt(up_pill_lbl, tr(T_PILL_UPDATING), o->progress);
-        lv_obj_remove_flag(up_pill, LV_OBJ_FLAG_HIDDEN);
-    } else lv_obj_add_flag(up_pill, LV_OBJ_FLAG_HIDDEN);
+    }
+    up_want = show_pill;
+    pills_show();
 
     lv_label_set_text_fmt(up_body, tr(T_UP_YOU_HAVE), o->latest, o->current);
     bool busy = o->state == OTA_DOWNLOADING || o->state == OTA_DONE;
@@ -2101,11 +2200,12 @@ void ui_ota(const ota_status_t *o)      // OTA task
     // and the places (the weather screen's update pill) only if the pill changed. Every update check (checking, then
     // up to date) marked them all, and the next place drag waited ~0.2 s to render a whole page again.
     char pill[48];
-    bool pill_was = !lv_obj_has_flag(up_pill, LV_OBJ_FLAG_HIDDEN);
+    bool pill_was = !lv_obj_has_flag(up_pill, LV_OBJ_FLAG_HIDDEN), dot_was = !lv_obj_has_flag(al_pill_dot, LV_OBJ_FLAG_HIDDEN);
     strlcpy(pill, lv_label_get_text(up_pill_lbl), sizeof(pill));
     up_st = *o;
     update_render();
-    if (pill_was != !lv_obj_has_flag(up_pill, LV_OBJ_FLAG_HIDDEN) || strcmp(pill, lv_label_get_text(up_pill_lbl))) {
+    if (pill_was != !lv_obj_has_flag(up_pill, LV_OBJ_FLAG_HIDDEN) ||
+        dot_was != !lv_obj_has_flag(al_pill_dot, LV_OBJ_FLAG_HIDDEN) || strcmp(pill, lv_label_get_text(up_pill_lbl))) {
         for (int i = 0; i < MAX_PLACES; i++) dirty_hidden_one(pager_page(place_pager, i));
     }
     dirty_hidden_one(scr_update);
@@ -2115,8 +2215,11 @@ void ui_ota(const ota_status_t *o)      // OTA task
     display_unlock();
 }
 
-static void update_show(void)
+static lv_obj_t *up_back;                  // where the update screen closes to: the weather screen or the alert screen
+
+static void update_show(lv_obj_t *back)
 {
+    up_back = back;
     update_render();
     lv_obj_scroll_to_y(up_box, 0, LV_ANIM_OFF);
     slide_screen(scr_update, LV_SCR_LOAD_ANIM_MOVE_TOP, 260);
@@ -2133,7 +2236,7 @@ static void update_install(lv_event_t *e)
 static void update_tap(lv_event_t *e)
 {
     if (up_st.state == OTA_DOWNLOADING || up_st.state == OTA_DONE) return;    // stay while installing
-    slide_screen(scr_main, LV_SCR_LOAD_ANIM_MOVE_BOTTOM, 260);
+    slide_screen(up_back ? up_back : scr_main, LV_SCR_LOAD_ANIM_MOVE_BOTTOM, 260);
 }
 
 // Title fixed at the top; versions, Install, progress and the release notes scroll in one column.
@@ -2146,10 +2249,11 @@ static void update_create(void)
     lv_obj_set_style_bg_color(up_pill, C_ACCENT, 0);
     lv_obj_set_style_bg_opa(up_pill, LV_OPA_COVER, 0);
     lv_obj_set_style_pad_hor(up_pill, 12, 0);
-    lv_obj_set_style_pad_ver(up_pill, 2, 0);
-    lv_obj_align(up_pill, LV_ALIGN_BOTTOM_MID, 0, -26);
+    lv_obj_set_style_pad_ver(up_pill, 5, 0);
+    lv_obj_set_style_radius(up_pill, 15, 0);
+    lv_obj_align(up_pill, LV_ALIGN_TOP_MID, 0, PILL_Y);    // the bottom slot, when no alert takes it (pills_show)
     up_pill_lbl = lv_label_create(up_pill);
-    lv_obj_set_style_text_font(up_pill_lbl, f_micro, 0);
+    lv_obj_set_style_text_font(up_pill_lbl, f_tiny, 0);
     lv_obj_set_style_text_color(up_pill_lbl, lv_color_hex(0x04121F), 0);
     lv_obj_add_flag(up_pill, LV_OBJ_FLAG_HIDDEN);
 
@@ -2276,6 +2380,9 @@ static void place_page_create(int i, lv_obj_t *pg)
     lv_obj_set_style_pad_column(hero, 14, 0);
     lv_obj_align(hero, LV_ALIGN_TOP_MID, 0, 112);
     p->icon = icon_box_create(hero, 80);
+    lv_obj_add_event_cb(p->icon, badge_draw, LV_EVENT_DRAW_POST, NULL);      // tap: the radar (main_tap)
+    lv_obj_add_event_cb(p->icon, badge_ext, LV_EVENT_REFR_EXT_DRAW_SIZE, NULL);
+    lv_obj_refresh_ext_draw_size(p->icon);
     p->temp = lv_label_create(hero);
     lv_obj_set_style_text_font(p->temp, f_big, 0);
     lv_obj_set_style_text_color(p->temp, C_TEXT, 0);
@@ -2310,10 +2417,10 @@ static void place_page_create(int i, lv_obj_t *pg)
         lv_obj_set_width(p->fc_day[k], 120);                  // "Aujourd'hui" (columns are 98 px apart)
         lv_obj_align(p->fc_day[k], LV_ALIGN_TOP_MID, dx, 306);
         p->fc_icon[k] = icon_box_create(pg, 36);
-        lv_obj_align(p->fc_icon[k], LV_ALIGN_TOP_MID, dx, 334);
+        lv_obj_align(p->fc_icon[k], LV_ALIGN_TOP_MID, dx, 330);
         p->fc_temp[k] = label(pg, f_tiny, C_TEXT, 0);
         lv_obj_set_width(p->fc_temp[k], 96);
-        lv_obj_align(p->fc_temp[k], LV_ALIGN_TOP_MID, dx, 384);
+        lv_obj_align(p->fc_temp[k], LV_ALIGN_TOP_MID, dx, 372);
     }
 }
 
@@ -2481,7 +2588,7 @@ static void cfg_tap(lv_event_t *e)
     case R_UPDATE: {
         ota_status_t o;
         ota_get_status(&o);
-        if (o.state == OTA_AVAILABLE) { update_show(); return; }
+        if (o.state == OTA_AVAILABLE) { update_show(scr_cfg); return; }
         if (o.state != OTA_CHECKING && o.state != OTA_DOWNLOADING) { ota_check_now(); check_tapped = lv_tick_get(); }
         break;
     }
@@ -2692,17 +2799,31 @@ void ui_init(void)
     place_pager = pager_create(scr_main, true, MAX_PLACES, place_scrolled, place_settled, NULL);
     pager_freeze(place_pager);                           // places are dragged as pictures (slide.c, drag_read)
     for (int i = 0; i < MAX_PLACES; i++) place_page_create(i, pager_page(place_pager, i));
-    // Weather alert pill, in place of the city name while an alert is active (tap for details)
+    // Weather alert pill at the bottom, under the forecast (tap for details). It shares the slot with the update pill:
+    // the alert first, and then a dot at its end says an update is waiting (pills_show)
     al_pill = lv_obj_create(scr_main);
     lv_obj_remove_style_all(al_pill);
-    lv_obj_set_size(al_pill, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_set_style_radius(al_pill, 16, 0);
+    lv_obj_set_size(al_pill, LV_SIZE_CONTENT, 30);
+    lv_obj_set_style_radius(al_pill, 15, 0);
     lv_obj_set_style_bg_opa(al_pill, LV_OPA_COVER, 0);
-    lv_obj_set_style_pad_hor(al_pill, 16, 0);
-    lv_obj_set_style_pad_ver(al_pill, 4, 0);
-    lv_obj_align(al_pill, LV_ALIGN_TOP_MID, 0, 70);
+    lv_obj_set_style_pad_hor(al_pill, 14, 0);
+    lv_obj_set_flex_flow(al_pill, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(al_pill, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(al_pill, 8, 0);
+    lv_obj_align(al_pill, LV_ALIGN_TOP_MID, 0, PILL_Y);
     al_pill_lbl = lv_label_create(al_pill);
-    lv_obj_set_style_text_font(al_pill_lbl, f_small, 0);
+    lv_obj_set_style_text_font(al_pill_lbl, f_tiny, 0);
+    lv_obj_set_style_max_width(al_pill_lbl, 186, 0);    // the round edge: ~214 px wide at y 434
+    lv_label_set_long_mode(al_pill_lbl, LV_LABEL_LONG_DOT);
+    al_pill_dot = lv_obj_create(al_pill);
+    lv_obj_remove_style_all(al_pill_dot);
+    lv_obj_set_size(al_pill_dot, 9, 9);
+    lv_obj_set_style_radius(al_pill_dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(al_pill_dot, C_ACCENT, 0);
+    lv_obj_set_style_bg_opa(al_pill_dot, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(al_pill_dot, lv_color_hex(0x04121F), 0);
+    lv_obj_set_style_border_width(al_pill_dot, 1, 0);
+    lv_obj_add_flag(al_pill_dot, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(al_pill, LV_OBJ_FLAG_HIDDEN);
     location_t loc;
     config_get_location(&loc);
@@ -2721,7 +2842,8 @@ void ui_init(void)
     }
 
     scr_radar = radar_create(f_small, f_small, f_micro);
-    page_dots(scr_radar, 3);
+    lv_obj_add_event_cb(scr_radar, radar_unloaded, LV_EVENT_SCREEN_UNLOADED, NULL);
+    lv_timer_create(radar_idle, 10000, NULL);
     lv_obj_add_event_cb(scr_main, gesture_cb, LV_EVENT_GESTURE, NULL);
     lv_obj_add_event_cb(scr_main, open_cfg, LV_EVENT_LONG_PRESSED, NULL);
     lv_obj_add_event_cb(scr_main, main_tap, LV_EVENT_SHORT_CLICKED, NULL);
@@ -2808,10 +2930,9 @@ void ui_places(int n, int active)
     bool moved = active != cur_place;
     for (int i = 0; i < MAX_PLACES; i++) {
         set_hidden(pager_page(place_pager, i), i >= n);
-        // The alert pill goes on the place shown, in place of its city name. The place left had it in its picture,
-        // and is drawn without it from now on (drag_paint): those rows are out of date
-        bool hide = alerts.n && i == active;
-        if (lv_obj_has_flag(pp[i].city, LV_OBJ_FLAG_HIDDEN) != hide) { set_hidden(pp[i].city, hide); pill_rows_dirty(i); }
+        // The alert pill goes on the place shown. The place left had it in its picture, and is drawn without it from
+        // now on (drag_paint): those rows are out of date
+        if (moved && alerts.n && (i == cur_place || i == active)) pill_rows_dirty(i);
     }
     n_places = n;
     cur_place = active;
@@ -3048,6 +3169,15 @@ void ui_pages(int *place, int *day, int *places, int *days)
     *day = pager_current(hr_pager);
     *places = n_places;
     *days = wx.ndays;
+}
+
+// Where the weather icon is on screen (its centre): a tap there opens the radar (test console "page": icon=X,Y)
+void ui_hero_icon(int *x, int *y)
+{
+    lv_area_t a;
+    lv_obj_get_coords(pp[cur_place].icon, &a);
+    *x = (a.x1 + a.x2) / 2;
+    *y = (a.y1 + a.y2) / 2;
 }
 
 // Name of what is on screen, for the test console (same names as ui_snapshot() where they exist)
