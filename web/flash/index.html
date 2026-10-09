@@ -895,13 +895,17 @@ function showNotes() {
 fetch('channels.json', {cache: 'no-store'}).then(r => r.json()).then(ch => {
   channels = ch;
   $('tryLink').hidden = !ch.try;                       // the display in the browser, when the site has it (try/)
-  $('verStable').textContent = ch.stable.version;
+  if (ch.stable) $('verStable').textContent = ch.stable.version;
+  else {                                              // a new project before its first vX.Y.Z: Beta only
+    $('verStable').textContent = '–';
+    document.querySelector('input[value=stable]').disabled = true;
+  }
   if (ch.beta) {
     delete $('verBeta').dataset.i18n;
     $('verBeta').textContent = ch.beta.version;
     document.querySelector('input[value=beta]').disabled = false;
   }
-  const want = new URLSearchParams(location.search).get('channel') === 'beta' && ch.beta ? 'beta' : 'stable';
+  const want = (new URLSearchParams(location.search).get('channel') === 'beta' || !ch.stable) && ch.beta ? 'beta' : 'stable';
   document.querySelector(`input[value=${want}]`).checked = true;
   pick(want);
 }).catch(() => { verFailed = true; renderVer(); });

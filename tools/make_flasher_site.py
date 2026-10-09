@@ -9,7 +9,7 @@ Two steps, used by CI (.github/workflows/firmware.yml) and for local previews:
         (chip, version, build time and the flash offset of each file)
 
   2. site: assemble the web flasher from one or two release folders
-       python3 tools/make_flasher_site.py site --stable dist [--beta dist-beta] [--out _site]
+       python3 tools/make_flasher_site.py site [--stable dist] [--beta dist-beta] [--out _site]
      -> web/flash/* + stable/ (and beta/) each with its images and an ESP Web Tools manifest.json,
         channels.json, which the page reads to show the Stable / Beta picker, and notes.json, the
         release notes from CHANGELOG.md, which the display shows before installing an update (and the
@@ -161,7 +161,10 @@ def cmd_site(a):
     for name in ("montserrat.ttf", "montserrat-OFL.txt"):        # the display's font (SIL OFL), for the page
         shutil.copy2(os.path.join(ROOT, "main", name), os.path.join(a.out, "fonts", name))
     print(f"Site in {a.out}:")
-    channels = {"stable": add_channel(a.out, "stable", a.stable), "beta": None}
+    if not a.stable and not a.beta:
+        sys.exit("site: --stable and/or --beta")
+    # A new project's first releases are candidates: Beta only, "stable": null until vX.Y.Z is tagged
+    channels = {"stable": add_channel(a.out, "stable", a.stable) if a.stable else None, "beta": None}
     if a.beta:
         channels["beta"] = add_channel(a.out, "beta", a.beta)
     if a.emu:                                                      # the display in the browser (web/emu)
@@ -190,7 +193,7 @@ d.add_argument("--build", default=os.path.join(ROOT, "build"))
 d.add_argument("--out", default=os.path.join(ROOT, "dist"))
 d.add_argument("--version", default=None, help="default: git describe")
 s = sub.add_parser("site", help="web flasher from release folders")
-s.add_argument("--stable", required=True, help="folder with flash-parts.json (a dist folder or a downloaded release)")
+s.add_argument("--stable", default=None, help="folder with flash-parts.json (a dist folder or a downloaded release); none before the first stable release")
 s.add_argument("--beta", default=None, help="same, for the beta channel (optional)")
 s.add_argument("--out", default=os.path.join(ROOT, "_site"))
 s.add_argument("--emu", default=None, help="web/emu/build: the display in the browser, published as try/ (optional)")
