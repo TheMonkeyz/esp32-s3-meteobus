@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MeteoBus – Try it</title>
+<meta name="description" content="The weather display's own screens, running in your browser with a live forecast.">
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14.5' fill='%23000' stroke='%23384452' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%23ffc83d'/%3E%3C/svg%3E">
+<style>
+/* The flasher site's look (web/flash/index.html): its font (../fonts/, copied there by tools/make_flasher_site.py) and
+   its device mockup, with the emulator's canvas as the screen. */
+@font-face{font-family:"Montserrat";src:url(../fonts/montserrat.ttf) format("truetype");font-weight:500;font-display:swap}
+:root{--bg:#000;--line2:#2a3542;--text:#f2f5f8;--body:#c3ccd6;--dim:#8e9aa9;--accent:#5ab0ff;--sun:#ffc83d;
+  --font:"Montserrat",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--body);font:500 16px/1.6 var(--font);overflow-x:hidden}
+h1{color:var(--text);font-weight:500;margin:0;font-size:clamp(28px,4.4vw,40px);line-height:1.1;letter-spacing:-.02em}
+a{color:var(--accent);text-underline-offset:3px}
+.wrap{max-width:1120px;margin:0 auto;padding:0 32px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:20px;padding-bottom:20px}
+.brand{display:inline-flex;align-items:center;gap:10px;color:var(--text);text-decoration:none;font-size:15px;white-space:nowrap}
+.brand::before{content:"";width:18px;height:18px;border-radius:50%;background:radial-gradient(circle,var(--sun) 0 32%,#000 36%);
+  box-shadow:0 0 0 2px #384452}
+.top a.back{font-size:14px;color:var(--dim);text-decoration:none;padding:6px 12px;border:1px solid var(--line2);border-radius:999px;
+  white-space:nowrap}
+.top a.back:hover{color:var(--text)}
+.stage{display:grid;grid-template-columns:minmax(0,440px) minmax(0,1fr);gap:56px;align-items:center;padding-top:24px;padding-bottom:48px}
+.device{width:100%;max-width:440px;aspect-ratio:1;border-radius:50%;padding:4.2%;
+  background:conic-gradient(from 200deg,#1b2027,#3b434e 12%,#14181d 30%,#2c333c 50%,#101317 68%,#3a424c 84%,#1b2027);
+  box-shadow:0 0 0 1px rgba(255,255,255,.07),inset 0 1px 1px rgba(255,255,255,.18),0 40px 70px -30px #000,
+    0 0 110px 6px rgba(90,176,255,.22)}
+.bezel{width:100%;height:100%;border-radius:50%;padding:3.2%;background:#020304;
+  box-shadow:inset 0 0 0 1px #000,inset 0 3px 8px rgba(0,0,0,.9),0 0 0 1px rgba(0,0,0,.6)}
+canvas{display:block;width:100%;height:100%;border-radius:50%;background:#000;touch-action:none;cursor:grab}
+canvas:active{cursor:grabbing}
+.status{min-height:1.6em;color:var(--dim);font-size:14px;margin:14px 0 0;text-align:center}
+.how{margin:18px 0 0;padding:0;list-style:none;display:grid;gap:10px}
+.how li{display:flex;gap:12px;align-items:baseline}
+.how b{color:var(--text);font-weight:500;min-width:8.5em}
+.note{color:var(--dim);font-size:14px;margin-top:22px}
+.lead{margin:14px 0 0;color:var(--body)}
+.ctl{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:6px}
+.ctl label,.ctl button{font:500 14px/1 var(--font);color:var(--text);background:#0b0f14;border:1px solid var(--line2);
+  border-radius:999px;padding:9px 14px;display:inline-flex;align-items:center;gap:8px;cursor:pointer}
+.ctl button:hover,.ctl label:hover{border-color:#3b4a5c}
+.ctl input{accent-color:var(--accent);margin:0}
+.ctlnote{color:var(--dim);font-size:13px;margin:10px auto 0;text-align:center;max-width:440px;min-height:1.6em}
+.settings{padding-bottom:64px}
+.settings h2{color:var(--text);font-weight:500;font-size:clamp(22px,3vw,28px);margin:0}
+.settings .note{max-width:640px}
+.phone{margin:24px auto 0;max-width:430px;border:1px solid var(--line2);border-radius:28px;padding:10px;background:#05070a;
+  box-shadow:0 30px 60px -30px #000}
+.phone iframe{display:block;width:100%;height:900px;border:0;border-radius:20px;background:#fff}
+@media (max-width:860px){.stage{grid-template-columns:1fr;gap:28px;justify-items:center}.info{max-width:520px}}
+@media (max-width:600px){.wrap{padding:0 16px}}
+</style>
+</head>
+<body>
+<header class="wrap top">
+  <a class="brand" href="../">MeteoBus</a>
+  <a class="back" href="../#install">Install it on the display</a>
+</header>
+<main class="wrap stage">
+  <div>
+    <div class="device"><div class="bezel"><canvas id="screen" width="466" height="466"
+      aria-label="The display's screen. Drag, tap or press and hold on it."></canvas></div></div>
+    <p class="status" id="status">Starting…</p>
+    <div class="ctl">
+      <label><input type="checkbox" id="mic"> Use my microphone</label>
+      <button type="button" id="pickup">Pick it up</button>
+    </div>
+    <p class="ctlnote" id="ctlnote">With the microphone on, the display dims when the room is quiet and wakes when it
+      hears you, as on the real one. The sound stays in your browser.</p>
+  </div>
+  <div class="info">
+    <h1>Try it in your browser</h1>
+    <p class="lead">This is the display's own firmware code, its screens and its forecast, running here with a live
+      forecast from Open-Meteo. Use the mouse, or your finger on a phone, as you would on the display.</p>
+    <ul class="how">
+      <li><b>Drag sideways</b> the other screens</li>
+      <li><b>Drag up or down</b> your places</li>
+      <li><b>Tap a day</b> its forecast hour by hour</li>
+      <li><b>Press and hold</b> the display's settings (units, language, brightness)</li>
+    </ul>
+    <p class="note">Places and settings you choose stay in this browser. The radar, the alert sounds, the brightness
+      and the dimming work here too (the dimming with your microphone; on a phone, moving it wakes the display as
+      picking it up does). Wi-Fi setup and updates need the real display.</p>
+  </div>
+</main>
+<section class="wrap settings">
+  <h2>Its settings page</h2>
+  <p class="note">The page the display serves to your phone, here talking to the display above: change a place, the
+    units or the language and watch the screen follow. For the dimming, turn the microphone on, then choose
+    <b>Testing</b> under Timing: it dims after 10 s of quiet and turns off after 30.</p>
+  <div class="phone"><iframe id="settings" src="settings.html?test" title="The display's settings page"
+    allow="geolocation"></iframe></div>
+</section>
+<script src="emu.js"></script>
+<script>
+// The settings page below (settings.html, emu-settings.js) sends its /api/ requests here; the emulator serves them
+// between frames (emu_web.c reads Module.emuApiQ and answers through Module.emuApiWait)
+const apiQ = [], apiWait = {};
+let apiId = 0;
+window.emuApi = (method, path, body) => new Promise(done => {
+  const id = ++apiId;
+  apiWait[id] = done;
+  apiQ.push({ id, method, path, body });
+});
+addEventListener('message', e => {
+  if (e.origin === location.origin && e.data && e.data.emuSettingsHeight)
+    document.getElementById('settings').style.height = Math.max(400, e.data.emuSettingsHeight) + 'px';
+});
+(async () => {
+  const canvas = document.getElementById('screen'), ctx = canvas.getContext('2d');
+  const status = document.getElementById('status');
+  const img = ctx.createImageData(466, 466), rgba = new Uint32Array(img.data.buffer);
+  const M = await WeatherEmu({ print: t => console.log(t), printErr: t => console.log(t) });
+  M.emuApiQ = apiQ;
+  M.emuApiWait = apiWait;
+  M.emuMic = { on: false };
+  status.textContent = '';
+  const fb = M._emu_fb() >> 1;                       // RGB565 framebuffer, in 16-bit words
+  // RGB565 -> RGBA (little-endian Uint32: A B G R), whenever the firmware drew something
+  const draw = () => {
+    if (M._emu_fb_dirty()) {
+      const p = M.HEAPU16.subarray(fb, fb + 466 * 466);
+      for (let i = 0; i < p.length; i++) {
+        const v = p[i];
+        const r = (v >> 11) * 255 / 31, g = ((v >> 5) & 63) * 255 / 63, b = (v & 31) * 255 / 31;
+        rgba[i] = 0xff000000 | (b << 16) | (g << 8) | r;
+      }
+      ctx.putImageData(img, 0, 0);
+    }
+    const level = M._emu_brightness();
+    if (level !== shown) { shown = level; canvas.style.filter = level >= 255 ? '' : `brightness(${(level / 255).toFixed(3)})`; }
+    requestAnimationFrame(draw);
+  };
+  let shown = 255;
+  requestAnimationFrame(draw);
+  // The finger: pointer events in the canvas's own 466x466 pixels
+  const at = e => {
+    const r = canvas.getBoundingClientRect();
+    return [Math.round((e.clientX - r.left) * 466 / r.width), Math.round((e.clientY - r.top) * 466 / r.height)];
+  };
+  let down = false;
+  canvas.addEventListener('pointerdown', e => {
+    // Sound (sound.c through emu_audio.c): browsers allow it only after a gesture, so the first touch unlocks it
+    if (!M.emuAudio) M.emuAudio = new (window.AudioContext || window.webkitAudioContext)();
+    else if (M.emuAudio.state === 'suspended') M.emuAudio.resume();
+    down = true; canvas.setPointerCapture(e.pointerId); M._emu_touch(1, ...at(e));
+  });
+  canvas.addEventListener('pointermove', e => { if (down) M._emu_touch(1, ...at(e)); });
+  const up = e => { if (!down) return; down = false; M._emu_touch(0, ...at(e)); };
+  canvas.addEventListener('pointerup', up);
+  canvas.addEventListener('pointercancel', up);
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+  // The microphones (emu_audio.c reads Module.emuMic): the browser's, as 16 kHz samples, only while the switch is on
+  const mic = document.getElementById('mic'), note = document.getElementById('ctlnote');
+  const say = t => { note.textContent = t; };
+  async function micOn() {
+    const stream = await navigator.mediaDevices.getUserMedia(
+      { audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    const src = ac.createMediaStreamSource(stream), proc = ac.createScriptProcessor(2048, 1, 1);
+    const m = { on: true, q: [], n: 0, off: 0, stream, ac }, step = ac.sampleRate / 16000;
+    let pos = 0;
+    proc.onaudioprocess = e => {
+      const x = e.inputBuffer.getChannelData(0), out = new Int16Array(Math.ceil(x.length / step) + 1);
+      let n = 0;
+      for (; pos < x.length; pos += step) out[n++] = Math.max(-32768, Math.min(32767, x[pos | 0] * 32767));
+      pos -= x.length;
+      m.q.push(out.subarray(0, n));
+      m.n += n;
+      while (m.n > 16000 && m.q.length > 1) { const c = m.q.shift(); m.n -= c.length - m.off; m.off = 0; }   // 1 s at most
+    };
+    src.connect(proc);
+    proc.connect(ac.destination);                     // (a ScriptProcessor only runs connected; it outputs silence)
+    M.emuMic = m;
+    M._emu_mic(1);
+  }
+  function micOff() {
+    const m = M.emuMic;
+    if (m.stream) m.stream.getTracks().forEach(t => t.stop());
+    if (m.ac) m.ac.close();
+    M.emuMic = { on: false };
+    M._emu_mic(0);
+  }
+  mic.addEventListener('change', async () => {
+    if (!mic.checked) { micOff(); say('Microphone off: the display stays bright.'); return; }
+    askMotion();
+    try {
+      await micOn();
+      say('Listening: it dims when the room is quiet (Timing in the settings below), and wakes when it hears you.');
+    } catch (e) {
+      mic.checked = false;
+      say('The browser did not give the microphone (' + (e.name || e) + ').');
+    }
+  });
+
+  // The motion sensor (emu_imu.c reads Module.emuAccel, in g): a phone's accelerometer
+  const G = 9.80665;
+  addEventListener('devicemotion', e => {
+    const a = e.accelerationIncludingGravity;
+    if (a && a.x != null && !lifting) M.emuAccel = [a.x / G, a.y / G, a.z / G];
+  });
+  let motionAsked = false;
+  function askMotion() {                              // iPhone: motion needs a permission, asked in a tap
+    if (motionAsked || typeof DeviceMotionEvent === 'undefined' || !DeviceMotionEvent.requestPermission) return;
+    motionAsked = true;
+    DeviceMotionEvent.requestPermission().catch(() => {});
+  }
+  // "Pick it up": tilted for a moment, then put back, as a hand lifting the display (forge_presence wakes above 0.10 g)
+  let lifting = false;
+  document.getElementById('pickup').addEventListener('click', () => {
+    askMotion();
+    const rest = M.emuAccel || [0, 0, 1];
+    lifting = true;
+    M.emuAccel = [rest[0] + 0.35, rest[1] + 0.1, rest[2] - 0.1];
+    setTimeout(() => { M.emuAccel = rest; lifting = false; }, 700);
+    say('Picked up: a dimmed or dark display wakes, as when you lift it.');
+  });
+})().catch(e => { document.getElementById('status').textContent = 'The emulator could not start: ' + e; });
+</script>
+</body>
+</html>

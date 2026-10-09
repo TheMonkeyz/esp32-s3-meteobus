@@ -1,0 +1,66 @@
+CONFIG_IDF_TARGET="esp32s3"
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+# Quad I/O flash (DIO until v1.11.1): the program runs from flash through a 16 KB cache, and LVGL's code is large;
+# twice the bits per clock on cache misses. The bootloader switches the flash to QIO itself (esptool still writes its
+# header as "dio", as ESP-IDF does for QIO): it takes a bootloader built with this, i.e. a USB / web-flasher install.
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_FREERTOS_HZ=1000
+# Main task: the forecast loop, and the alert region map (TLS tile downloads + inflate when the basemap isn't cached,
+# the path the radar task gets 10 KB for): 6 KB left 1.7-3 KB free before the map was added. Internal RAM allows it
+# since v1.12.0 (low point ~50 KB).
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=10240
+# System event task: the Easy Connect success path (log, NVS write, display labels) ran on its 2.3 KB with ~600 B spare
+CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=3584
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG=y
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
+CONFIG_LV_COLOR_DEPTH_16=y
+CONFIG_LV_USE_CUSTOM_MALLOC=y
+CONFIG_LV_USE_CLIB_STRING=y
+CONFIG_LV_USE_CLIB_SPRINTF=y
+CONFIG_LV_USE_TINY_TTF=y
+CONFIG_LV_FONT_MONTSERRAT_14=y
+CONFIG_LV_BUILD_EXAMPLES=n
+CONFIG_ESP_HTTPS_SERVER_ENABLE=y
+CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
+CONFIG_LV_USE_QRCODE=y
+CONFIG_LV_USE_SNAPSHOT=y
+CONFIG_HTTPD_MAX_URI_LEN=600
+# Hardware AES: on again since v1.12.0-rc.6. It was turned off in v1.0 because it couldn't get internal DMA memory and
+# the settings page arrived truncated; with LVGL's heap in PSRAM (v1.4) and the radar palettes out of internal RAM
+# (rc.2) it works: snapshots over HTTPS 2.2 -> 1.5 s, the page whole every time, the same internal RAM (harness 14/14).
+CONFIG_MBEDTLS_HARDWARE_AES=y
+# Easy Connect: the display makes a key pair before answering the phone, which may only visit this channel briefly.
+# Fixed-point ECC cut that answer to ~236 ms from ~900 ms (espforge, October 4, its LESSONS L173); costs flash, not RAM.
+CONFIG_MBEDTLS_ECP_FIXED_POINT_OPTIM=y
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+CONFIG_LV_DEF_REFR_PERIOD=15
+# No theme style transitions (80 ms fades on press): one ran on the weather screen after every drag and redrew it
+# whole, which made its cached picture for the next drag out of date (slide.c)
+CONFIG_LV_THEME_DEFAULT_TRANSITION_TIME=0
+CONFIG_LWIP_MAX_SOCKETS=16
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
+CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID=y
+CONFIG_ESP_WIFI_DPP_SUPPORT=y
+CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+# A crash is kept in the coredump partition and summarised at the next boot (diag.c): crash details used to exist
+# only if someone was watching the USB log at the time
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
+CONFIG_ESP_COREDUMP_CHECKSUM_CRC32=y
+# espforge (forge_net, forge_ota): the names this display has always used, and its update site
+CONFIG_FORGE_SETUP_SSID="MeteoBus-Setup"
+CONFIG_FORGE_TLS_NAME="MeteoBus"
+CONFIG_FORGE_REPO="TheMonkeyz/esp32-s3-meteobus"
+CONFIG_FORGE_PRODUCT="esp32-s3-meteobus"
+CONFIG_FORGE_UA_COMMENT="open-source weather/bus"
+CONFIG_FORGE_PORTAL_NAME="MeteoBus"
+CONFIG_FORGE_OTA_SITE="https://themonkeyz.github.io/esp32-s3-meteobus/"

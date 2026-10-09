@@ -1,0 +1,3127 @@
+// Round-screen weather UI (LVGL v9 + TinyTTF Montserrat)
+#include "ui.h"
+#include <stdio.h>
+#include <string.h>
+#include <math.h>
+#include <stdlib.h>
+#include <time.h>
+#include "display.h"
+#include "weather.h"
+#include "touch.h"
+#include "radar.h"
+#include "config.h"
+#include "net.h"
+#include "web.h"
+#include "alerts.h"
+#include "ota.h"
+#include "services.h"
+#include "esp_timer.h"
+#include "esp_ota_ops.h"
+#include "esp_wifi.h"
+#include "pager.h"
+#include "slide.h"
+#include "i18n.h"
+#include "sound.h"
+#include "presence.h"
+#include "textfit.h"
+#include "esp_system.h"
+#include "esp_log.h"
+#include "esp_attr.h"
+#include "esp_heap_caps.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
+
+#ifdef EMU_BUILD                             // the browser emulator (web/emu): the fonts are arrays, their ends pointers
+extern const uint8_t ttf_start[], syl_start[];
+extern const uint8_t *const ttf_end, *const syl_end;
+#else
+extern const uint8_t ttf_start[] asm("_binary_montserrat_ttf_start");
+extern const uint8_t ttf_end[]   asm("_binary_montserrat_ttf_end");
+extern const uint8_t syl_start[] asm("_binary_syllabics_ttf_start");   // Inuktitut syllabics (Noto subset)
+extern const uint8_t syl_end[]   asm("_binary_syllabics_ttf_end");
+#endif
+
+static lv_font_t *f_time, *f_city, *f_big, *f_cond, *f_small, *f_tiny, *f_micro;
+static lv_obj_t *scr_radar, *scr_extras, *scr_status, *scr_update, *up_pill, *up_pill_lbl;
+static void update_show(void);
+static void extras_refresh(void);
+static void status_refresh(void);
+static lv_obj_t *scr_msg, *msg_title, *msg_body, *msg_qr;
+static lv_obj_t *scr_cfg;                     // settings screen (cfg_create)
+static bool back_to_cfg;                      // the phone QR / Wi-Fi setup was opened from it: close back to it
+static lv_obj_t *overlay, *ov_qr, *ov_url, *ov_title;
+static int ov_state;          // 0 hidden, 1 settings QR, 2 gesture hint (text only)
+static lv_obj_t *scr_hour;       // hourly detail screen
+static int hr_day;
+static void hour_fill(int day);
+static lv_obj_t *al_pill, *al_pill_lbl, *scr_alert, *al_title, *al_sub, *al_body, *al_map, *al_attr;
+static lv_image_dsc_t al_map_dsc;
+static uint16_t *al_map_buf;
+static EXT_RAM_BSS_ATTR alerts_t alerts;           // ~4 KB, in PSRAM
+// Weather screen: one page per place in a vertical pager (pager.c); pills, page dots and place dots stay on top.
+typedef struct {
+    lv_obj_t *time, *city, *icon, *temp, *cond, *nowcast, *fc_day[3], *fc_temp[3], *fc_icon[3];
+    lv_obj_t *detail, *feels, *hum, *wind;      // "Feels 8°  ·  (drop) 86 %  ·  (wind) 8 km/h" (a row)
+    char name[48];
+    int utc_offset;
+    bool has_wx;                               // pw[i] holds this place's forecast
+    bool drawn;                                // ui_place() filled it at least once
+    lv_obj_t *age;                             // "Updated 45 min ago" / "No connection" (only when it matters)
+    int64_t ok_us;                             // last successful forecast (esp_timer), 0 = none yet
+    bool failing;                              // the last attempt failed
+} place_page_t;
+static lv_obj_t *scr_main, *place_pager;
+static place_page_t pp[MAX_PLACES];
+static EXT_RAM_BSS_ATTR weather_t pw[MAX_PLACES];   // each page's forecast (redrawn on a units change)
+static int n_places = 1, cur_place;            // pages in use, the place shown (alerts, hourly, extras, radar)
+static lv_obj_t *pl_dot[MAX_PLACES];           // which place is shown (right edge of the weather screen)
+static void (*place_select_cb)(int i);         // the pager settled on another place (main.c)
+
+#define C_BG      lv_color_hex(0x000000)
+#define C_TEXT    lv_color_hex(0xF2F4F7)
+#define C_DIM     lv_color_hex(0x8B95A1)
+#define C_ACCENT  lv_color_hex(0x5AB0FF)
+
+// Labels whose text is fixed (set once): registered so a language change can re-set them (ui_units_changed)
+#define TLABELS 48
+static lv_obj_t *tl_obj[TLABELS];
+static tid_t tl_id[TLABELS];
+static int tl_n;
+static void tlabel(lv_obj_t *l, tid_t id)
+{
+    lv_label_set_text(l, tr(id));
+    if (tl_n < TLABELS) { tl_obj[tl_n] = l; tl_id[tl_n++] = id; }
+}
+
+static lv_font_t *mkfont(int px)
+{
+    lv_font_t *f = lv_tiny_ttf_create_data_ex(ttf_start, ttf_end - ttf_start, px, LV_FONT_KERNING_NONE, 96);
+    // Montserrat has no syllabics: LVGL looks a missing glyph up in the fallback font
+    // a quarter larger: Noto's syllabics are drawn about x-height, they looked small next to Montserrat's capitals
+    // 96 glyphs per size: the Settings screen alone uses 57 distinct syllabics, and a 48-glyph cache re-rasterised
+    // them while it scrolled
+    lv_font_t *s = lv_tiny_ttf_create_data_ex(syl_start, syl_end - syl_start, px * 5 / 4, LV_FONT_KERNING_NONE, 96);
+    if (f && s) f->fallback = s;
+    return f;
+}
+
+static lv_obj_t *label(lv_obj_t *parent, lv_font_t *f, lv_color_t c, int y)
+{
+    lv_obj_t *l = lv_label_create(parent);
+    lv_obj_set_style_text_font(l, f, 0);
+    lv_obj_set_style_text_color(l, c, 0);
+    lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(l, 400);
+    lv_obj_align(l, LV_ALIGN_TOP_MID, 0, y);
+    lv_label_set_text(l, "");
+    return l;
+}
+
+static lv_obj_t *base_screen(void)
+{
+    lv_obj_t *s = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(s, C_BG, 0);
+    lv_obj_remove_flag(s, LV_OBJ_FLAG_SCROLLABLE);
+    return s;
+}
+
+/* ---------- simple weather icons built from shapes (scaled by pct) ---------- */
+
+static int S;  // current scale in percent
+#define SC(v) ((v) * S / 100)
+
+// Painter mode: when P_layer is set, icons are drawn straight into a layer (no LVGL objects).
+// Used by the hourly list, which would otherwise need hundreds of small objects.
+static lv_layer_t *P_layer;
+static int P_x, P_y;
+static lv_color_t icon_bg;     // colour behind the icon (for the moon's cut-out)
+
+static lv_obj_t *blob(lv_obj_t *p, int x, int y, int w, int h, lv_color_t c, int radius)
+{
+    if (P_layer) {
+        lv_draw_rect_dsc_t d;
+        lv_draw_rect_dsc_init(&d);
+        d.bg_color = c;
+        d.bg_opa = LV_OPA_COVER;
+        d.radius = radius == LV_RADIUS_CIRCLE ? radius : SC(radius);
+        lv_area_t a = { P_x + SC(x), P_y + SC(y), P_x + SC(x) + SC(w) - 1, P_y + SC(y) + SC(h) - 1 };
+        lv_draw_rect(P_layer, &d, &a);
+        return NULL;
+    }
+    lv_obj_t *o = lv_obj_create(p);
+    lv_obj_remove_style_all(o);
+    lv_obj_set_pos(o, SC(x), SC(y));
+    lv_obj_set_size(o, SC(w), SC(h));
+    lv_obj_set_style_radius(o, radius == LV_RADIUS_CIRCLE ? radius : SC(radius), 0);
+    lv_obj_set_style_bg_color(o, c, 0);
+    lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(o, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(o, LV_OBJ_FLAG_EVENT_BUBBLE);
+    return o;
+}
+
+// Hide or show, only if that changes something: LVGL redraws (and re-lays out) an object even when the flag is
+// already right, and any redraw makes the screen's cached picture (slide.c) out of date
+static void set_hidden(lv_obj_t *o, bool hide)
+{
+    if (lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN) == hide) return;
+    if (hide) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); else lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
+}
+
+// A label's text, only when it changed: lv_label_set_text() redraws the label even with the same text
+static void set_text(lv_obj_t *l, const char *t)
+{
+    if (strcmp(lv_label_get_text(l), t)) lv_label_set_text(l, t);
+}
+
+// Let presses on decorative children reach the screen (long-press, swipe)
+static void passthrough(lv_obj_t *o)
+{
+    for (uint32_t i = 0; i < lv_obj_get_child_count(o); i++) {
+        lv_obj_t *c = lv_obj_get_child(o, i);
+        lv_obj_remove_flag(c, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(c, LV_OBJ_FLAG_EVENT_BUBBLE | LV_OBJ_FLAG_GESTURE_BUBBLE);
+        passthrough(c);
+    }
+}
+
+static void sun(lv_obj_t *p, int x, int y, int d)
+{
+    lv_obj_t *s = blob(p, x, y, d, d, lv_color_hex(0xFFC83D), LV_RADIUS_CIRCLE);
+    if (!s) return;
+    lv_obj_set_style_shadow_color(s, lv_color_hex(0xFFB000), 0);
+    lv_obj_set_style_shadow_width(s, SC(30), 0);
+    lv_obj_set_style_shadow_opa(s, LV_OPA_40, 0);
+}
+
+static void moon(lv_obj_t *p, int x, int y, int d)
+{
+    blob(p, x, y, d, d, lv_color_hex(0xE8E6F2), LV_RADIUS_CIRCLE);
+    blob(p, x + d / 3, y - d / 8, d, d, icon_bg, LV_RADIUS_CIRCLE);
+}
+
+static void cloud(lv_obj_t *p, int x, int y, lv_color_t c)
+{
+    blob(p, x + 8, y + 22, 48, 48, c, LV_RADIUS_CIRCLE);
+    blob(p, x + 34, y, 62, 62, c, LV_RADIUS_CIRCLE);
+    blob(p, x, y + 40, 112, 34, c, 17);
+}
+
+static lv_point_precise_t bolt_pts[MAX_PLACES * 4][4];   // per icon object: 4 per place page
+
+// Icon design space is 130x122; pct scales it. slot = unique index per icon (for bolt points)
+static void draw_icon(lv_obj_t *box, wx_kind_t k, bool day, int pct, int slot)
+{
+    S = pct;
+    if (!P_layer) { lv_obj_clean(box); icon_bg = C_BG; }
+    lv_color_t cl = lv_color_hex(0xCFD8E3), dark = lv_color_hex(0x7D8896);
+    switch (k) {
+    case WX_CLEAR:
+        if (day) sun(box, 25, 12, 80); else moon(box, 25, 12, 80);
+        break;
+    case WX_PARTLY:
+        if (day) sun(box, 55, 4, 60); else moon(box, 55, 4, 58);
+        cloud(box, 6, 30, cl);
+        break;
+    case WX_CLOUDY:
+        cloud(box, 18, 6, dark);
+        cloud(box, 0, 30, cl);
+        break;
+    case WX_FOG:
+        for (int i = 0; i < 4; i++) blob(box, 10 + (i % 2) * 12, 22 + i * 22, 100, 11, cl, 5);
+        break;
+    case WX_RAIN:
+    case WX_STORM:
+    case WX_SNOW:
+        cloud(box, 9, 4, k == WX_STORM ? dark : cl);
+        if (k == WX_SNOW) {
+            for (int i = 0; i < 3; i++) blob(box, 30 + i * 26, 88 + (i % 2) * 10, 13, 13, lv_color_white(), LV_RADIUS_CIRCLE);
+        } else if (k == WX_RAIN) {
+            for (int i = 0; i < 3; i++) blob(box, 34 + i * 24, 86 + (i % 2) * 8, 8, 20, lv_color_hex(0x4DA3FF), 4);
+        } else {
+            static const int bx[4] = {62, 48, 64, 52}, by[4] = {76, 98, 98, 120};
+            if (P_layer) {
+                lv_draw_line_dsc_t d;
+                lv_draw_line_dsc_init(&d);
+                d.width = SC(8) < 3 ? 3 : SC(8);
+                d.round_start = d.round_end = 1;
+                d.color = lv_color_hex(0xFFD23D);
+                for (int i = 0; i < 3; i++) {
+                    d.p1.x = P_x + SC(bx[i]);     d.p1.y = P_y + SC(by[i]);
+                    d.p2.x = P_x + SC(bx[i + 1]); d.p2.y = P_y + SC(by[i + 1]);
+                    lv_draw_line(P_layer, &d);
+                }
+                break;
+            }
+            for (int i = 0; i < 4; i++) { bolt_pts[slot][i].x = SC(bx[i]); bolt_pts[slot][i].y = SC(by[i]); }
+            lv_obj_t *l = lv_line_create(box);
+            lv_line_set_points(l, bolt_pts[slot], 4);
+            lv_obj_set_style_line_width(l, SC(8) < 3 ? 3 : SC(8), 0);
+            lv_obj_set_style_line_rounded(l, true, 0);
+            lv_obj_set_style_line_color(l, lv_color_hex(0xFFD23D), 0);
+        }
+        break;
+    }
+}
+
+static lv_obj_t *icon_box_create(lv_obj_t *parent, int pct)
+{
+    lv_obj_t *b = lv_obj_create(parent);
+    lv_obj_remove_style_all(b);
+    lv_obj_set_size(b, 130 * pct / 100, 124 * pct / 100);
+    lv_obj_remove_flag(b, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(b, LV_OBJ_FLAG_EVENT_BUBBLE | LV_OBJ_FLAG_GESTURE_BUBBLE);
+    return b;
+}
+
+/* ---------------------------------------------------------------------- */
+
+static char clock_shown[12];
+
+static const void *key_of(lv_obj_t *scr);
+
+// Pictures whose minute changes are marked row by row by their owner: the places' clocks (below), the radar's pill
+static bool minute_marks_own(const void *key)
+{
+    return key == scr_radar || pager_index(place_pager, key) >= 0;
+}
+
+static bool local_date(int utc_offset, char *out, size_t n);   // below
+static void age_update(int i);
+
+static void clock_tick(lv_timer_t *t)
+{
+    struct tm tm;
+    time_t now = time(NULL);
+    if (!config_local_time((long)now, &tm)) return;   // not synced yet (also: the place shown)
+    char buf[12];
+    config_fmt_time(tm.tm_hour, tm.tm_min, buf, sizeof(buf));
+    if (strcmp(buf, clock_shown)) {
+        static char minute[12];                             // the last minute ticked (clock_shown is also reset
+        bool new_minute = strcmp(buf, minute) != 0;         // to force a redraw after a place or forecast change)
+        strcpy(minute, buf);
+        strcpy(clock_shown, buf);
+        for (int i = 0; i < n_places; i++) {               // each page in its own time zone
+            struct tm lt;
+            time_t lt_t = now + pp[i].utc_offset;
+            char b[12];
+            if (i == cur_place || !pp[i].has_wx) strcpy(b, buf);
+            else { gmtime_r(&lt_t, &lt); config_fmt_time(lt.tm_hour, lt.tm_min, b, sizeof(b)); }
+            // Unchanged labels are left alone: setting them redraws the screen, which makes its cached picture
+            // (slide.c) out of date, and the next place drag waited ~0.2 s for new pictures after every switch.
+            // A changed one makes only its rows out of date: a drag to the next place right after the minute
+            // re-renders ~40 rows, not the whole page (~0.13 s)
+            if (strcmp(lv_label_get_text(pp[i].time), b)) {
+                lv_label_set_text(pp[i].time, b);
+                lv_obj_t *page = pager_page(place_pager, i);
+                if (page == key_of(lv_screen_active())) continue;   // shown: its picture gets it as LVGL draws it
+                lv_area_t a, pa;
+                lv_obj_get_coords(pp[i].time, &a);
+                lv_obj_get_coords(page, &pa);               // (rows within the page = on screen when it's shown)
+                slide_cache_dirty_rows(page, a.y1 - pa.y1 - 2, a.y2 - pa.y1 + 2);
+            }
+        }
+        if (!new_minute) return;
+        ESP_LOGI("ui", "clock %s", buf);
+        for (int i = 0; i < n_places; i++) age_update(i);
+        for (int i = 0; i < n_places; i++) {               // past a place's midnight: its forecast starts today
+            char today[12];
+            if (pp[i].has_wx && pw[i].ndays > 1 && local_date(pw[i].utc_offset, today, sizeof(today)) &&
+                strcmp(pw[i].day[0].date, today) < 0) ui_place(i, pp[i].name, &pw[i]);
+        }
+        slide_cache_dirty_hidden(minute_marks_own);         // ages, the sun...: the other pictures are a minute old
+                                                            // (the one shown gets its changes as they're drawn)
+        if (lv_screen_active() == scr_hour && tm.tm_min == 0) hour_fill(0);   // new hour
+        if (lv_screen_active() == scr_extras) extras_refresh();
+    }
+}
+
+/* Settings overlay (long-press on the weather screen) */
+static uint32_t overlay_opened;
+
+static bool gesture_pending;                            // the gesture hint comes after the location hint
+
+static void overlay_hide(void)
+{
+    ov_state = 0;
+    lv_obj_add_flag(overlay, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(ov_qr, LV_OBJ_FLAG_HIDDEN);      // (the gesture hint has no code)
+    lv_obj_align(ov_url, LV_ALIGN_TOP_MID, 0, 276);
+}
+
+// Once: how to get around (nothing on screen says it: swipes, drags, a tap on a day, the long-press). The settings
+// overlay with text only (ov_state 2: its long-press doesn't open Wi-Fi setup). A tap closes it.
+static void show_gestures(void)
+{
+    gesture_pending = false;
+    ESP_LOGI("ui", "first run: gesture hint");
+    lv_label_set_text(ov_title, tr(T_GEST_TITLE));
+    lv_obj_add_flag(ov_qr, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(ov_url, tr(T_GEST_HELP));
+    lv_obj_align(ov_url, LV_ALIGN_TOP_MID, 0, 150);
+    ov_state = 2;
+    lv_obj_remove_flag(overlay, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(overlay);
+    overlay_opened = lv_tick_get();
+}
+
+static void overlay_show(void)
+{
+    lv_obj_remove_flag(overlay, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(overlay);
+    overlay_opened = lv_tick_get();
+    lv_indev_t *in = lv_indev_active();
+    if (in) lv_indev_wait_release(in);                  // this touch shouldn't also close it
+}
+
+static void overlay_close(lv_event_t *e)
+{
+    if (lv_tick_elaps(overlay_opened) < 800) return;   // ignore the release of the long-press itself
+    ESP_LOGI("ui", "overlay closed");
+    overlay_hide();
+    if (back_to_cfg) { back_to_cfg = false; lv_screen_load_anim(scr_cfg, LV_SCR_LOAD_ANIM_FADE_IN, 200, 0, false); }
+    else if (gesture_pending) show_gestures();
+}
+
+static void show_wifi_setup(lv_event_t *e);
+
+// Step 1: long-press on the weather screen -> settings page QR (home network, HTTPS)
+static bool hint_text;                                  // the overlay shows the first-run hint's texts
+
+static void show_settings(lv_event_t *e)
+{
+    if (!net_is_connected()) {                        // offline: the settings QR would be useless
+        ESP_LOGI("ui", "long press while offline -> Wi-Fi setup");
+        ui_wifi_setup(NULL);
+        return;
+    }
+    ESP_LOGI("ui", "%s", hint_text ? "first run: location hint (settings QR)" : "long press -> settings QR");
+    char ip[20], url[48], keyed[80];
+    if (!net_get_ip(ip, sizeof(ip))) strcpy(ip, "192.168.4.1");
+    snprintf(url, sizeof(url), "https://%s", ip);
+    // The code carries the key that lets the page change settings (web.c, "Who may change things"); the address
+    // written under it doesn't: typed by hand, the page shows the settings and asks for the code to change them
+    snprintf(keyed, sizeof(keyed), "%s/#k=%s", url, web_key());
+    lv_label_set_text(ov_title, tr(hint_text ? T_HINT_TITLE : T_SETTINGS));
+    lv_qrcode_update(ov_qr, keyed, strlen(keyed));
+    lv_label_set_text_fmt(ov_url, tr(hint_text ? T_HINT_HELP : T_OV_HELP), url);
+    hint_text = false;
+    ov_state = 1;
+    overlay_show();
+}
+
+// A new display ends on the built-in place with nothing pointing to the settings page (the only way there was
+// long-press, "More on your phone", the QR code): once, the first time a forecast is on screen, the settings QR
+// comes up by itself with "Choose your location". A tap closes it. Any task.
+void ui_first_run(bool location, bool gestures)
+{
+    display_lock(-1);
+    if (lv_screen_active() == scr_main && lv_obj_has_flag(overlay, LV_OBJ_FLAG_HIDDEN)) {
+        gesture_pending = gestures;
+        if (location) { hint_text = true; show_settings(NULL); }
+        else if (gestures) show_gestures();
+    }
+    display_unlock();
+}
+
+// Step 2: long-press on the settings QR -> Wi-Fi setup screen
+static void show_wifi_setup(lv_event_t *e)
+{
+    if (ov_state != 1) return;
+    ESP_LOGI("ui", "long press -> Wi-Fi setup");
+    overlay_hide();
+    ui_wifi_setup(NULL);
+}
+
+// Long-press on a status screen ("Connecting to...", "Fetching forecast..."): Wi-Fi setup screen
+static void msg_long_press(lv_event_t *e)
+{
+    if (net_in_portal()) return;                      // first-time setup is already showing it
+    ESP_LOGI("ui", "long press on status screen -> Wi-Fi setup");
+    ui_wifi_setup(NULL);
+}
+
+static lv_obj_t *make_qr(lv_obj_t *parent, int size)
+{
+    lv_obj_t *qr = lv_qrcode_create(parent);
+    lv_qrcode_set_size(qr, size);
+    lv_qrcode_set_dark_color(qr, lv_color_black());
+    lv_qrcode_set_light_color(qr, lv_color_white());
+    lv_obj_set_style_border_color(qr, lv_color_white(), 0);
+    lv_obj_set_style_border_width(qr, 6, 0);
+    lv_obj_remove_flag(qr, LV_OBJ_FLAG_CLICKABLE);
+    return qr;
+}
+
+#define N_PAGES 4
+static void page_dots(lv_obj_t *scr, int active)   // 0 status, 1 extras, 2 weather, 3 radar
+{
+    for (int i = 0; i < N_PAGES; i++) {
+        lv_obj_t *d = lv_obj_create(scr);
+        lv_obj_remove_style_all(d);
+        lv_obj_set_size(d, i == active ? 18 : 7, 7);
+        lv_obj_set_style_radius(d, 4, 0);
+        lv_obj_set_style_bg_color(d, i == active ? C_TEXT : C_DIM, 0);
+        lv_obj_set_style_bg_opa(d, i == active ? LV_OPA_COVER : LV_OPA_60, 0);
+        lv_obj_align(d, LV_ALIGN_BOTTOM_MID, (2 * i - (N_PAGES - 1)) * 8 + (i < active ? -5 : i > active ? 5 : 0), -12);
+    }
+}
+
+/* ---------- Hourly detail (tap a forecast day) ----------
+ * Three day pages side by side in a horizontal scroller that snaps one page at a time,
+ * so the pages follow the finger. Each page's hour list scrolls vertically and is drawn
+ * by one draw callback (no per-row objects). The list starts with the day's temperature graph and the
+ * column headers, so they scroll away with it. The graph is drawn once into a canvas per day (about 200 shapes,
+ * too many to redraw on every scroll frame) and redrawn only for a new forecast or a new hour. */
+
+#define ROW_H   46
+#define LIST_W  316
+#define GRAPH_H 120                  // temperature graph at the top of each day's list
+#define HDR_H   24                   // column headers under it
+#define TOP_H   (GRAPH_H + HDR_H)    // rows start here
+typedef struct {
+    lv_obj_t *page, *title, *sum, *list, *content, *graph;
+    int day;
+    int first, count, now;           // hour indexes into wx.hour
+    int g_gen, g_now;                // what the graph canvas shows (forecast generation, now)
+} day_page_t;
+static day_page_t pg[WX_DAYS];
+static int wx_gen;                   // bumped by every new forecast
+static lv_obj_t *hr_pager, *hr_dot[WX_DAYS];
+static EXT_RAM_BSS_ATTR weather_t wx;   // copy of the last forecast (PSRAM)
+static bool have_wx;
+
+static void draw_text(lv_layer_t *layer, lv_font_t *f, lv_color_t c, int x, int y, int w,
+                      lv_text_align_t align, const char *txt)
+{
+    lv_draw_label_dsc_t d;
+    lv_draw_label_dsc_init(&d);
+    d.font = f;
+    d.color = c;
+    d.align = align;
+    d.text = txt;
+    d.text_local = 1;                                // txt lives on the stack
+    int lh = lv_font_get_line_height(f);
+    lv_area_t a = { x, y + (ROW_H - lh) / 2, x + w - 1, y + (ROW_H + lh) / 2 };
+    lv_draw_label(layer, &d, &a);
+}
+
+static void draw_text_top(lv_layer_t *layer, lv_font_t *f, lv_color_t c, int x, int y, int w,
+                          lv_text_align_t align, const char *txt)
+{
+    lv_draw_label_dsc_t d;
+    lv_draw_label_dsc_init(&d);
+    d.font = f;
+    d.color = c;
+    d.align = align;
+    d.text = txt;
+    d.text_local = 1;
+    lv_area_t a = { x, y, x + w - 1, y + lv_font_get_line_height(f) - 1 };
+    lv_draw_label(layer, &d, &a);
+}
+
+
+// Temperature graph, midnight to midnight (0 to 24, the last point is the next day's 00:00): filled curve, a line
+// at every hour, hours labelled every 3 h, the day's high and low labelled.
+// Today: the hours already past are dimmed and a dot marks now. (x0, y0) = top-left of the block.
+#define G_X0  28                     // plot area inside the block
+#define G_W   (LIST_W - 56)
+#define G_Y0  26
+#define G_H   50
+static void graph_draw(lv_layer_t *layer, const day_page_t *dp, int x0, int y0)
+{
+    int base = dp->day * 24, n = wx.nhours - base;              // points: hours 0..24
+    if (n > 25) n = 25;
+    if (n < 2) return;
+    // Hours without a value (null in the forecast: NAN) are left out of the scale, the fill and the curve
+    float lo = NAN, hi = NAN, smin = NAN, smax = NAN;
+    int ilo = 0, ihi = 0;
+    for (int i = 0; i < n; i++) {
+        float t = wx.hour[base + i].temp;
+        if (isnan(t)) continue;
+        if (i < 24 && !(t >= lo)) { lo = t; ilo = i; }          // the day's own low and high (00:00 to 23:00)
+        if (i < 24 && !(t <= hi)) { hi = t; ihi = i; }
+        if (!(t >= smin)) smin = t;                             // the scale also fits the next day's 00:00
+        if (!(t <= smax)) smax = t;
+    }
+    if (isnan(smin) || isnan(lo)) return;
+    float span = smax - smin < 4 ? 4 : smax - smin, mid = (smax + smin) / 2;   // a flat day stays flat
+    float bot = mid - span / 2;
+    int now = dp->now >= 0 ? dp->now - base : -1;              // hour index of "now" (today only)
+    #define GX(i) (x0 + G_X0 + (i) * G_W / 24.0f)
+    #define GY(t) (y0 + G_Y0 + G_H - ((t) - bot) / span * G_H)
+    const lv_color_t warm = lv_color_hex(0xFFC83D);
+
+    // Fill under the curve: 2-px columns, interpolated between the hours. Opaque colours pre-mixed with the black
+    // background: same look as a translucent fill, much cheaper to render while the list scrolls.
+    lv_draw_rect_dsc_t r;
+    lv_draw_rect_dsc_init(&r);
+    lv_color_t fill = lv_color_mix(warm, C_BG, 60), fill_past = lv_color_mix(warm, C_BG, 24);
+    int ybase = y0 + G_Y0 + G_H + 4;
+    for (int x = (int)GX(0); x < (int)GX(n - 1); x += 2) {
+        float fi = (x - GX(0)) * 24.0f / G_W;
+        int i = (int)fi;
+        if (i >= n - 1) i = n - 2;
+        float t = wx.hour[base + i].temp + (wx.hour[base + i + 1].temp - wx.hour[base + i].temp) * (fi - i);
+        if (isnan(t)) continue;
+        r.bg_color = now >= 0 && fi < now ? fill_past : fill;
+        lv_area_t a = { x, (int)GY(t), x + 1, ybase };
+        lv_draw_rect(layer, &r, &a);
+    }
+
+    // A thin line at every hour, brighter every 3 h (the labelled ones)
+    for (int h = 0; h <= 24; h++) {
+        r.bg_color = lv_color_hex(h % 3 ? 0x1E252D : 0x3A4450);
+        int x = (int)GX(h);
+        lv_area_t a = { x, y0 + G_Y0 - 4, x, ybase };
+        lv_draw_rect(layer, &r, &a);
+    }
+
+    // Curve
+    lv_draw_line_dsc_t l;
+    lv_draw_line_dsc_init(&l);
+    l.width = 3;
+    l.round_start = l.round_end = 1;
+    for (int i = 0; i + 1 < n; i++) {
+        l.color = now >= 0 && i < now ? C_DIM : warm;
+        if (isnan(wx.hour[base + i].temp) || isnan(wx.hour[base + i + 1].temp)) continue;
+        l.p1.x = GX(i);     l.p1.y = GY(wx.hour[base + i].temp);
+        l.p2.x = GX(i + 1); l.p2.y = GY(wx.hour[base + i + 1].temp);
+        lv_draw_line(layer, &l);
+    }
+
+    // Hours under the plot, every 3 h
+    char buf[12];
+    units_t un;
+    config_get_units(&un);
+    for (int h = 0; h <= 24; h += 3) {
+        if (un.h12) snprintf(buf, sizeof(buf), "%d%c", (h + 11) % 12 + 1, h % 24 < 12 ? 'a' : 'p');   // 12a 3a .. 12p
+        else snprintf(buf, sizeof(buf), "%d", h);
+        draw_text_top(layer, f_micro, C_DIM, (int)GX(h) - 15, y0 + G_Y0 + G_H + 22, 30, LV_TEXT_ALIGN_CENTER, buf);
+    }
+
+    // High above its point, low below its point
+    snprintf(buf, sizeof(buf), "%d°", config_temp(hi));
+    draw_text_top(layer, f_tiny, C_TEXT, (int)GX(ihi) - 30, (int)GY(hi) - 24, 60, LV_TEXT_ALIGN_CENTER, buf);
+    if (config_temp(lo) != config_temp(hi)) {
+        snprintf(buf, sizeof(buf), "%d°", config_temp(lo));
+        draw_text_top(layer, f_micro, C_DIM, (int)GX(ilo) - 30, (int)GY(lo) + 4, 60, LV_TEXT_ALIGN_CENTER, buf);
+    }
+
+    // Now
+    if (now >= 0 && now < n && !isnan(wx.hour[base + now].temp)) {
+        lv_draw_rect_dsc_t d;
+        lv_draw_rect_dsc_init(&d);
+        d.bg_color = lv_color_white();
+        d.radius = LV_RADIUS_CIRCLE;
+        int cx = (int)GX(now), cy = (int)GY(wx.hour[base + now].temp);
+        lv_area_t a = { cx - 5, cy - 5, cx + 5, cy + 5 };
+        lv_draw_rect(layer, &d, &a);
+    }
+    #undef GX
+    #undef GY
+}
+
+// Redraws the day's graph canvas if the forecast or the current hour changed. Display lock held.
+static void graph_render(day_page_t *dp)
+{
+    if (dp->g_gen == wx_gen && dp->g_now == dp->now) return;
+    dp->g_gen = wx_gen;
+    dp->g_now = dp->now;
+    lv_canvas_fill_bg(dp->graph, C_BG, LV_OPA_COVER);
+    lv_layer_t layer;
+    lv_canvas_init_layer(dp->graph, &layer);
+    graph_draw(&layer, dp, 0, 0);
+    lv_canvas_finish_layer(dp->graph, &layer);
+}
+
+/* The hourly rows' icons, each drawn once into a small picture (by kind, day or night, and the row's background) and
+ * copied into the rows: drawn from rounded shapes in every row of every frame, they were much of a list scroll's
+ * rendering. Made when a day's page is filled (fill_page: not during a render); a missing one is drawn as shapes. */
+#define HR_ICON 40                                   // 130 x 122 design space at 30 % (39 x 37), with a margin
+#define HR_NOW_BG 0x16283A                           // the "Now" row's background
+static lv_draw_buf_t *hr_icons[WX_STORM + 1][2][2];  // [kind][day][now row]
+static lv_obj_t *hr_icon_canvas;                     // hidden: draws them (LVGL's canvas layer)
+
+static void hr_icon_make(wx_kind_t k, bool day, bool now)
+{
+    lv_draw_buf_t **slot = &hr_icons[k][day][now];
+    if (*slot || !hr_icon_canvas) return;
+    lv_draw_buf_t *b = lv_draw_buf_create(HR_ICON, HR_ICON, LV_COLOR_FORMAT_RGB565, LV_STRIDE_AUTO);
+    if (!b) return;
+    lv_color_t bg = now ? lv_color_hex(HR_NOW_BG) : C_BG;
+    lv_canvas_set_draw_buf(hr_icon_canvas, b);
+    lv_canvas_fill_bg(hr_icon_canvas, bg, LV_OPA_COVER);
+    lv_layer_t layer;
+    lv_canvas_init_layer(hr_icon_canvas, &layer);
+    P_layer = &layer;
+    P_x = P_y = 0;
+    icon_bg = bg;
+    draw_icon(NULL, k, day, 30, 0);
+    P_layer = NULL;
+    lv_canvas_finish_layer(hr_icon_canvas, &layer);
+    *slot = b;
+}
+
+// Draws the column headers and only the rows inside the clip area (the graph is a canvas child)
+static void hr_draw(lv_event_t *e)
+{
+    lv_obj_t *o = lv_event_get_target(e);
+    day_page_t *dp = lv_event_get_user_data(e);
+    lv_layer_t *layer = lv_event_get_layer(e);
+    lv_area_t c;
+    lv_obj_get_coords(o, &c);
+    const lv_area_t *clip = &layer->_clip_area;
+    char buf[16];
+    if (c.y1 + TOP_H > clip->y1) {
+        static const struct { int x, w; tid_t t; } hdr[] = {         // aligned with the columns below
+            { 118, 56, T_HDR_TEMP }, { 180, 54, T_HDR_RAIN }, { 236, 72, T_HDR_WIND },
+        };
+        for (int i = 0; i < 3; i++)
+            draw_text_top(layer, f_micro, i == 1 ? C_ACCENT : C_DIM, c.x1 + hdr[i].x, c.y1 + GRAPH_H + 4, hdr[i].w,
+                          LV_TEXT_ALIGN_RIGHT, tr(hdr[i].t));
+    }
+    for (int r = 0; r < dp->count; r++) {
+        int y = c.y1 + TOP_H + r * ROW_H;
+        if (y + ROW_H <= clip->y1 || y > clip->y2) continue;
+        int i = dp->first + r;
+        const wx_hour_t *h = &wx.hour[i];
+        bool now = i == dp->now;
+        icon_bg = C_BG;
+        if (now) {
+            lv_draw_rect_dsc_t d;
+            lv_draw_rect_dsc_init(&d);
+            d.bg_color = icon_bg = lv_color_hex(HR_NOW_BG);
+            d.radius = 14;
+            lv_area_t a = { c.x1, y + 2, c.x2, y + ROW_H - 3 };
+            lv_draw_rect(layer, &d, &a);
+        }
+        if (now) strlcpy(buf, tr(T_NOW), sizeof(buf)); else config_fmt_hour(i % 24, buf, sizeof(buf));
+        draw_text(layer, f_tiny, now ? C_ACCENT : C_DIM, c.x1 + 10, y, 64, LV_TEXT_ALIGN_LEFT, buf);
+        lv_draw_buf_t *ic = hr_icons[weather_kind(h->code)][h->is_day ? 1 : 0][now];
+        if (ic) {
+            lv_draw_image_dsc_t d;
+            lv_draw_image_dsc_init(&d);
+            d.src = ic;
+            lv_area_t a = { c.x1 + 76, y + (ROW_H - 37) / 2, c.x1 + 76 + HR_ICON - 1, y + (ROW_H - 37) / 2 + HR_ICON - 1 };
+            lv_draw_image(layer, &d, &a);
+        } else {
+            P_layer = layer; P_x = c.x1 + 76; P_y = y + (ROW_H - 37) / 2;
+            draw_icon(NULL, weather_kind(h->code), h->is_day, 30, 0);
+            P_layer = NULL;
+        }
+        if (isnan(h->temp)) strcpy(buf, "--");                  // no value in the forecast (null)
+        else snprintf(buf, sizeof(buf), "%d°", config_temp(h->temp));
+        draw_text(layer, f_small, C_TEXT, c.x1 + 118, y, 56, LV_TEXT_ALIGN_RIGHT, buf);
+        if (h->pop == WX_POP_NONE) strcpy(buf, "--");
+        else snprintf(buf, sizeof(buf), "%d%%", h->pop);
+        draw_text(layer, f_tiny, h->pop >= 30 && h->pop != WX_POP_NONE ? C_ACCENT : C_DIM, c.x1 + 180, y, 54,
+                  LV_TEXT_ALIGN_RIGHT, buf);
+        config_fmt_wind(h->wind, buf, sizeof(buf));
+        draw_text(layer, f_micro, C_DIM, c.x1 + 236, y, 72, LV_TEXT_ALIGN_RIGHT, buf);
+    }
+}
+
+static void set_dots(int day)
+{
+    hr_day = day;
+    for (int i = 0; i < WX_DAYS; i++) {
+        lv_obj_set_size(hr_dot[i], i == day ? 18 : 7, 7);
+        if (i < wx.ndays) lv_obj_remove_flag(hr_dot[i], LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(hr_dot[i], LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_style_bg_color(hr_dot[i], i == day ? C_TEXT : C_DIM, 0);
+    }
+}
+
+static void fill_page(int day)
+{
+    day_page_t *dp = &pg[day];
+    if (day >= wx.ndays) { lv_obj_add_flag(dp->page, LV_OBJ_FLAG_HIDDEN); dp->count = 0; return; }
+    lv_obj_remove_flag(dp->page, LV_OBJ_FLAG_HIDDEN);
+    struct tm now;
+    int cur_h = config_local_time((long)time(NULL), &now) ? now.tm_hour : 0;
+    dp->first = day * 24 + (day == 0 ? cur_h : 0);
+    int end = day * 24 + 24;
+    if (end > wx.nhours) end = wx.nhours;
+    dp->count = end > dp->first ? end - dp->first : 0;
+    dp->now = day == 0 ? dp->first : -1;
+
+    const wx_day_t *d = &wx.day[day];
+    struct tm tm = {0};
+    char name[24] = "-";
+    if (sscanf(d->date, "%d-%d-%d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday) == 3) {
+        tm.tm_year -= 1900; tm.tm_mon -= 1; tm.tm_hour = 12;
+        mktime(&tm);
+        strlcpy(name, tr_weekday(tm.tm_wday, true), sizeof(name));   // weekday name, today included
+    }
+    lv_label_set_text(dp->title, name);
+    lv_label_set_text_fmt(dp->sum, "%s  ·  %d° / %d°", weather_text(d->code), config_temp(d->tmax), config_temp(d->tmin));
+    lv_obj_set_height(dp->content, TOP_H + dp->count * ROW_H);
+    for (int r = 0; r < dp->count; r++) {              // the rows' icon pictures (hr_draw copies them)
+        const wx_hour_t *h = &wx.hour[dp->first + r];
+        hr_icon_make(weather_kind(h->code), h->is_day, dp->first + r == dp->now);
+    }
+    graph_render(dp);
+    lv_obj_invalidate(dp->page);
+}
+
+static void hour_fill(int day)       // refresh one day's page (new data / new hour)
+{
+    fill_page(day);
+}
+
+static void hour_close(void)
+{
+    slide_screen(scr_main, LV_SCR_LOAD_ANIM_MOVE_BOTTOM, 260);
+}
+
+// Tap on a forecast column of the weather screen
+static void main_tap(lv_event_t *e)
+{
+    lv_indev_t *in = lv_indev_active();
+    if (!in || ov_state || !have_wx) return;
+    lv_point_t p;
+    lv_indev_get_point(in, &p);
+    if (p.y > 408 && !lv_obj_has_flag(up_pill, LV_OBJ_FLAG_HIDDEN)) {   // the "Update" pill
+        update_show();
+        return;
+    }
+    if (p.y < 200 && alerts.n) {                        // top half with an alert: its details
+        printf("ui: tap alert\n");
+        slide_screen(scr_alert, LV_SCR_LOAD_ANIM_MOVE_TOP, 260);
+        return;
+    }
+    if (p.y < 296) return;                              // only the forecast row
+    int col = p.x < DISP_W / 2 - 49 ? 0 : p.x > DISP_W / 2 + 49 ? 2 : 1;
+    if (col >= wx.ndays) return;
+    printf("ui: tap forecast day %d\n", col);
+    for (int i = 0; i < WX_DAYS; i++) {
+        fill_page(i);
+        lv_obj_scroll_to_y(pg[i].list, 0, LV_ANIM_OFF);
+    }
+    pager_go(hr_pager, col, false);
+    set_dots(col);
+    slide_screen(scr_hour, LV_SCR_LOAD_ANIM_MOVE_TOP, 260);
+}
+
+static void hour_tap(lv_event_t *e)
+{
+    printf("ui: hourly view closed (tap)\n");
+    hour_close();
+}
+
+// A swipe that didn't scroll anything (e.g. vertical on a short list): its release is not a tap
+static void hour_gesture(lv_event_t *e)
+{
+    lv_indev_t *in = lv_indev_active();
+    if (in) lv_indev_wait_release(in);
+}
+
+static void hr_changed(int day, void *user) { set_dots(day); }
+
+static void hr_settled(int day, void *user)
+{
+    ESP_LOGI("ui", "hourly view: day %d, %d rows", day, pg[day].count);
+}
+
+static void hour_create(void)
+{
+    scr_hour = base_screen();
+    hr_icon_canvas = lv_canvas_create(scr_hour);              // draws the rows' icon pictures (hr_icon_make)
+    lv_obj_add_flag(hr_icon_canvas, LV_OBJ_FLAG_HIDDEN);
+    hr_pager = pager_create(scr_hour, false, WX_DAYS, hr_changed, hr_settled, NULL);
+    pager_freeze(hr_pager);                              // days are dragged as pictures (slide.c, drag_read)
+
+    for (int d = 0; d < WX_DAYS; d++) {
+        day_page_t *dp = &pg[d];
+        dp->day = d;
+        dp->page = pager_page(hr_pager, d);
+        dp->title = label(dp->page, f_city, C_ACCENT, 34);
+        dp->sum = label(dp->page, f_tiny, C_DIM, 68);
+        lv_obj_set_width(dp->sum, 340);
+        lv_label_set_long_mode(dp->sum, LV_LABEL_LONG_DOT);
+
+        dp->list = lv_obj_create(dp->page);                    // graph + headers + hour rows (hr_draw)
+        lv_obj_remove_style_all(dp->list);
+        lv_obj_set_size(dp->list, LIST_W, 314);
+        lv_obj_align(dp->list, LV_ALIGN_TOP_MID, 0, 96);
+        lv_obj_set_scroll_dir(dp->list, LV_DIR_VER);
+        lv_obj_set_scrollbar_mode(dp->list, LV_SCROLLBAR_MODE_OFF);
+        lv_obj_add_flag(dp->list, LV_OBJ_FLAG_EVENT_BUBBLE | LV_OBJ_FLAG_GESTURE_BUBBLE);
+
+        dp->content = lv_obj_create(dp->list);
+        lv_obj_remove_style_all(dp->content);
+        lv_obj_set_size(dp->content, LIST_W, TOP_H + ROW_H);
+        lv_obj_remove_flag(dp->content, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(dp->content, LV_OBJ_FLAG_EVENT_BUBBLE | LV_OBJ_FLAG_GESTURE_BUBBLE);
+        lv_obj_add_event_cb(dp->content, hr_draw, LV_EVENT_DRAW_MAIN, dp);
+
+        dp->graph = lv_canvas_create(dp->content);             // ~76 KB each, LVGL heap (PSRAM)
+        lv_canvas_set_draw_buf(dp->graph, lv_draw_buf_create(LIST_W, GRAPH_H, LV_COLOR_FORMAT_RGB565, LV_STRIDE_AUTO));
+        lv_obj_set_pos(dp->graph, 0, 0);
+        lv_obj_remove_flag(dp->graph, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(dp->graph, LV_OBJ_FLAG_EVENT_BUBBLE | LV_OBJ_FLAG_GESTURE_BUBBLE);
+        dp->g_gen = -1;
+    }
+
+    lv_obj_t *dots = lv_obj_create(scr_hour);                 // centred row of page dots
+    lv_obj_remove_style_all(dots);
+    lv_obj_set_size(dots, LV_SIZE_CONTENT, 7);
+    lv_obj_set_flex_flow(dots, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(dots, 7, 0);
+    lv_obj_align(dots, LV_ALIGN_BOTTOM_MID, 0, -16);
+    lv_obj_remove_flag(dots, LV_OBJ_FLAG_CLICKABLE);
+    for (int i = 0; i < WX_DAYS; i++) {
+        hr_dot[i] = lv_obj_create(dots);
+        lv_obj_remove_style_all(hr_dot[i]);
+        lv_obj_set_size(hr_dot[i], 7, 7);
+        lv_obj_set_style_radius(hr_dot[i], 4, 0);
+        lv_obj_set_style_bg_opa(hr_dot[i], LV_OPA_COVER, 0);
+        lv_obj_remove_flag(hr_dot[i], LV_OBJ_FLAG_CLICKABLE);
+    }
+    lv_obj_add_event_cb(scr_hour, hour_tap, LV_EVENT_SHORT_CLICKED, NULL);
+    lv_obj_add_event_cb(scr_hour, hour_gesture, LV_EVENT_GESTURE, NULL);
+}
+
+/* ---------- drags that follow the finger (slide.c) ----------
+ * Screens, left to right: status | extras | weather | radar. Places: the weather screen's vertical pager. Days: the
+ * hourly view's horizontal pager. A drag (10 px, along the larger axis) is handed to slide_drag(): the neighbour comes
+ * in under the finger, the ends resist and bounce back. The pagers are frozen (LVGL no longer scrolls them). A
+ * vertical drag on any other list goes to slide_scroll(); the radar's zoom swipes stay with LVGL (gestures). Pictures
+ * come from slide.c's cache, keyed by screen, or by page for the two pagers (key_of). gesture_cb() is the fallback
+ * while a slide runs. */
+static void place_dots(int active);
+
+static lv_obj_t **drag_screens(int *n)
+{
+    static lv_obj_t *s[4];
+    s[0] = scr_status; s[1] = scr_extras; s[2] = scr_main; s[3] = scr_radar;
+    *n = 4;
+    return s;
+}
+
+static int drag_index(lv_obj_t *scr)
+{
+    int n;
+    lv_obj_t **s = drag_screens(&n);
+    for (int i = 0; i < n; i++) if (s[i] == scr) return i;
+    return -1;
+}
+
+// What a screen shows now, as a cache key: the weather screen and the hourly view by their current page
+static const void *key_of(lv_obj_t *scr)
+{
+    if (scr == scr_main) return pager_page(place_pager, pager_current(place_pager));
+    if (scr == scr_hour) return pager_page(hr_pager, pager_current(hr_pager));
+    return scr;
+}
+
+static const void *screen_neighbour(int side, void *user)
+{
+    int n, i = drag_index(lv_screen_active()) + side;
+    lv_obj_t **s = drag_screens(&n);
+    return i < 0 || i >= n ? NULL : key_of(s[i]);        // the ends: no neighbour, the screen bounces
+}
+
+static void screen_commit(int side, void *user)
+{
+    int n, cur = drag_index(lv_screen_active()), i = cur + side;
+    lv_obj_t **s = drag_screens(&n);
+    if (!side || cur < 0 || i < 0 || i >= n) return;
+    if (s[cur] == scr_radar) radar_set_visible(false);
+    if (s[i] == scr_radar) radar_set_visible(true);
+    if (s[i] == scr_status) svc_probe_stale();           // the status page checks stale services when shown
+    lv_screen_load(s[i]);
+}
+
+static const void *place_neighbour(int side, void *user)
+{
+    int i = pager_current(place_pager) + side;
+    return i < 0 || i >= n_places ? NULL : pager_page(place_pager, i);
+}
+
+static void place_commit(int side, void *user)
+{
+    int i = pager_current(place_pager) + side;
+    if (side && i >= 0 && i < n_places) pager_switch(place_pager, i);   // dots, then the place (place_settled)
+}
+
+static const void *day_neighbour(int side, void *user)
+{
+    int i = pager_current(hr_pager) + side;
+    return i < 0 || i >= wx.ndays ? NULL : pager_page(hr_pager, i);
+}
+
+static void day_commit(int side, void *user)
+{
+    int i = pager_current(hr_pager) + side;
+    if (side && i >= 0 && i < wx.ndays) pager_switch(hr_pager, i);      // dots, the "day" log
+}
+
+// Picture for slide.c's cache. A screen not shown: its content is brought up to date first, as when shown. A page:
+// its pager is moved there (with its dots) and back, within this LVGL cycle (slide.c undoes the redraws it causes).
+static void cfg_open_state(void);
+
+static bool drag_paint(const void *key, lv_draw_buf_t *dst, int y0, int y1)
+{
+    int ip = pager_index(place_pager, key), ih = ip < 0 ? pager_index(hr_pager, key) : -1;
+    if (ih >= 0 && lv_screen_active() != scr_hour && y0 == 0) {
+        fill_page(ih);                                   // as main_tap opens it: today's data, the list at the top
+        lv_obj_scroll_to_y(pg[ih].list, 0, LV_ANIM_OFF);
+    }
+    if (ip >= 0 || ih >= 0) {
+        bool places = ip >= 0;
+        lv_obj_t *pager = places ? place_pager : hr_pager;
+        int i = places ? ip : ih, cur = pager_current(pager);
+        // Another place: drawn as it will look once shown, without the pill of this place's alerts (a switch
+        // clears them until the new place's are fetched)
+        bool pill = places && i != cur && !lv_obj_has_flag(al_pill, LV_OBJ_FLAG_HIDDEN);
+        // The dots only if these rows show them: moving them there and back lays out the whole screen twice (~50 ms
+        // for a clock's rows after the minute tick, instead of ~10)
+        lv_obj_t **dot = places ? pl_dot : hr_dot;
+        int n = places ? MAX_PLACES : WX_DAYS, dy0 = DISP_H, dy1 = -1;
+        for (int k = 0; k < n; k++) {
+            lv_area_t a;
+            if (lv_obj_has_flag(dot[k], LV_OBJ_FLAG_HIDDEN)) continue;
+            lv_obj_get_coords(dot[k], &a);
+            if (a.y1 < dy0) dy0 = a.y1;
+            if (a.y2 > dy1) dy1 = a.y2;
+        }
+        bool dots = i != cur && y1 >= dy0 - 16 && y0 <= dy1 + 16;    // (16: the active dot is longer)
+        if (i != cur) { pager_peek(pager, i); if (dots) { if (places) place_dots(i); else set_dots(i); } }
+        if (pill) lv_obj_add_flag(al_pill, LV_OBJ_FLAG_HIDDEN);      // (its city name is only hidden on the place shown)
+        bool ok = slide_picture_rows(places ? scr_main : scr_hour, dst, y0, y1);
+        if (pill) lv_obj_remove_flag(al_pill, LV_OBJ_FLAG_HIDDEN);
+        if (i != cur) pager_peek(pager, cur);
+        if (dots) {
+            if (places) place_dots(cur); else set_dots(cur);
+            // Apply the dots' move back now, while slide.c ignores the redraws: left to LVGL's next refresh, it
+            // redrew them for real and made the picture of the screen shown out of date after every neighbour's
+            lv_obj_update_layout(places ? scr_main : scr_hour);
+        }
+        return ok;
+    }
+    lv_obj_t *scr = (lv_obj_t *)key;
+    if (scr != lv_screen_active() && y0 == 0) {          // brought up to date once, before the first strip
+        if (scr == scr_status) status_refresh();
+        if (scr == scr_extras) extras_refresh();
+        if (scr == scr_cfg) cfg_open_state();            // as a long-press opens it
+    }
+    return slide_picture_rows(scr, dst, y0, y1);
+}
+
+// A move becomes a drag or a list scroll after 10 px, before LVGL's own scroll (its limit is raised to 20 px in
+// ui_init). With 16 px here and LVGL's 10, a quick flick read at 10-15 px went to LVGL, which scrolled the hours
+// list itself at 17-28 fps and read the touch only between its 35-60 ms frames: flicks missed, scrolls sluggish.
+#define DRAG_PX 10
+static int64_t drag_seen;                 // drag_read: the last read with a finger down ("untouched" below)
+
+// Every 30 ms: keep the pictures of what's shown and its neighbours ready (slide.c's cache), a 64-row strip at a time
+// (~15-25 ms), once nothing has changed on screen for 0.8 s and no finger is down (or a picture has been out of date
+// for 2 s). LVGL reads the touch between strips, so a quick swipe isn't lost behind a picture being rendered.
+// Untouched for 2 s (new data: a forecast, alerts, the minute), the strips start after 0.15 s and follow each other
+// (the timer runs every 1 ms while there is work): a drag 0.3-1.5 s after a new forecast waited ~0.12 s for the
+// neighbour's picture.
+static void pictures_tick(lv_timer_t *t)
+{
+    static int64_t last_touch;
+    static uint32_t period = 30;
+    lv_obj_t *cur = lv_screen_active();
+    const void *keys[5];
+    int k = 0, n, i = drag_index(cur);
+    lv_obj_t **s = drag_screens(&n);
+    if (i >= 0) {
+        keys[k++] = key_of(cur);
+        if (i > 0) keys[k++] = key_of(s[i - 1]);
+        if (i < n - 1) keys[k++] = key_of(s[i + 1]);
+        if (cur == scr_main) {
+            for (int d = -1; d <= 1; d += 2) if (place_neighbour(d, NULL)) keys[k++] = place_neighbour(d, NULL);
+            // Spare slots: today's hourly view (a tap on the forecast opened it after ~0.17 s of rendering) and
+            // Settings (a long-press: ~0.06 s), ready as they open (drag_paint brings them up to date first)
+            if (have_wx && k < 5) keys[k++] = pager_page(hr_pager, 0);
+            if (k < 5) keys[k++] = scr_cfg;
+        }
+    } else if (cur == scr_hour) {
+        keys[k++] = key_of(cur);
+        for (int d = -1; d <= 1; d += 2) if (day_neighbour(d, NULL)) keys[k++] = day_neighbour(d, NULL);
+    } else {
+        keys[k++] = cur;                                 // any other screen: its own, for list scrolls (slide_scroll)
+    }
+    slide_cache_keep(keys, k);
+    lv_indev_t *in = lv_indev_get_next(NULL);
+    int64_t now = esp_timer_get_time();
+    bool pressed = in && lv_indev_get_state(in) == LV_INDEV_STATE_PRESSED;
+    if (pressed) last_touch = now;
+    // (the touches LVGL never saw count too: drags and scrolls read the finger themselves, drag_read sees every press)
+    int64_t seen = slide_last_touch() > drag_seen ? slide_last_touch() : drag_seen;
+    if (seen > last_touch) last_touch = seen;
+    bool untouched = now - last_touch > 2000000;
+    bool work = !ov_state && !pressed && !lv_anim_count_running() && slide_cache_idle_work(untouched ? 150 : 800);
+    uint32_t want = work && untouched ? 1 : 30;
+    if (want != period) lv_timer_set_period(t, period = want);
+}
+
+// Drags are recognised in the touch read itself (touch.c's hook, before LVGL handles that read). A 10 ms timer looking
+// at LVGL's point came too late on flicks: the finger moves 30-60 px between two reads, and LVGL had started its own
+// scroll of a list on that same read (the list scroll then took over with no speed: a flick barely moved it).
+static lv_point_t drag_p0;                // where the finger went down
+static lv_point_t drag_p1;                // where it was when the move became a drag
+static int64_t drag_t0;                   // when it went down (a list's flick speed)
+static bool drag_down, drag_armed;
+
+static bool drag_start(bool vertical, slide_neighbour_cb_t neighbour, slide_commit_cb_t commit)
+{
+    return slide_drag(vertical, drag_p0.x, drag_p0.y, drag_p1.x, drag_p1.y, neighbour, commit, NULL);
+}
+
+static void drag_read(lv_indev_t *in, lv_indev_data_t *data)
+{
+    // A drag or scroll ran meanwhile (slide.c read the finger, LVGL and this hook didn't): the press this hook was
+    // following is over, even if it never saw the release. Without this, a swipe already under way when a list scroll
+    // ended was taken for the old press and ignored.
+    static uint32_t forgotten;
+    if (touch_forgotten() != forgotten) { forgotten = touch_forgotten(); drag_down = false; }
+    if (data->state != LV_INDEV_STATE_PRESSED) { drag_down = false; return; }
+    drag_seen = esp_timer_get_time();
+    lv_point_t p = data->point;
+    if (!drag_down) {                                    // a new press: may become a drag
+        drag_down = true;
+        drag_armed = !ov_state;
+        drag_p0 = p;
+        drag_t0 = esp_timer_get_time();
+        return;
+    }
+    if (!drag_armed || ov_state) return;
+    lv_obj_t *cur = lv_screen_active();
+    int dx = p.x - drag_p0.x, dy = p.y - drag_p0.y;
+    // Decided after DRAG_PX, by the larger axis (as LVGL picks a scroll direction). Requiring a 2:1 ratio missed curved
+    // swipes on the round screen, and the hours list took those that started slightly vertical.
+    if (abs(dx) < DRAG_PX && abs(dy) < DRAG_PX) return;
+    drag_armed = false;
+    bool horiz = abs(dx) > abs(dy), vert = !horiz;
+    drag_p1 = p;
+    bool took = false;
+    if (horiz && drag_index(cur) >= 0) took = drag_start(false, screen_neighbour, screen_commit);
+    else if (vert && cur == scr_main) took = drag_start(true, place_neighbour, place_commit);
+    else if (horiz && cur == scr_hour) took = drag_start(false, day_neighbour, day_commit);
+    else if (vert && cur != scr_radar) {                                // a list (hourly hours, Settings, status...)
+        lv_obj_t *list = slide_scroll_target(cur, drag_p0.x, drag_p0.y);   // (the radar: zoom swipes, LVGL gestures)
+        if (list) took = slide_scroll(list, drag_p0.y, drag_t0, drag_p1.y);
+    }
+    if (took) lv_indev_wait_release(in);       // the drag owns this touch: LVGL ignores it from this read on
+}
+
+// A touch that stopped the hours list while it was coasting and then went sideways (slide.c): the day drag
+static bool scroll_sideways(int x0, int y0, int x1, int y1)
+{
+    if (lv_screen_active() != scr_hour || ov_state) return false;
+    drag_p0 = (lv_point_t){x0, y0};
+    drag_p1 = (lv_point_t){x1, y1};
+    bool took = drag_start(false, day_neighbour, day_commit);
+    if (took) lv_indev_wait_release(lv_indev_get_next(NULL));
+    return took;
+}
+
+static void gesture_cb(lv_event_t *e)
+{
+    lv_indev_t *in = lv_indev_active();
+    if (!in) return;
+    lv_dir_t dir = lv_indev_get_gesture_dir(in);
+    lv_obj_t *cur = lv_screen_active();
+    if (ov_state) return;                                // settings / Wi-Fi setup overlay is open
+    LV_LOG_USER("gesture dir %d", dir);
+    printf("ui: gesture dir=%d on %s\n", dir, cur == scr_radar ? "radar" : cur == scr_extras ? "extras" :
+           cur == scr_status ? "status" : "main");
+    if (cur == scr_extras && dir == LV_DIR_RIGHT) {
+        svc_probe_stale();
+        status_refresh();
+        slide_screen(scr_status, LV_SCR_LOAD_ANIM_MOVE_RIGHT, 280);
+        lv_indev_wait_release(in);
+    } else if (cur == scr_status && dir == LV_DIR_LEFT) {
+        extras_refresh();
+        slide_screen(scr_extras, LV_SCR_LOAD_ANIM_MOVE_LEFT, 280);
+        lv_indev_wait_release(in);
+    } else if (cur == scr_main && dir == LV_DIR_RIGHT) {
+        extras_refresh();
+        slide_screen(scr_extras, LV_SCR_LOAD_ANIM_MOVE_RIGHT, 280);
+        lv_indev_wait_release(in);
+    } else if (cur == scr_extras && dir == LV_DIR_LEFT) {
+        slide_screen(scr_main, LV_SCR_LOAD_ANIM_MOVE_LEFT, 280);
+        lv_indev_wait_release(in);
+    } else if (cur == scr_main && dir == LV_DIR_LEFT) {
+        radar_set_visible(true);
+        slide_screen(scr_radar, LV_SCR_LOAD_ANIM_MOVE_LEFT, 280);
+        lv_indev_wait_release(in);
+    } else if (cur == scr_radar && (dir == LV_DIR_TOP || dir == LV_DIR_BOTTOM)) {
+        radar_zoom(dir == LV_DIR_BOTTOM ? +1 : -1);  // swipe down = zoom in, up = zoom out
+        lv_indev_wait_release(in);
+    } else if (cur == scr_radar && dir == LV_DIR_RIGHT) {
+        radar_set_visible(false);
+        slide_screen(scr_main, LV_SCR_LOAD_ANIM_MOVE_RIGHT, 280);
+        lv_indev_wait_release(in);
+    } else {
+        lv_indev_wait_release(in);      // unused swipe: don't let its release open the hourly view
+    }
+}
+
+/* ---------- Wi-Fi setup screen ----------
+ * Page 1 (any phone): QR code to join the display's setup network; the setup page opens by itself.
+ * Page 2 (Android 10+): Wi-Fi Easy Connect (DPP). The phone scans this QR code from its Wi-Fi settings and
+ * sends the network it's connected to, password included. Swipe to switch. The setup network stays up on page 2:
+ * net.c moves it to Easy Connect's channel, which keeps the radio there for the phone's confirmation (without it a
+ * Pixel 8 Pro failed every time, October 4). The radio work runs in its own task (su_radio_task). */
+
+static lv_obj_t *scr_setup, *su_title, *su_note, *su_qr, *su_body, *su_dot[2];
+static int su_page;
+static bool su_can_close;           // a tap closes it (not in first-time setup: there is no saved network)
+static volatile bool su_open;
+static lv_timer_t *su_timer;
+static char su_note_text[96];
+static char su_ap_qr[64];                 // "WIFI:T:WPA;S:MeteoBus-Setup;P:<this display's password>;;"
+
+/* The radio work of a page (Easy Connect's channel scan: 1.6-2.6 s, stopping the other mode) runs in its own task:
+ * done in the swipe's handler it froze the screen. And net_dpp_stop() waits up to 3 s for Easy Connect's listen to
+ * start (stopping before it crashed), while su_dpp_uri() needs the display lock: no stop may run under that lock.
+ * Only the latest page request counts; stops are never skipped. A request with `notify` wakes its sender when done. */
+enum { RADIO_AP, RADIO_DPP, RADIO_DPP_OFF, RADIO_OFF };
+typedef struct { int mode; TaskHandle_t notify; } radio_req_t;
+static QueueHandle_t su_q;
+static void su_dpp_uri(const char *uri);
+static void su_dpp_done(bool ok, const char *ssid);
+
+static void radio_do(const radio_req_t *r)
+{
+    switch (r->mode) {
+    case RADIO_AP:  net_dpp_stop(); net_setup_ap_start(); break;
+    case RADIO_DPP:
+        if (!net_dpp_start(su_dpp_uri, su_dpp_done)) {
+            display_lock(-1);
+            if (su_page == 1) {
+                lv_label_set_text(su_body, tr(T_WIFI_DPP_NONE));
+                lv_obj_add_flag(su_qr, LV_OBJ_FLAG_HIDDEN);   // no code is coming: no placeholder either
+            }
+            display_unlock();
+        }
+        break;
+    case RADIO_DPP_OFF: net_dpp_stop(); break;
+    default:        net_dpp_stop(); net_setup_ap_stop(); break;
+    }
+    if (r->notify) xTaskNotifyGive(r->notify);
+}
+
+static void su_radio_task(void *arg)
+{
+    radio_req_t r, next;
+    while (xQueueReceive(su_q, &r, portMAX_DELAY)) {
+        while (xQueueReceive(su_q, &next, 0)) {
+            if (r.mode == RADIO_AP || r.mode == RADIO_DPP) {   // a newer request replaces a page's radio
+                if (r.notify) xTaskNotifyGive(r.notify);
+            } else {
+                radio_do(&r);
+            }
+            r = next;
+        }
+        radio_do(&r);
+    }
+}
+
+static void su_radio(int mode)
+{
+    radio_req_t r = { mode, NULL };
+    if (su_q) xQueueSend(su_q, &r, pdMS_TO_TICKS(100));
+}
+
+static void su_dots(void)
+{
+    for (int i = 0; i < 2; i++) {
+        lv_obj_set_size(su_dot[i], i == su_page ? 18 : 7, 7);
+        lv_obj_set_style_bg_color(su_dot[i], i == su_page ? C_TEXT : C_DIM, 0);
+    }
+}
+
+/* Easy Connect's code exists 0.1-2.5 s after its page shows (a channel scan first). Until then the page shows a
+ * placeholder code of the same size and density, faint and grey ("loading"), so nothing pops in; the real code
+ * replaces it and fades up (espforge, the user found the pop-in janky; its LESSONS L170). LVGL 9.2 has no blur: low
+ * opacity and grey modules stand in for it. As long as a real DPP URI (~100 characters): the same module count. Plain
+ * text, not a DPP URI: a phone that scans the faint placeholder gets a harmless message, not a broken link. */
+#define QR_FAINT LV_OPA_30
+static const char QR_PLACEHOLDER[] =
+    "Wait a moment: the Easy Connect code is being made. Scan again once it is bright, not faint........";
+
+static void qr_opa(void *obj, int32_t v) { lv_obj_set_style_opa(obj, v, 0); }
+
+static void qr_show(const char *text, bool faint)    // the one QR code object of both pages
+{
+    lv_anim_delete(su_qr, qr_opa);
+    lv_qrcode_set_dark_color(su_qr, faint ? lv_color_hex(0x606060) : lv_color_black());
+    lv_qrcode_update(su_qr, text, strlen(text));
+    lv_obj_set_style_opa(su_qr, faint ? QR_FAINT : LV_OPA_COVER, 0);
+    lv_obj_remove_flag(su_qr, LV_OBJ_FLAG_HIDDEN);
+}
+
+// Easy Connect callbacks (system event task: take the display lock)
+static void su_dpp_uri(const char *uri)
+{
+    display_lock(-1);
+    if (su_page == 1 && lv_screen_active() == scr_setup) {
+        qr_show(uri, false);
+        lv_obj_set_style_opa(su_qr, QR_FAINT, 0);
+        lv_anim_t a;                                     // faint placeholder -> the real code (a small square: cheap)
+        lv_anim_init(&a);
+        lv_anim_set_var(&a, su_qr);
+        lv_anim_set_values(&a, QR_FAINT, LV_OPA_COVER);
+        lv_anim_set_time(&a, 300);
+        lv_anim_set_exec_cb(&a, qr_opa);
+        lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+        lv_anim_start(&a);
+    }
+    display_unlock();
+}
+
+static void su_dpp_done(bool ok, const char *ssid)
+{
+    display_lock(-1);
+    if (ok) {
+        lv_label_set_text(su_title, tr(T_WIFI_RECEIVED));
+        char name[NET_SSID_MAX + 1];
+        textfit(ssid, name, sizeof(name));                  // a network name may hold emoji: the fonts have none
+        lv_label_set_text_fmt(su_body, tr(T_WIFI_GOT), name);
+        lv_obj_add_flag(su_qr, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_label_set_text(su_body, tr(T_WIFI_DPP_FAIL));
+    }
+    display_unlock();
+}
+
+static void su_show_page(int page)
+{
+    su_page = page;
+    su_dots();
+    if (page == 0) {
+        lv_label_set_text(su_title, tr(T_WIFI_SETUP));
+        snprintf(su_ap_qr, sizeof(su_ap_qr), "WIFI:T:WPA;S:" SETUP_AP_SSID ";P:%s;;", net_setup_ap_pass());
+        qr_show(su_ap_qr, false);
+        lv_label_set_text_fmt(su_body, tr(T_WIFI_JOIN), SETUP_AP_SSID, net_setup_ap_pass());
+        su_radio(RADIO_AP);
+    } else {
+        lv_label_set_text(su_title, tr(T_WIFI_DPP_TITLE));
+        qr_show(QR_PLACEHOLDER, true);                       // until the code is generated
+        lv_label_set_text(su_body, tr(T_WIFI_DPP_HOW));
+        su_radio(RADIO_DPP);                                 // the setup network stays up (net.c holds it there)
+    }
+    ESP_LOGI("ui", "Wi-Fi setup page %d (%s)", page, page ? "Easy Connect" : "setup network");
+}
+
+static void su_close(void)
+{
+    ESP_LOGI("ui", "Wi-Fi setup closed");
+    su_open = false;
+    if (su_timer) { lv_timer_delete(su_timer); su_timer = NULL; }
+    su_radio(RADIO_OFF);
+    lv_screen_load_anim(back_to_cfg ? scr_cfg : scr_main, LV_SCR_LOAD_ANIM_FADE_IN, 200, 0, false);
+    back_to_cfg = false;
+}
+
+// Online: close after 10 min. Offline: close after 5 idle min so the saved network is tried again (setup
+// pauses those attempts, and the router may just have been rebooting); main.c reopens setup if it still fails.
+static void su_timeout(lv_timer_t *t)
+{
+    if (!su_can_close) return;                          // first-time setup stays
+    if (!net_is_connected() && net_ap_clients() > 0) return;   // a phone is on the setup network
+    su_close();
+}
+
+static void su_gesture(lv_event_t *e)
+{
+    lv_indev_t *in = lv_indev_active();
+    if (!in) return;
+    lv_dir_t dir = lv_indev_get_gesture_dir(in);
+    if (dir == LV_DIR_LEFT && su_page == 0) su_show_page(1);
+    else if (dir == LV_DIR_RIGHT && su_page == 1) su_show_page(0);
+    lv_indev_wait_release(in);
+}
+
+static void su_tap(lv_event_t *e)
+{
+    if (su_can_close) su_close();
+}
+
+static void setup_create(void)
+{
+    scr_setup = base_screen();
+    su_title = label(scr_setup, f_small, C_ACCENT, 40);
+    su_note = label(scr_setup, f_tiny, C_DIM, 70);
+    lv_obj_set_width(su_note, 330);
+    su_qr = make_qr(scr_setup, 150);
+    lv_obj_align(su_qr, LV_ALIGN_TOP_MID, 0, 122);
+    su_body = label(scr_setup, f_tiny, C_TEXT, 298);
+    lv_obj_set_width(su_body, 360);
+    for (int i = 0; i < 2; i++) {
+        su_dot[i] = lv_obj_create(scr_setup);
+        lv_obj_remove_style_all(su_dot[i]);
+        lv_obj_set_style_radius(su_dot[i], 4, 0);
+        lv_obj_set_style_bg_opa(su_dot[i], LV_OPA_COVER, 0);
+        lv_obj_align(su_dot[i], LV_ALIGN_BOTTOM_MID, i == 0 ? -10 : 10, -16);
+    }
+    lv_obj_add_event_cb(scr_setup, su_gesture, LV_EVENT_GESTURE, NULL);
+    lv_obj_add_event_cb(scr_setup, su_tap, LV_EVENT_SHORT_CLICKED, NULL);
+}
+
+void ui_wifi_setup(const char *note)
+{
+    display_lock(-1);
+    if (note) strlcpy(su_note_text, note, sizeof(su_note_text));
+    else su_note_text[0] = 0;
+    su_can_close = !net_in_portal();
+    bool online = net_is_connected();
+    lv_label_set_text(su_note, su_note_text[0] ? su_note_text : !su_can_close ? "" :
+                               online ? tr(T_TAP_CANCEL) : tr(T_TAP_RETRY));
+    su_open = true;
+    su_show_page(0);
+    if (su_timer) lv_timer_delete(su_timer);
+    su_timer = lv_timer_create(su_timeout, (online ? 10 : 5) * 60 * 1000, NULL);
+    if (lv_screen_active() != scr_setup) lv_screen_load(scr_setup);
+    lv_indev_t *in = lv_indev_active();
+    if (in) lv_indev_wait_release(in);                              // the long-press isn't also a tap
+    display_unlock();
+}
+
+bool ui_wifi_setup_open(void) { return su_open; }
+
+// Close the setup screen as a tap would, unless a phone is on the setup network (main.c: the automatic setup
+// network's 15 minutes are over). Any task.
+bool ui_wifi_setup_close(void)
+{
+    display_lock(-1);
+    bool close = su_open && su_can_close && net_ap_clients() == 0;
+    if (close) su_close();
+    display_unlock();
+    return close;
+}
+
+// Easy Connect stops before this returns (main.c then lets a phone finish on the setup network): through the radio
+// task, so it never runs at the same time as a stop queued by ui_wifi_setup_close(), and not under the display lock
+void ui_wifi_setup_end(void)
+{
+    display_lock(-1);
+    if (su_timer) { lv_timer_delete(su_timer); su_timer = NULL; }
+    display_unlock();
+    radio_req_t r = { RADIO_DPP_OFF, xTaskGetCurrentTaskHandle() };
+    if (su_q && xQueueSend(su_q, &r, pdMS_TO_TICKS(1000)) == pdTRUE) ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10000));
+}
+
+/* ---------- Weather alerts ---------- */
+
+static lv_color_t alert_colour(char c)
+{
+    return c == 'r' ? lv_color_hex(0xFF4D4D) : c == 'o' ? lv_color_hex(0xFF8A3D) :
+           c == 'y' ? lv_color_hex(0xFFC83D) : lv_color_hex(0x8B95A1);
+}
+
+static void fmt_until(time_t t, char *out, size_t n)
+{
+    struct tm tm;
+    if (t && config_local_time((long)t, &tm)) {
+        char hm[12];
+        config_fmt_time(tm.tm_hour, tm.tm_min, hm, sizeof(hm));
+        snprintf(out, n, tr(T_UNTIL), tr_weekday(tm.tm_wday, false), hm);
+    } else out[0] = 0;
+}
+
+static void alert_close(lv_event_t *e) { slide_screen(scr_main, LV_SCR_LOAD_ANIM_MOVE_BOTTOM, 260); }
+
+static void alert_gesture(lv_event_t *e)
+{
+    lv_indev_t *in = lv_indev_active();
+    if (in) lv_indev_wait_release(in);                  // a swipe is not a tap (= close)
+}
+
+static lv_obj_t *al_label(lv_obj_t *parent, lv_font_t *f, lv_color_t c)
+{
+    lv_obj_t *l = lv_label_create(parent);
+    lv_obj_set_width(l, lv_pct(100));
+    lv_obj_set_style_text_font(l, f, 0);
+    lv_obj_set_style_text_color(l, c, 0);
+    lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
+    lv_obj_add_flag(l, LV_OBJ_FLAG_EVENT_BUBBLE | LV_OBJ_FLAG_GESTURE_BUBBLE);
+    return l;
+}
+
+// Title fixed at the top; when, where and the text scroll together in one column, so a long area name
+// wraps instead of running into the text. A long title ("Wreckhouse wind warning", longer in French) wraps too,
+// and the column starts under its last line (al_layout).
+#define AL_TITLE_Y  40
+#define AL_BOX_END  420                                 // the column's bottom edge
+static lv_obj_t *al_box;
+
+static void al_layout(void)
+{
+    lv_obj_update_layout(al_title);
+    int y = AL_TITLE_Y + lv_obj_get_height(al_title) + 9;
+    // unchanged: nothing to redraw (the y set, not lv_obj_get_y(): that is the last layout's, until the next one)
+    if (lv_obj_get_style_y(al_box, LV_PART_MAIN) == y) return;
+    lv_obj_set_y(al_box, y);
+    lv_obj_set_height(al_box, AL_BOX_END - y);
+}
+
+static void alert_create(void)
+{
+    scr_alert = base_screen();
+    al_title = label(scr_alert, f_city, C_TEXT, AL_TITLE_Y);
+    lv_obj_set_width(al_title, 260);                    // the round edge's width at the first line
+    lv_label_set_long_mode(al_title, LV_LABEL_LONG_WRAP);
+    lv_obj_t *box = al_box = lv_obj_create(scr_alert);
+    lv_obj_remove_style_all(box);
+    lv_obj_set_size(box, 310, AL_BOX_END - 80);
+    lv_obj_align(box, LV_ALIGN_TOP_MID, 0, 80);
+    lv_obj_set_flex_flow(box, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(box, 4, 0);
+    lv_obj_set_style_pad_bottom(box, 90, 0);            // the last lines can scroll above the round edge
+    lv_obj_set_scroll_dir(box, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(box, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_add_flag(box, LV_OBJ_FLAG_EVENT_BUBBLE | LV_OBJ_FLAG_GESTURE_BUBBLE);
+    al_map = lv_image_create(box);                      // region map, when available
+    lv_obj_set_style_radius(al_map, 16, 0);
+    lv_obj_set_style_clip_corner(al_map, true, 0);
+    lv_obj_set_style_margin_bottom(al_map, 8, 0);
+    lv_obj_add_flag(al_map, LV_OBJ_FLAG_HIDDEN | LV_OBJ_FLAG_EVENT_BUBBLE | LV_OBJ_FLAG_GESTURE_BUBBLE);
+    al_attr = al_label(box, f_micro, C_DIM);            // the map's tiles: OpenStreetMap asks for it on screen
+    lv_obj_set_style_text_align(al_attr, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_pad_bottom(al_attr, 6, 0);
+    lv_label_set_text(al_attr, "© OpenStreetMap contributors");
+    lv_obj_add_flag(al_attr, LV_OBJ_FLAG_HIDDEN);
+    al_sub = al_label(box, f_tiny, C_DIM);
+    lv_obj_set_style_text_align(al_sub, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_pad_bottom(al_sub, 10, 0);
+    al_body = al_label(box, f_tiny, C_TEXT);
+    lv_obj_add_event_cb(scr_alert, alert_close, LV_EVENT_SHORT_CLICKED, NULL);
+    lv_obj_add_event_cb(scr_alert, alert_gesture, LV_EVENT_GESTURE, NULL);
+}
+
+static void dirty_hidden_one(const void *key);
+
+// The rows of the alert pill and of the city name it replaces, on place i's page: out of date in its picture, unless
+// that page is shown (slide.c). Only those rows: ~40, rendered again at once, so a drag right after finds it ready.
+static void pill_rows_dirty(int i)
+{
+    lv_obj_t *page = pager_page(place_pager, i);
+    if (page == key_of(lv_screen_active())) return;
+    lv_area_t a, c, pa;
+    lv_obj_get_coords(al_pill, &a);                     // on scr_main: rows of the screen
+    lv_obj_get_coords(pp[i].city, &c);                  // on the page: rows within it (= on screen when it's shown)
+    lv_obj_get_coords(page, &pa);
+    slide_cache_dirty_rows(page, LV_MIN(a.y1, c.y1 - pa.y1) - 2, LV_MAX(a.y2, c.y2 - pa.y1) + 2);
+}
+
+void ui_alert_map(uint16_t *buf, int w, int h)
+{
+    display_lock(-1);
+    uint16_t *old = al_map_buf;
+    al_map_buf = buf;
+    dirty_hidden_one(scr_alert);
+    if (buf) {
+        memset(&al_map_dsc, 0, sizeof(al_map_dsc));
+        al_map_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
+        al_map_dsc.header.cf = LV_COLOR_FORMAT_RGB565;
+        al_map_dsc.header.w = w;
+        al_map_dsc.header.h = h;
+        al_map_dsc.header.stride = w * 2;
+        al_map_dsc.data = (const uint8_t *)buf;
+        al_map_dsc.data_size = w * h * 2;
+        lv_image_cache_drop(&al_map_dsc);
+        lv_image_set_src(al_map, &al_map_dsc);
+        lv_obj_remove_flag(al_map, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(al_attr, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(al_map, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(al_attr, LV_OBJ_FLAG_HIDDEN);
+    }
+    display_unlock();
+    if (old != buf) free(old);
+}
+
+// The map held, hidden while another place is shown and shown again on the way back (main.c keeps it: it was
+// downloaded and drawn again at every return to the place, ~830 KB of PSRAM each time until v1.14.1)
+void ui_alert_map_show(bool show)
+{
+    display_lock(-1);
+    show = show && al_map_buf;
+    if (lv_obj_has_flag(al_map, LV_OBJ_FLAG_HIDDEN) == show) {
+        set_hidden(al_map, !show);
+        set_hidden(al_attr, !show);
+        dirty_hidden_one(scr_alert);
+    }
+    display_unlock();
+}
+
+#define AL (i18n_lang() < ALERT_LANGS ? i18n_lang() : 0)    // alert texts exist in English and French
+
+static bool alerts_same(const alerts_t *a, const alerts_t *b)
+{
+    if (a->n != b->n) return false;
+    for (int i = 0; i < a->n; i++) {
+        const alert_t *x = &a->a[i], *y = &b->a[i];
+        if (strcmp(x->id, y->id) || x->colour != y->colour || x->ends != y->ends) return false;
+        for (int l = 0; l < ALERT_LANGS; l++)
+            if (strcmp(x->name[l], y->name[l]) || strcmp(x->area[l], y->area[l]) || strcmp(x->text[l], y->text[l]))
+                return false;
+    }
+    return true;
+}
+
+void ui_alerts(const alerts_t *al)
+{
+    display_lock(-1);
+    // The same alerts again (each fetch, and "none" at every place switch): nothing to redraw, and the cached
+    // pictures for drags (slide.c) stay valid. al == &alerts: redraw anyway (language or units changed).
+    if (al != &alerts && alerts_same(al, &alerts)) { display_unlock(); return; }
+    // New content, shown in two places: the pill (in place of the city name) on the place shown's page, and the alert
+    // screen. Until v1.14.1 every picture was marked: at a switch away from a place with an alert ("none" until the
+    // new place's are fetched) the drag back waited for both places' pictures (124-142 ms, October 5).
+    dirty_hidden_one(scr_alert);
+    pill_rows_dirty(cur_place);
+    if (al != &alerts) alerts = *al;
+    if (!alerts.n) {
+        lv_obj_add_flag(al_map, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(al_pill, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(pp[cur_place].city, LV_OBJ_FLAG_HIDDEN);
+        if (lv_screen_active() == scr_alert) lv_screen_load(scr_main);
+        display_unlock();
+        return;
+    }
+    const alert_t *a = &alerts.a[0];
+    lv_color_t c = alert_colour(a->colour);
+    lv_obj_set_style_bg_color(al_pill, c, 0);
+    lv_obj_set_style_text_color(al_pill_lbl, a->colour == 'r' ? lv_color_white() : lv_color_black(), 0);
+    if (alerts.n > 1) lv_label_set_text_fmt(al_pill_lbl, "%s +%d", a->name[AL], alerts.n - 1);
+    else lv_label_set_text(al_pill_lbl, a->name[AL]);
+    lv_obj_remove_flag(al_pill, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(pp[cur_place].city, LV_OBJ_FLAG_HIDDEN);
+
+    char until[32];
+    fmt_until(a->ends, until, sizeof(until));
+    lv_label_set_text(al_title, a->name[AL]);
+    lv_obj_set_style_text_color(al_title, c, 0);
+    al_layout();
+    lv_label_set_text_fmt(al_sub, "%s%s%s", until, until[0] && a->area[AL][0] ? "\n" : "", a->area[AL]);
+    lv_obj_scroll_to_y(lv_obj_get_parent(al_body), 0, LV_ANIM_OFF);
+    static EXT_RAM_BSS_ATTR char body[ALERTS_MAX * 960];
+    int len = snprintf(body, sizeof(body), "%s", a->text[AL]);
+    for (int i = 1; i < alerts.n && len < (int)sizeof(body); i++) {
+        fmt_until(alerts.a[i].ends, until, sizeof(until));
+        len += snprintf(body + len, sizeof(body) - len, tr(T_ALERT_ALSO), alerts.a[i].name[AL], until, alerts.a[i].text[AL]);
+    }
+    lv_label_set_text(al_body, body);
+    display_unlock();
+}
+
+// Test console ("alert sample en|fr|max|off"): the alert screen laid out with long names Environment Canada used
+// (October 4, 2026; "max" fills the 47 characters alert_t.name holds), whatever the alerts are. The pill and the alerts
+// held are left alone, so the display doesn't show a fake alert; "off" puts the screen back (lock held).
+bool ui_alert_sample(const char *which, int *title_h, int *lines, int *box_y)
+{
+    static const char *const samples[][3] = {             // which, title, when + where (test data, not translated)
+        { "en", "Wreckhouse wind warning", "Until Mon 21:30\nChannel-Port aux Basques and vicinity" },
+        { "fr", "Avertissement de vent Les Suêtes", "Jusqu'à Lun. 21:30\nComté d'Inverness - Mabou et au nord" },
+        { "max", "Avertissement de pluie verglaçante et de neige", "Jusqu'à Lun. 21:30\nVille de Québec" },
+    };
+    if (!strcmp(which, "off")) {
+        if (alerts.n) ui_alerts(&alerts);                   // (redraws from the alerts held)
+        else {
+            dirty_hidden_one(scr_alert);
+            lv_label_set_text(al_title, ""); lv_label_set_text(al_sub, ""); lv_label_set_text(al_body, "");
+        }
+        *title_h = *lines = *box_y = 0;
+        return true;
+    }
+    for (int i = 0; i < (int)(sizeof(samples) / sizeof(samples[0])); i++) {
+        if (strcmp(which, samples[i][0])) continue;
+        dirty_hidden_one(scr_alert);                        // a cached picture of the alert screen is out of date
+        lv_label_set_text(al_title, samples[i][1]);
+        lv_label_set_text(al_sub, samples[i][2]);
+        lv_label_set_text(al_body, "Sample text for the layout test (test console).");
+        al_layout();
+        *title_h = lv_obj_get_height(al_title);
+        *lines = *title_h / lv_font_get_line_height(f_city);
+        lv_obj_update_layout(al_box);                       // (lv_obj_get_y() is the last layout's until then)
+        *box_y = lv_obj_get_y(al_box);
+        return true;
+    }
+    return false;
+}
+
+// Test console "setup fail": the Easy Connect page as after a failed attempt (su_dpp_done's text, in the language
+// set), with its line count and bottom edge. Only on that page (the setup screen, page 1).
+bool ui_setup_fail_sample(int *lines, int *bottom)
+{
+    if (lv_screen_active() != scr_setup || su_page != 1) return false;
+    lv_label_set_text(su_body, tr(T_WIFI_DPP_FAIL));
+    lv_obj_update_layout(su_body);
+    *lines = lv_obj_get_height(su_body) / lv_font_get_line_height(lv_obj_get_style_text_font(su_body, 0));
+    lv_area_t a;
+    lv_obj_get_coords(su_body, &a);
+    *bottom = a.y2;
+    return true;
+}
+
+/* ---------- Extras page (swipe right from the weather screen) ----------
+ * Sun arc (sunrise -> sunset, the sun at the current time), UV index, moon phase, air quality, pollen. */
+
+static lv_obj_t *ex_moon, *ex_date, *ex_arc, *ex_sun, *ex_rise, *ex_set, *ex_day, *ex_val[4], *ex_key[4];
+static air_t ex_air = { .us_aqi = -1, .pollen = { -1, -1, -1, -1 } };
+static bool have_air;
+#define ARC_R   120
+#define ARC_CX  (DISP_W / 2)
+#define ARC_CY  215
+
+static float moon_k;           // cos(phase angle): 1 = new, -1 = full
+static bool moon_waxing;
+static int hhmm(const char *s) { int h, m; return s && sscanf(s, "%d:%d", &h, &m) == 2 ? h * 60 + m : -1; }
+
+static const char *moon_phase(time_t t, int *illum)
+{
+    const double syn = 29.530588853, new_moon = 947182440.0;   // 2000-01-06 18:14 UTC
+    double age = fmod((t - new_moon) / 86400.0, syn);
+    if (age < 0) age += syn;
+    moon_k = cos(2 * M_PI * age / syn);
+    moon_waxing = age < syn / 2;
+    *illum = (int)round((1 - cos(2 * M_PI * age / syn)) / 2 * 100);
+    static const tid_t names[8] = { T_MOON_NEW, T_MOON_WAX_CR, T_MOON_FIRST_Q, T_MOON_WAX_GIB,
+                                    T_MOON_FULL, T_MOON_WAN_GIB, T_MOON_LAST_Q, T_MOON_WAN_CR };
+    return tr(names[(int)floor(age / syn * 8 + 0.5) % 8]);
+}
+
+// Moon drawn row by row: dark disc, then the lit part. k = cos(phase angle) puts the terminator at w*k.
+static void moon_draw(lv_event_t *e)
+{
+    lv_obj_t *o = lv_event_get_target(e);
+    lv_layer_t *layer = lv_event_get_layer(e);
+    lv_area_t c;
+    lv_obj_get_coords(o, &c);
+    int r = lv_area_get_width(&c) / 2, cx = c.x1 + r, cy = c.y1 + r;
+    lv_draw_rect_dsc_t d;
+    lv_draw_rect_dsc_init(&d);
+    d.radius = LV_RADIUS_CIRCLE;
+    d.bg_color = lv_color_hex(0x2A3138);
+    lv_draw_rect(layer, &d, &c);
+    d.radius = 0;
+    d.bg_color = lv_color_hex(0xE8E6F2);
+    for (int y = -r; y < r; y++) {
+        float yy = y + 0.5f, w = sqrtf((float)r * r - yy * yy);
+        float x0 = moon_waxing ? w * moon_k : -w, x1 = moon_waxing ? w : -w * moon_k;
+        if (x1 - x0 < 0.5f) continue;
+        lv_area_t a = { cx + (int)roundf(x0), cy + y, cx + (int)roundf(x1) - 1, cy + y };
+        lv_draw_rect(layer, &d, &a);
+    }
+}
+
+static void ex_row(int i, const char *key, const char *val, lv_color_t c)
+{
+    lv_label_set_text(ex_key[i], key);
+    lv_label_set_text(ex_val[i], val);
+    lv_obj_set_style_text_color(ex_val[i], c, 0);
+}
+
+static void extras_refresh(void)       // display lock held (LVGL task or caller)
+{
+    struct tm tm;
+    time_t now = time(NULL);
+    bool synced = config_local_time((long)now, &tm);
+    char buf[64];
+    if (synced) {                                        // "Wednesday, September 30" / "Mercredi 1er octobre"
+        tr_date_long(&tm, buf, sizeof(buf));
+        lv_label_set_text(ex_date, buf);
+    }
+
+    // Sun
+    int rise = have_wx ? hhmm(wx.day[0].sunrise) : -1, set = have_wx ? hhmm(wx.day[0].sunset) : -1;
+    int cur = synced ? tm.tm_hour * 60 + tm.tm_min : -1;
+    if (rise >= 0 && set > rise) {
+        config_fmt_hhmm(wx.day[0].sunrise, buf, sizeof(buf));
+        lv_label_set_text(ex_rise, buf);
+        config_fmt_hhmm(wx.day[0].sunset, buf, sizeof(buf));
+        lv_label_set_text(ex_set, buf);
+        int len = set - rise;
+        if (cur >= rise && cur <= set) {
+            float p = (float)(cur - rise) / len;
+            lv_arc_set_value(ex_arc, (int)(p * 1000));
+            float th = (180 + 180 * p) * M_PI / 180;
+            lv_obj_set_pos(ex_sun, ARC_CX + ARC_R * cosf(th) - 11, ARC_CY + ARC_R * sinf(th) - 11);
+            lv_obj_remove_flag(ex_sun, LV_OBJ_FLAG_HIDDEN);
+            lv_label_set_text_fmt(ex_day, tr(T_DAYLIGHT), len / 60, len % 60);
+        } else {
+            lv_arc_set_value(ex_arc, 0);                      // night: the whole arc dim
+            lv_obj_add_flag(ex_sun, LV_OBJ_FLAG_HIDDEN);
+            const char *next = cur > set && wx.ndays > 1 ? wx.day[1].sunrise : wx.day[0].sunrise;
+            config_fmt_hhmm(next, buf, sizeof(buf));
+            lv_label_set_text_fmt(ex_day, tr(T_SUNRISE), buf);
+        }
+    }
+
+    // UV
+    if (have_wx) {
+        float uv = wx.uv;
+        const char *lvl = tr(uv < 3 ? T_LOW : uv < 6 ? T_MODERATE : uv < 8 ? T_HIGH : uv < 11 ? T_VERY_HIGH : T_EXTREME);
+        lv_color_t c = lv_color_hex(uv < 3 ? 0x6FD08C : uv < 6 ? 0xFFC83D : uv < 8 ? 0xFF8A3D : uv < 11 ? 0xFF4D4D : 0xC77DFF);
+        char mx[48];
+        snprintf(mx, sizeof(mx), tr(T_UV_MAX), (int)lroundf(wx.day[0].uv_max));
+        snprintf(buf, sizeof(buf), "%.0f  %s  %s", uv, lvl, mx);
+        ex_row(0, tr(T_UV_INDEX), buf, c);
+    }
+
+    // Moon
+    int illum;
+    const char *ph = moon_phase(now, &illum);
+    snprintf(buf, sizeof(buf), "%s  %d%%", ph, illum);
+    lv_obj_set_style_text_font(ex_val[1], strlen(buf) > 22 ? f_micro : f_tiny, 0);   // "Gibbeuse décroissante  78%"
+    ex_row(1, tr(T_MOON), buf, C_TEXT);
+    lv_obj_invalidate(ex_moon);
+
+    // Air quality (US AQI, CAMS global)
+    if (have_air && ex_air.us_aqi >= 0) {
+        int q = ex_air.us_aqi;
+        const char *lvl = tr(q <= 50 ? T_AQI_GOOD : q <= 100 ? T_AQI_MODERATE : q <= 150 ? T_AQI_SENSITIVE :
+                             q <= 200 ? T_AQI_UNHEALTHY : q <= 300 ? T_AQI_VERY_UNH : T_AQI_HAZARDOUS);
+        lv_color_t c = lv_color_hex(q <= 50 ? 0x6FD08C : q <= 100 ? 0xFFC83D : q <= 150 ? 0xFF8A3D : q <= 200 ? 0xFF4D4D : 0xC77DFF);
+        snprintf(buf, sizeof(buf), "%s  %d", lvl, q);
+        ex_row(2, tr(T_AIR_QUALITY), buf, c);
+    } else ex_row(2, tr(T_AIR_QUALITY), "-", C_DIM);
+
+    // Pollen (Europe only): the strongest type
+    static const tid_t pn[4] = { T_POLLEN_ALDER, T_POLLEN_BIRCH, T_POLLEN_GRASS, T_POLLEN_RAGWEED };
+    int best = -1;
+    for (int i = 0; i < 4; i++) if (ex_air.pollen[i] >= 0 && (best < 0 || ex_air.pollen[i] > ex_air.pollen[best])) best = i;
+    if (have_air && best >= 0) {
+        float v = ex_air.pollen[best];
+        const char *lvl = tr(v < 10 ? T_LOW : v < 50 ? T_MODERATE : v < 200 ? T_HIGH : T_VERY_HIGH);
+        snprintf(buf, sizeof(buf), "%s  %s", tr(pn[best]), lvl);
+        ex_row(3, tr(T_POLLEN), buf, lv_color_hex(v < 10 ? 0x6FD08C : v < 50 ? 0xFFC83D : v < 200 ? 0xFF8A3D : 0xFF4D4D));
+        lv_obj_remove_flag(ex_key[3], LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(ex_val[3], LV_OBJ_FLAG_HIDDEN);
+    } else {                                   // Open-Meteo's pollen data only covers Europe
+        lv_obj_add_flag(ex_key[3], LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ex_val[3], LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+void ui_air(const air_t *a)
+{
+    display_lock(-1);
+    if (have_air && !memcmp(&ex_air, a, sizeof(*a))) { display_unlock(); return; }   // the same (see ui_alerts)
+    slide_cache_dirty(scr_extras);                  // shown on the extras page only: its picture is out of date
+    ex_air = *a;
+    have_air = true;
+    if (lv_screen_active() == scr_extras) extras_refresh();
+    display_unlock();
+}
+
+static void extras_create(void)
+{
+    scr_extras = base_screen();
+    ex_date = label(scr_extras, f_tiny, C_DIM, 40);
+
+    ex_arc = lv_arc_create(scr_extras);
+    lv_obj_set_size(ex_arc, ARC_R * 2, ARC_R * 2);
+    lv_obj_set_pos(ex_arc, ARC_CX - ARC_R, ARC_CY - ARC_R);
+    lv_arc_set_bg_angles(ex_arc, 180, 360);
+    lv_arc_set_range(ex_arc, 0, 1000);
+    lv_arc_set_rotation(ex_arc, 0);
+    lv_arc_set_mode(ex_arc, LV_ARC_MODE_NORMAL);
+    lv_arc_set_angles(ex_arc, 180, 180);
+    lv_obj_set_style_arc_width(ex_arc, 4, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(ex_arc, lv_color_hex(0x2A3138), LV_PART_MAIN);
+    lv_obj_set_style_arc_width(ex_arc, 4, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(ex_arc, lv_color_hex(0xFFC83D), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(ex_arc, LV_OPA_TRANSP, LV_PART_KNOB);
+    lv_obj_set_style_pad_all(ex_arc, 0, LV_PART_KNOB);
+    lv_obj_remove_flag(ex_arc, LV_OBJ_FLAG_CLICKABLE);
+
+    ex_sun = lv_obj_create(scr_extras);
+    lv_obj_remove_style_all(ex_sun);
+    lv_obj_set_size(ex_sun, 22, 22);
+    lv_obj_set_style_radius(ex_sun, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(ex_sun, lv_color_hex(0xFFC83D), 0);
+    lv_obj_set_style_bg_opa(ex_sun, LV_OPA_COVER, 0);
+    lv_obj_set_style_shadow_color(ex_sun, lv_color_hex(0xFFB000), 0);
+    lv_obj_set_style_shadow_width(ex_sun, 16, 0);
+    lv_obj_add_flag(ex_sun, LV_OBJ_FLAG_HIDDEN);
+
+    ex_day = label(scr_extras, f_small, C_TEXT, ARC_CY - 70);
+    ex_rise = label(scr_extras, f_tiny, C_DIM, ARC_CY + 8);
+    lv_obj_set_width(ex_rise, 90);
+    lv_obj_align(ex_rise, LV_ALIGN_TOP_MID, -ARC_R, ARC_CY + 8);
+    ex_set = label(scr_extras, f_tiny, C_DIM, ARC_CY + 8);
+    lv_obj_set_width(ex_set, 90);
+    lv_obj_align(ex_set, LV_ALIGN_TOP_MID, ARC_R, ARC_CY + 8);
+
+    for (int i = 0; i < 4; i++) {
+        int y = 260 + i * 36;
+        ex_key[i] = label(scr_extras, f_tiny, C_DIM, y);
+        lv_obj_set_width(ex_key[i], 160);                     // "Qualité de l'air" on one line
+        lv_obj_set_style_text_align(ex_key[i], LV_TEXT_ALIGN_LEFT, 0);
+        lv_obj_align(ex_key[i], LV_ALIGN_TOP_LEFT, 72, y);
+        ex_val[i] = label(scr_extras, f_tiny, C_TEXT, y);
+        lv_obj_set_width(ex_val[i], 240);
+        lv_obj_set_style_text_align(ex_val[i], LV_TEXT_ALIGN_RIGHT, 0);
+        lv_obj_align(ex_val[i], LV_ALIGN_TOP_RIGHT, -72, y);
+    }
+    lv_obj_align(ex_val[1], LV_ALIGN_TOP_RIGHT, -106, 260 + 36);   // room for the moon picture
+    ex_moon = lv_obj_create(scr_extras);
+    lv_obj_remove_style_all(ex_moon);
+    lv_obj_set_size(ex_moon, 26, 26);
+    lv_obj_align(ex_moon, LV_ALIGN_TOP_RIGHT, -72, 260 + 36 - 2);
+    lv_obj_add_event_cb(ex_moon, moon_draw, LV_EVENT_DRAW_MAIN, NULL);
+    page_dots(scr_extras, 1);
+    lv_obj_add_event_cb(scr_extras, gesture_cb, LV_EVENT_GESTURE, NULL);
+    extras_refresh();
+}
+
+/* ---------- Status page (swipe right from the extras page) ----------
+ * Firmware version, Wi-Fi, and the health of every external service (svc.c): a dot per service
+ * (green OK, amber one failure, red failing, grey not used yet), when it was last tried and why it failed. */
+
+static lv_obj_t *st_ver, *st_net, *st_dot[SVC_COUNT], *st_age[SVC_COUNT], *st_detail[SVC_COUNT];
+
+static void fmt_age(int64_t us, char *out, size_t n)
+{
+    int s = (int)(us / 1000000);
+    if (s < 60) snprintf(out, n, tr(T_AGE_S), s);
+    else if (s < 3600) snprintf(out, n, tr(T_AGE_MIN), s / 60);
+    else if (s < 86400) snprintf(out, n, tr(T_AGE_H), s / 3600, s / 60 % 60);
+    else snprintf(out, n, tr(T_AGE_D), s / 86400);
+}
+
+static void join(char *out, size_t n, const char *part)    // "a  ·  b"
+{
+    if (!part || !*part) return;
+    size_t l = strlen(out);
+    snprintf(out + l, n - l, "%s%s", l ? "  ·  " : "", part);
+}
+
+static void status_refresh(void)       // display lock held
+{
+    int64_t now = esp_timer_get_time();
+    char a[24], b[48], d[96];
+    ota_status_t o;
+    ota_get_status(&o);
+    const esp_partition_t *part = esp_ota_get_running_partition();
+    lv_label_set_text_fmt(st_ver, "%s  ·  %s  ·  %s", o.current, tr(strcmp(o.channel, "beta") ? T_STABLE : T_BETA),
+                          part ? part->label : "?");
+    fmt_age(now, a, sizeof(a));
+    wifi_ap_record_t ap;
+    char ip[20];
+    if (net_is_connected() && net_get_ip(ip, sizeof(ip)) && esp_wifi_sta_get_ap_info(&ap) == ESP_OK)
+        lv_label_set_text_fmt(st_net, tr(T_WIFI_UP), ap.rssi, ip, a);
+    else lv_label_set_text_fmt(st_net, tr(T_WIFI_OFFLINE), a);
+
+    for (int i = 0; i < SVC_COUNT; i++) {
+        svc_info_t s;
+        svc_get(services_row(i), &s);
+        uint32_t c;
+        d[0] = 0;
+        if (i == SVC_UPDATES && o.latest[0]) { snprintf(b, sizeof(b), tr(T_SVC_OFFERS), o.latest); join(d, sizeof(d), b); }
+        else join(d, sizeof(d), i == SVC_FORECAST ? tr(T_API_FORECAST) : i == SVC_AIR ? tr(T_API_AIR) :
+                                i == SVC_TILES ? tr(T_API_TILES) : i == SVC_UPDATES ? tr(T_API_UPDATES) : s.api);
+        if (s.probing) {
+            c = 0x5A636E;
+            a[0] = 0;
+            join(d, sizeof(d), tr(T_SVC_CHECKING));
+        } else if (!s.last_try) {
+            c = 0x5A636E;
+            a[0] = 0;
+            join(d, sizeof(d), tr(i == SVC_NTP ? T_SVC_WAIT_SYNC : T_SVC_NOT_USED));
+        } else {
+            fmt_age(now - s.last_try, a, sizeof(a));
+            if (s.ok) {
+                c = 0x6FD08C;
+                join(d, sizeof(d), "OK");
+                if (s.ms) { snprintf(b, sizeof(b), "%d ms", s.ms); join(d, sizeof(d), b); }
+            } else {
+                c = s.fails >= 2 || !s.last_ok ? 0xFF4D4D : 0xFFC83D;
+                join(d, sizeof(d), s.why);
+                if (s.fails > 1) { snprintf(b, sizeof(b), tr(T_SVC_IN_A_ROW), s.fails); join(d, sizeof(d), b); }
+                if (s.last_ok) {
+                    char t[16];
+                    fmt_age(now - s.last_ok, t, sizeof(t));
+                    snprintf(b, sizeof(b), tr(T_SVC_OK_AGO), t);
+                } else snprintf(b, sizeof(b), "%s", tr(T_SVC_NEVER_OK));
+                join(d, sizeof(d), b);
+            }
+        }
+        lv_obj_set_style_bg_color(st_dot[i], lv_color_hex(c), 0);
+        lv_label_set_text(st_age[i], a);
+        lv_label_set_text(st_detail[i], d);
+    }
+}
+
+static void status_tick(lv_timer_t *t)
+{
+    if (lv_screen_active() == scr_status) status_refresh();
+}
+
+static lv_obj_t *st_label(lv_obj_t *parent, lv_font_t *f, lv_color_t c, int x, int y, int w)
+{
+    lv_obj_t *l = lv_label_create(parent);
+    lv_obj_set_style_text_font(l, f, 0);
+    lv_obj_set_style_text_color(l, c, 0);
+    lv_obj_set_size(l, w, lv_font_get_line_height(f));     // one line: LONG_DOT needs a fixed height
+    lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
+    lv_obj_set_pos(l, x, y);
+    lv_label_set_text(l, "");
+    return l;
+}
+
+static void status_create(void)
+{
+    scr_status = base_screen();
+    tlabel(label(scr_status, f_small, C_ACCENT, 34), T_STATUS);
+    st_ver = label(scr_status, f_tiny, C_TEXT, 62);
+    st_net = label(scr_status, f_micro, C_DIM, 88);
+    lv_obj_set_width(st_net, 340);
+
+    // The list scrolls inside a box that stays clear of the round edge and the page dots (y 120..400)
+    lv_obj_t *box = lv_obj_create(scr_status);
+    lv_obj_remove_style_all(box);
+    lv_obj_set_size(box, 280, 280);
+    lv_obj_align(box, LV_ALIGN_TOP_MID, 0, 120);
+    lv_obj_set_flex_flow(box, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(box, 8, 0);
+    lv_obj_set_scroll_dir(box, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(box, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_add_flag(box, LV_OBJ_FLAG_EVENT_BUBBLE | LV_OBJ_FLAG_GESTURE_BUBBLE);
+    for (int i = 0; i < SVC_COUNT; i++) {             // (the update site's row exists: ota_start ran before)
+        svc_info_t s;
+        svc_get(services_row(i), &s);
+        lv_obj_t *row = lv_obj_create(box);
+        lv_obj_remove_style_all(row);
+        lv_obj_set_size(row, 280, 42);
+        st_dot[i] = lv_obj_create(row);
+        lv_obj_remove_style_all(st_dot[i]);
+        lv_obj_set_size(st_dot[i], 10, 10);
+        lv_obj_set_pos(st_dot[i], 0, 6);
+        lv_obj_set_style_radius(st_dot[i], LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_bg_opa(st_dot[i], LV_OPA_COVER, 0);
+        lv_label_set_text(st_label(row, f_tiny, C_TEXT, 18, 0, 196), s.name);
+        st_age[i] = st_label(row, f_micro, C_DIM, 214, 2, 66);
+        lv_obj_set_style_text_align(st_age[i], LV_TEXT_ALIGN_RIGHT, 0);
+        st_detail[i] = st_label(row, f_micro, C_DIM, 18, 22, 262);
+    }
+    passthrough(box);                                       // rows and labels: presses reach the box/screen
+    page_dots(scr_status, 0);
+    lv_obj_add_event_cb(scr_status, gesture_cb, LV_EVENT_GESTURE, NULL);
+    lv_timer_create(status_tick, 1000, NULL);
+    status_refresh();
+}
+
+/* ---------- Firmware update: pill on the weather screen + update screen ---------- */
+
+static lv_obj_t *up_title, *up_body, *up_btn, *up_bar, *up_state, *up_box, *up_notes;
+static ota_status_t up_st;
+static int up_notes_id = -1;
+
+// "What's new": one accent header ("v1.4.0 · September 30, 2026") and one bulleted label per release.
+static void update_notes(void)        // display lock held
+{
+    if (up_st.notes_id == up_notes_id) return;
+    up_notes_id = up_st.notes_id;
+    char *txt = heap_caps_malloc(3072, MALLOC_CAP_SPIRAM);
+    if (!txt) return;
+    ota_get_notes(txt, 3072);
+    lv_obj_clean(up_notes);
+    if (!*txt) { lv_obj_add_flag(up_notes, LV_OBJ_FLAG_HIDDEN); free(txt); return; }
+    lv_obj_remove_flag(up_notes, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_t *h = al_label(up_notes, f_small, C_TEXT);
+    lv_label_set_text(h, tr(T_WHATS_NEW));
+    lv_obj_set_style_pad_bottom(h, 2, 0);
+    char *body = heap_caps_malloc(3200, MALLOC_CAP_SPIRAM);
+    char *save = NULL;
+    int bn = 0;
+    for (char *line = strtok_r(txt, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
+        char *bar = strchr(line, '|');
+        bool header = line[0] == 'v' && bar;
+        if (header || !body) {
+            if (body && bn) { lv_label_set_text(al_label(up_notes, f_tiny, C_TEXT), body); bn = 0; }
+            if (!header) continue;
+            *bar = 0;
+            lv_obj_t *l = al_label(up_notes, f_micro, C_ACCENT);
+            if (bar[1]) lv_label_set_text_fmt(l, "%s  ·  %s", line, bar + 1);
+            else lv_label_set_text(l, line);
+            lv_obj_set_style_pad_top(l, 10, 0);
+            continue;
+        }
+        bn += snprintf(body + bn, 3200 - bn, "%s%s %s", bn ? "\n" : "", strcmp(line, "...") ? "•" : "", line);
+        if (bn >= 3200) bn = 3199;
+    }
+    if (body && bn) lv_label_set_text(al_label(up_notes, f_tiny, C_TEXT), body);
+    free(body);
+    free(txt);
+}
+
+static void update_render(void)       // display lock held
+{
+    const ota_status_t *o = &up_st;
+    bool show_pill = o->state == OTA_AVAILABLE || o->state == OTA_DOWNLOADING || o->state == OTA_DONE;
+    if (show_pill) {
+        if (o->state == OTA_AVAILABLE) lv_label_set_text_fmt(up_pill_lbl, tr(T_PILL_UPDATE), o->latest);
+        else lv_label_set_text_fmt(up_pill_lbl, tr(T_PILL_UPDATING), o->progress);
+        lv_obj_remove_flag(up_pill, LV_OBJ_FLAG_HIDDEN);
+    } else lv_obj_add_flag(up_pill, LV_OBJ_FLAG_HIDDEN);
+
+    lv_label_set_text_fmt(up_body, tr(T_UP_YOU_HAVE), o->latest, o->current);
+    bool busy = o->state == OTA_DOWNLOADING || o->state == OTA_DONE;
+    if (o->state == OTA_AVAILABLE) lv_obj_remove_flag(up_btn, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(up_btn, LV_OBJ_FLAG_HIDDEN);
+    if (busy) {
+        lv_obj_remove_flag(up_bar, LV_OBJ_FLAG_HIDDEN);
+        lv_bar_set_value(up_bar, o->state == OTA_DONE ? 100 : o->progress, LV_ANIM_OFF);
+    } else lv_obj_add_flag(up_bar, LV_OBJ_FLAG_HIDDEN);
+    char rb[96] = "";
+    if (o->rolled_back[0] && !busy) snprintf(rb, sizeof(rb), tr(T_OTA_ROLLED_BACK), o->rolled_back);
+    lv_label_set_text(up_state,
+        o->state == OTA_DOWNLOADING ? tr(T_UP_DOWNLOADING) :
+        o->state == OTA_DONE ? tr(T_UP_INSTALLED) :
+        rb[0] ? rb :
+        o->state == OTA_FAILED ? o->error :
+        o->state == OTA_AVAILABLE ? (o->error[0] ? o->error : tr(T_UP_KEPT)) : "");
+    lv_label_set_text(up_title, tr(o->state == OTA_DONE ? T_UP_DONE : busy ? T_UP_BUSY : T_UP_AVAILABLE));
+    update_notes();
+}
+
+// A picture out of date, unless its screen is shown (that one gets its changes as LVGL draws them, slide.c)
+static void dirty_hidden_one(const void *key)
+{
+    if (key != key_of(lv_screen_active())) slide_cache_dirty(key);
+}
+
+void ui_ota(const ota_status_t *o)      // OTA task
+{
+    display_lock(-1);
+    // Only the pictures that show the update state are out of date: the update screen, the status page, Settings,
+    // and the places (the weather screen's update pill) only if the pill changed. Every update check (checking, then
+    // up to date) marked them all, and the next place drag waited ~0.2 s to render a whole page again.
+    char pill[48];
+    bool pill_was = !lv_obj_has_flag(up_pill, LV_OBJ_FLAG_HIDDEN);
+    strlcpy(pill, lv_label_get_text(up_pill_lbl), sizeof(pill));
+    up_st = *o;
+    update_render();
+    if (pill_was != !lv_obj_has_flag(up_pill, LV_OBJ_FLAG_HIDDEN) || strcmp(pill, lv_label_get_text(up_pill_lbl))) {
+        for (int i = 0; i < MAX_PLACES; i++) dirty_hidden_one(pager_page(place_pager, i));
+    }
+    dirty_hidden_one(scr_update);
+    dirty_hidden_one(scr_status);
+    dirty_hidden_one(scr_cfg);
+    if (o->state == OTA_UP_TO_DATE && lv_screen_active() == scr_update) lv_screen_load(scr_main);
+    display_unlock();
+}
+
+static void update_show(void)
+{
+    update_render();
+    lv_obj_scroll_to_y(up_box, 0, LV_ANIM_OFF);
+    slide_screen(scr_update, LV_SCR_LOAD_ANIM_MOVE_TOP, 260);
+}
+
+static void update_install(lv_event_t *e)
+{
+    ESP_LOGI("ui", "install update tapped");
+    ota_install();
+    lv_obj_add_flag(up_btn, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_scroll_to_y(up_box, 0, LV_ANIM_ON);          // the progress bar is at the top
+}
+
+static void update_tap(lv_event_t *e)
+{
+    if (up_st.state == OTA_DOWNLOADING || up_st.state == OTA_DONE) return;    // stay while installing
+    slide_screen(scr_main, LV_SCR_LOAD_ANIM_MOVE_BOTTOM, 260);
+}
+
+// Title fixed at the top; versions, Install, progress and the release notes scroll in one column.
+static void update_create(void)
+{
+    up_pill = lv_obj_create(scr_main);
+    lv_obj_remove_style_all(up_pill);
+    lv_obj_set_size(up_pill, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_radius(up_pill, 12, 0);
+    lv_obj_set_style_bg_color(up_pill, C_ACCENT, 0);
+    lv_obj_set_style_bg_opa(up_pill, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_hor(up_pill, 12, 0);
+    lv_obj_set_style_pad_ver(up_pill, 2, 0);
+    lv_obj_align(up_pill, LV_ALIGN_BOTTOM_MID, 0, -26);
+    up_pill_lbl = lv_label_create(up_pill);
+    lv_obj_set_style_text_font(up_pill_lbl, f_micro, 0);
+    lv_obj_set_style_text_color(up_pill_lbl, lv_color_hex(0x04121F), 0);
+    lv_obj_add_flag(up_pill, LV_OBJ_FLAG_HIDDEN);
+
+    scr_update = base_screen();
+    up_title = label(scr_update, f_city, C_ACCENT, 40);
+    lv_obj_set_width(up_title, 300);
+    up_box = lv_obj_create(scr_update);
+    lv_obj_remove_style_all(up_box);
+    lv_obj_set_size(up_box, 310, 386);
+    lv_obj_align(up_box, LV_ALIGN_TOP_MID, 0, 80);
+    lv_obj_set_flex_flow(up_box, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(up_box, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(up_box, 10, 0);
+    lv_obj_set_style_pad_bottom(up_box, 90, 0);         // the last lines can scroll above the round edge
+    lv_obj_set_scroll_dir(up_box, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(up_box, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_add_flag(up_box, LV_OBJ_FLAG_EVENT_BUBBLE | LV_OBJ_FLAG_GESTURE_BUBBLE);
+    up_body = al_label(up_box, f_tiny, C_DIM);
+    lv_obj_set_style_text_align(up_body, LV_TEXT_ALIGN_CENTER, 0);
+    up_btn = lv_button_create(up_box);
+    lv_obj_set_size(up_btn, 200, 56);
+    lv_obj_set_style_radius(up_btn, 28, 0);
+    lv_obj_set_style_bg_color(up_btn, C_ACCENT, 0);
+    lv_obj_t *bl = lv_label_create(up_btn);
+    lv_obj_set_style_text_font(bl, f_small, 0);
+    lv_obj_set_style_text_color(bl, lv_color_hex(0x04121F), 0);
+    tlabel(bl, T_INSTALL);
+    lv_obj_center(bl);
+    lv_obj_add_event_cb(up_btn, update_install, LV_EVENT_CLICKED, NULL);
+    up_bar = lv_bar_create(up_box);
+    lv_obj_set_size(up_bar, 240, 12);
+    lv_obj_set_style_margin_ver(up_bar, 22, 0);
+    lv_bar_set_range(up_bar, 0, 100);
+    lv_obj_set_style_bg_color(up_bar, lv_color_hex(0x2A3138), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(up_bar, C_ACCENT, LV_PART_INDICATOR);
+    lv_obj_add_flag(up_bar, LV_OBJ_FLAG_HIDDEN | LV_OBJ_FLAG_EVENT_BUBBLE | LV_OBJ_FLAG_GESTURE_BUBBLE);
+    up_state = al_label(up_box, f_micro, C_DIM);
+    lv_obj_set_style_text_align(up_state, LV_TEXT_ALIGN_CENTER, 0);
+    up_notes = lv_obj_create(up_box);
+    lv_obj_remove_style_all(up_notes);
+    lv_obj_set_size(up_notes, lv_pct(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(up_notes, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(up_notes, 4, 0);
+    lv_obj_set_style_pad_top(up_notes, 8, 0);
+    lv_obj_add_flag(up_notes, LV_OBJ_FLAG_HIDDEN | LV_OBJ_FLAG_EVENT_BUBBLE | LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_remove_flag(up_notes, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(scr_update, update_tap, LV_EVENT_SHORT_CLICKED, NULL);
+    lv_obj_add_event_cb(scr_update, alert_gesture, LV_EVENT_GESTURE, NULL);
+}
+
+// Tiny icons for the weather screen's detail row, drawn like the weather icons (the font has no symbols).
+// Droplet = humidity (rain blue), three staggered strokes = wind (a light grey, brighter than the text).
+static void drop_draw(lv_event_t *e)
+{
+    lv_layer_t *layer = lv_event_get_layer(e);
+    lv_area_t a;
+    lv_obj_get_coords(lv_event_get_target(e), &a);
+    int cx = (a.x1 + a.x2) / 2, w = lv_area_get_width(&a), r = w * 4 / 10;
+    lv_draw_rect_dsc_t c;
+    lv_draw_rect_dsc_init(&c);
+    c.bg_color = lv_color_hex(0x4DA3FF);                     // the rain drops' blue
+    c.radius = LV_RADIUS_CIRCLE;
+    lv_area_t ball = { cx - r, a.y2 - 2 * r, cx + r, a.y2 };
+    lv_draw_rect(layer, &c, &ball);
+    lv_draw_triangle_dsc_t t;
+    lv_draw_triangle_dsc_init(&t);
+    t.bg_color = lv_color_hex(0x4DA3FF);
+    t.p[0].x = cx;          t.p[0].y = a.y1;
+    t.p[1].x = cx - r;      t.p[1].y = a.y2 - r;
+    t.p[2].x = cx + r + 1;  t.p[2].y = a.y2 - r;
+    lv_draw_triangle(layer, &t);
+}
+
+static void wind_draw(lv_event_t *e)
+{
+    lv_layer_t *layer = lv_event_get_layer(e);
+    lv_area_t a;
+    lv_obj_get_coords(lv_event_get_target(e), &a);
+    int w = lv_area_get_width(&a), h = lv_area_get_height(&a);
+    lv_draw_line_dsc_t l;
+    lv_draw_line_dsc_init(&l);
+    l.color = lv_color_hex(0xC9D1DA);                        // whiter than the text
+    l.width = 2;
+    l.round_start = l.round_end = 1;
+    static const struct { int y, x0, x1; } s[3] = { { 20, 30, 100 }, { 50, 0, 85 }, { 80, 20, 70 } };   // % of the box
+    for (int i = 0; i < 3; i++) {
+        l.p1.x = a.x1 + w * s[i].x0 / 100; l.p2.x = a.x1 + w * s[i].x1 / 100;
+        l.p1.y = l.p2.y = a.y1 + h * s[i].y / 100;
+        lv_draw_line(layer, &l);
+    }
+}
+
+static lv_obj_t *row_label(lv_obj_t *row)
+{
+    lv_obj_t *l = lv_label_create(row);
+    lv_obj_set_style_text_font(l, f_small, 0);
+    lv_obj_set_style_text_color(l, C_DIM, 0);
+    lv_label_set_text(l, "");
+    return l;
+}
+
+static void row_icon(lv_obj_t *row, int w, int h, lv_event_cb_t draw)
+{
+    lv_obj_t *o = lv_obj_create(row);
+    lv_obj_remove_style_all(o);
+    lv_obj_set_size(o, w, h);
+    lv_obj_add_event_cb(o, draw, LV_EVENT_DRAW_MAIN, NULL);
+}
+
+// One place's weather page: the layout the weather screen always had
+static void place_page_create(int i, lv_obj_t *pg)
+{
+    place_page_t *p = &pp[i];
+    p->time = label(pg, f_time, C_DIM, 38);
+    p->age = label(pg, f_micro, C_DIM, 16);                  // above the clock, where the circle is ~220 px wide
+    lv_obj_set_width(p->age, 220);
+    lv_label_set_long_mode(p->age, LV_LABEL_LONG_DOT);
+    p->city = label(pg, f_city, C_TEXT, 72);
+    lv_obj_t *hero = lv_obj_create(pg);                      // icon + big temperature, centred together
+    lv_obj_remove_style_all(hero);
+    lv_obj_set_size(hero, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(hero, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(hero, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(hero, 14, 0);
+    lv_obj_align(hero, LV_ALIGN_TOP_MID, 0, 112);
+    p->icon = icon_box_create(hero, 80);
+    p->temp = lv_label_create(hero);
+    lv_obj_set_style_text_font(p->temp, f_big, 0);
+    lv_obj_set_style_text_color(p->temp, C_TEXT, 0);
+    lv_label_set_text(p->temp, "");
+    p->cond = label(pg, f_cond, C_TEXT, 214);
+    p->detail = lv_obj_create(pg);                          // feels-like · humidity · wind, centred
+    lv_obj_remove_style_all(p->detail);
+    lv_obj_set_size(p->detail, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(p->detail, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(p->detail, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(p->detail, 6, 0);
+    lv_obj_align(p->detail, LV_ALIGN_TOP_MID, 0, 248);
+    p->feels = row_label(p->detail);
+    lv_label_set_text(row_label(p->detail), "·");
+    row_icon(p->detail, 12, 16, drop_draw);
+    p->hum = row_label(p->detail);
+    lv_label_set_text(row_label(p->detail), "·");
+    row_icon(p->detail, 18, 14, wind_draw);
+    p->wind = row_label(p->detail);
+    lv_obj_add_flag(p->detail, LV_OBJ_FLAG_HIDDEN);
+    p->nowcast = label(pg, f_tiny, C_ACCENT, 273);           // "Rain around 14:45" (hidden when none)
+    lv_obj_add_flag(p->nowcast, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_t *div = lv_obj_create(pg);
+    lv_obj_remove_style_all(div);
+    lv_obj_set_size(div, 260, 2);
+    lv_obj_set_style_bg_color(div, lv_color_hex(0x2A3138), 0);
+    lv_obj_set_style_bg_opa(div, LV_OPA_COVER, 0);
+    lv_obj_align(div, LV_ALIGN_TOP_MID, 0, 298);
+    for (int k = 0; k < 3; k++) {                              // 3-day forecast: day / icon / high-low
+        int dx = (k - 1) * 98;
+        p->fc_day[k] = label(pg, f_tiny, C_ACCENT, 0);
+        lv_obj_set_width(p->fc_day[k], 120);                  // "Aujourd'hui" (columns are 98 px apart)
+        lv_obj_align(p->fc_day[k], LV_ALIGN_TOP_MID, dx, 306);
+        p->fc_icon[k] = icon_box_create(pg, 36);
+        lv_obj_align(p->fc_icon[k], LV_ALIGN_TOP_MID, dx, 334);
+        p->fc_temp[k] = label(pg, f_tiny, C_TEXT, 0);
+        lv_obj_set_width(p->fc_temp[k], 96);
+        lv_obj_align(p->fc_temp[k], LV_ALIGN_TOP_MID, dx, 384);
+    }
+}
+
+static void place_dots(int active)
+{
+    static int drawn_active = -1, drawn_n = -1;          // as drawn: setting the same styles again redraws them
+    if (active == drawn_active && n_places == drawn_n) return;
+    drawn_active = active;
+    drawn_n = n_places;
+    for (int i = 0; i < MAX_PLACES; i++) {
+        if (n_places < 2 || i >= n_places) { set_hidden(pl_dot[i], true); continue; }
+        lv_obj_set_size(pl_dot[i], 7, i == active ? 18 : 7);
+        lv_obj_set_style_bg_color(pl_dot[i], i == active ? C_TEXT : C_DIM, 0);
+        lv_obj_set_style_bg_opa(pl_dot[i], i == active ? LV_OPA_COVER : LV_OPA_60, 0);
+        lv_obj_align(pl_dot[i], LV_ALIGN_RIGHT_MID, -14,
+                     (2 * i - (n_places - 1)) * 8 + (i < active ? -5 : i > active ? 5 : 0));
+        set_hidden(pl_dot[i], false);
+    }
+}
+
+static void place_scrolled(int i, void *user) { place_dots(i); }     // dots follow the finger
+
+static void place_settled(int i, void *user)
+{
+    if (i != cur_place && i < n_places && place_select_cb) {
+        ESP_LOGI("ui", "place %d", i + 1);
+        place_select_cb(i);
+    }
+}
+
+/* ---------- Settings screen (long-press on the weather screen) ----------
+ * Quick settings on the display itself: screen (dimming, pick-up, timing, brightness arc along the bottom edge),
+ * units, and shortcuts (phone settings QR, Wi-Fi setup, updates, restart). Each change is saved at once through the
+ * same functions as the settings page (forge_presence, config.c), so the phone and the display always agree. Places,
+ * the Wi-Fi password, custom timings and sound calibration stay on the phone (typing, map, live meter). */
+
+enum { R_DIM, R_MOTION, R_TIMING, R_TEMP, R_WIND, R_CLOCK, R_LANG, R_CHIME, R_VOLUME, R_TEST, R_PHONE, R_WIFI, R_UPDATE,
+       R_RESTART, CFG_ROWS };
+static lv_obj_t *cfg_row[CFG_ROWS], *cfg_val[CFG_ROWS], *cfg_arc, *cfg_bright, *cfg_zone;
+static uint32_t check_tapped;                      // tick of "Check now" (shows the result for a few seconds)
+static const struct { int dim, off, wake; tid_t name; } cfg_presets[] = {          // as the settings page's PRESETS
+    { 120, 900, 2, T_T_SHORT }, { 600, 3600, 3, T_T_NORMAL }, { 1800, 10800, 3, T_T_LONG },   // off = total quiet
+};
+static uint32_t restart_armed;                     // tick of the first "Restart" tap (a second one restarts)
+static void (*data_refresh_cb)(void);              // main.c: fetch again (alerts, notes) after a language change
+
+static int cfg_preset(const presence_cfg_t *c)     // index into cfg_presets, -1 = custom
+{
+    for (int i = 0; i < 3; i++)
+        if ((int)c->dim_s == cfg_presets[i].dim && (int)(c->dim_s + c->off_s) == cfg_presets[i].off &&
+            (int)c->wake_s == cfg_presets[i].wake) return i;
+    return -1;
+}
+
+static void cfg_switch(int r, bool on)
+{
+    lv_obj_t *sw = cfg_val[r];
+    if (on) lv_obj_add_state(sw, LV_STATE_CHECKED); else lv_obj_remove_state(sw, LV_STATE_CHECKED);
+}
+
+// Settings as a long-press opens it (also its picture rendered ahead, drag_paint)
+static void cfg_refresh(void);
+
+static void cfg_open_state(void)
+{
+    cfg_refresh();
+    lv_obj_scroll_to_y(lv_obj_get_parent(cfg_row[0]), 0, LV_ANIM_OFF);
+}
+
+// Every second while Settings is shown (cfg_tick) and after each change: only what changed is set, a label set to its
+// own text or a row hidden again redrew it each second (a frame 200 ms before a scroll's first, harness
+// swipe_gap_max_ms.scroll_settings 190-200 ms, October 6)
+static void cfg_refresh(void)                      // display lock held
+{
+    presence_cfg_t c;
+    presence_status_t st;
+    units_t u;
+    ota_status_t o;
+    presence_get_config(&c);
+    presence_get_status(&st);
+    config_get_units(&u);
+    ota_get_status(&o);
+    cfg_switch(R_DIM, c.enabled);
+    cfg_switch(R_MOTION, presence_motion_wake());
+    set_hidden(cfg_row[R_MOTION], !st.imu_ok);
+    int p = cfg_preset(&c);
+    set_text(cfg_val[R_TIMING], tr(p < 0 ? T_T_CUSTOM : cfg_presets[p].name));
+    set_text(cfg_val[R_TEMP], u.fahrenheit ? "°F" : "°C");
+    set_text(cfg_val[R_WIND], u.wind == WIND_MPH ? "mph" : u.wind == WIND_MS ? "m/s" : "km/h");
+    set_text(cfg_val[R_CLOCK], u.h12 ? "12 h" : "24 h");
+    set_text(cfg_val[R_LANG], i18n_name(i18n_lang()));   // (Inuktitut: "draft" in its name, i18n.c)
+    sound_cfg_t sc;
+    sound_get_config(&sc);
+    static const tid_t lvl[4] = { T_CHIME_OFF, T_CHIME_RED, T_CHIME_ORANGE, T_CHIME_ALL };
+    set_text(cfg_val[R_CHIME], tr(lvl[sc.level & 3]));
+    char b[48];
+    snprintf(b, sizeof(b), "%d%%", sc.volume);
+    set_text(cfg_val[R_VOLUME], b);
+    bool just_checked = check_tapped && lv_tick_elaps(check_tapped) < 6000;
+    if (o.state == OTA_AVAILABLE) snprintf(b, sizeof(b), "%s >", o.latest);             // tap: update screen
+    else if (o.state == OTA_CHECKING) snprintf(b, sizeof(b), "%s", tr(T_CHECKING));
+    else if (o.state == OTA_DOWNLOADING) snprintf(b, sizeof(b), "%d%%", o.progress);
+    else if (just_checked && o.state == OTA_UP_TO_DATE) snprintf(b, sizeof(b), "%s", tr(T_UP_TO_DATE));
+    else if (just_checked && o.state == OTA_FAILED) snprintf(b, sizeof(b), "%s", tr(T_FAILED));
+    else snprintf(b, sizeof(b), "%s", tr(T_CHECK_NOW));
+    set_text(cfg_val[R_UPDATE], b);
+    bool armed = restart_armed && lv_tick_elaps(restart_armed) < 4000;
+    set_text(cfg_val[R_RESTART], armed ? tr(T_TAP_AGAIN) : "");
+    if (!lv_obj_has_state(cfg_zone, LV_STATE_PRESSED)) {
+        lv_arc_set_value(cfg_arc, c.bright_pct);                   // (returns at once when the value is the same)
+        snprintf(b, sizeof(b), tr(T_BRIGHTNESS), c.bright_pct);
+        set_text(cfg_bright, b);
+    }
+}
+
+static void cfg_tick(lv_timer_t *t)
+{
+    if (lv_screen_active() == scr_cfg) cfg_refresh();      // update state, changes made from the phone
+}
+
+static void do_restart(lv_timer_t *t) { lv_timer_delete(t); ota_restart_when_safe(); }   // (not during an update's first minute)
+
+static void cfg_tap(lv_event_t *e)
+{
+    int r = (int)(intptr_t)lv_event_get_user_data(e);
+    presence_cfg_t c;
+    presence_status_t st;
+    units_t u;
+    presence_get_config(&c);
+    presence_get_status(&st);
+    config_get_units(&u);
+    ESP_LOGI("ui", "settings row %d", r);
+    switch (r) {
+    case R_DIM: c.enabled = !c.enabled; presence_set_config(&c); break;
+    case R_MOTION: presence_set_motion(!presence_motion_wake(), st.motion_thr); break;
+    case R_TIMING: {
+        int p = (cfg_preset(&c) + 1) % 3;                       // custom -> Short
+        c.dim_s = cfg_presets[p].dim;
+        c.off_s = cfg_presets[p].off - cfg_presets[p].dim;
+        c.wake_s = cfg_presets[p].wake;
+        presence_set_config(&c);
+        break;
+    }
+    case R_TEMP: u.fahrenheit = !u.fahrenheit; config_set_units(&u); ui_units_changed(); break;
+    case R_WIND: u.wind = (u.wind + 1) % 3; config_set_units(&u); ui_units_changed(); break;
+    case R_CLOCK: u.h12 = !u.h12; config_set_units(&u); ui_units_changed(); break;
+    case R_LANG:
+        u.lang = (u.lang + 1) % LANG_COUNT;
+        config_set_units(&u);
+        ui_units_changed();                                     // every screen, in the new language
+        if (data_refresh_cb) data_refresh_cb();                 // alerts and release notes in the new language
+        break;
+    case R_CHIME: case R_VOLUME: {
+        sound_cfg_t sc;
+        sound_get_config(&sc);
+        if (r == R_CHIME) sc.level = (sc.level + 1) % 4;          // Off, Red, Orange+, All
+        else sc.volume = sc.volume >= 100 ? 20 : (sc.volume / 20 + 1) * 20;   // 20, 40 ... 100
+        sound_set_config(&sc);
+        if (r == R_VOLUME) sound_test(2);                         // hear the new volume
+        break;
+    }
+    case R_TEST: sound_test(2); break;
+    case R_PHONE: back_to_cfg = true; lv_screen_load(scr_main); show_settings(NULL); return;
+    case R_WIFI: back_to_cfg = true; ui_wifi_setup(NULL); return;
+    case R_UPDATE: {
+        ota_status_t o;
+        ota_get_status(&o);
+        if (o.state == OTA_AVAILABLE) { update_show(); return; }
+        if (o.state != OTA_CHECKING && o.state != OTA_DOWNLOADING) { ota_check_now(); check_tapped = lv_tick_get(); }
+        break;
+    }
+    case R_RESTART:
+        if (restart_armed && lv_tick_elaps(restart_armed) < 4000) {
+            ESP_LOGI("ui", "restart from the settings screen");
+            lv_label_set_text(cfg_val[R_RESTART], tr(T_RESTARTING));
+            lv_timer_create(do_restart, 400, NULL);
+            return;
+        }
+        restart_armed = lv_tick_get();
+        break;
+    }
+    cfg_refresh();
+}
+
+// Brightness: the band under the arc follows the finger's x (left 5 %, right 100 %); the arc only shows the value.
+// (A clickable full-size lv_arc caught every touch on the screen, rows and Done included.)
+#define BR_X0 60
+#define BR_X1 406
+static void cfg_bright_changed(lv_event_t *e)
+{
+    lv_indev_t *in = lv_indev_active();
+    if (!in) return;
+    lv_point_t pt;
+    lv_indev_get_point(in, &pt);
+    int v = 5 + (pt.x - BR_X0) * 95 / (BR_X1 - BR_X0);
+    v = v < 5 ? 5 : v > 100 ? 100 : v;
+    lv_arc_set_value(cfg_arc, v);
+    lv_label_set_text_fmt(cfg_bright, tr(T_BRIGHTNESS), v);
+    presence_preview_brightness(v);                           // the screen follows the finger
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {   // save when the finger lifts (NVS write)
+        presence_cfg_t c;
+        presence_get_config(&c);
+        c.bright_pct = v;
+        presence_set_config(&c);
+        ESP_LOGI("ui", "brightness %d%%", v);
+    }
+}
+
+static void cfg_close(lv_event_t *e)
+{
+    slide_screen(scr_main, LV_SCR_LOAD_ANIM_MOVE_BOTTOM, 260);
+}
+
+static void cfg_gesture(lv_event_t *e)
+{
+    lv_indev_t *in = lv_indev_active();
+    if (!in) return;
+    if (lv_indev_get_gesture_dir(in) == LV_DIR_RIGHT) cfg_close(e);   // swipe right = back
+    lv_indev_wait_release(in);
+}
+
+static void open_cfg(lv_event_t *e)                // long-press on the weather screen
+{
+    if (!net_is_connected()) {                       // offline: Wi-Fi setup is what's needed
+        ESP_LOGI("ui", "long press while offline -> Wi-Fi setup");
+        ui_wifi_setup(NULL);
+        return;
+    }
+    ESP_LOGI("ui", "long press -> settings");
+    restart_armed = 0;
+    check_tapped = 0;
+    back_to_cfg = false;
+    cfg_open_state();
+    slide_screen(scr_cfg, LV_SCR_LOAD_ANIM_MOVE_TOP, 260);
+    lv_indev_t *in = lv_indev_active();
+    if (in) lv_indev_wait_release(in);               // the long-press's release isn't a tap on a row
+}
+
+static lv_obj_t *cfg_add_row(lv_obj_t *box, int r, tid_t name, bool is_switch)
+{
+    lv_obj_t *row = cfg_row[r] = lv_obj_create(box);
+    lv_obj_remove_style_all(row);
+    lv_obj_set_size(row, 300, 52);
+    lv_obj_set_style_radius(row, 12, 0);
+    lv_obj_set_style_bg_color(row, lv_color_hex(0x1A2027), 0);
+    lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_STATE_PRESSED);
+    lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(row, cfg_tap, LV_EVENT_CLICKED, (void *)(intptr_t)r);
+    lv_obj_t *l = lv_label_create(row);
+    lv_obj_set_style_text_font(l, f_small, 0);
+    lv_obj_set_style_text_color(l, C_TEXT, 0);
+    tlabel(l, name);
+    lv_obj_align(l, LV_ALIGN_LEFT_MID, 14, 0);
+    if (is_switch) {
+        lv_obj_t *sw = cfg_val[r] = lv_switch_create(row);
+        lv_obj_set_size(sw, 54, 30);
+        lv_obj_set_style_bg_color(sw, lv_color_hex(0x2A3138), 0);
+        lv_obj_set_style_bg_color(sw, C_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
+        lv_obj_remove_flag(sw, LV_OBJ_FLAG_CLICKABLE);         // the whole row is the button
+        lv_obj_align(sw, LV_ALIGN_RIGHT_MID, -12, 0);
+    } else {
+        lv_obj_t *v = cfg_val[r] = lv_label_create(row);
+        lv_obj_set_style_text_font(v, f_small, 0);
+        lv_obj_set_style_text_color(v, C_ACCENT, 0);
+        lv_label_set_text(v, "");
+        lv_obj_align(v, LV_ALIGN_RIGHT_MID, -14, 0);
+    }
+    return row;
+}
+
+static void cfg_section(lv_obj_t *box, tid_t name)
+{
+    lv_obj_t *l = lv_label_create(box);
+    lv_obj_set_style_text_font(l, f_micro, 0);
+    lv_obj_set_style_text_color(l, C_DIM, 0);
+    lv_obj_set_style_pad_top(l, 6, 0);
+    lv_obj_set_width(l, 290);
+    tlabel(l, name);
+    lv_obj_add_flag(l, LV_OBJ_FLAG_GESTURE_BUBBLE);
+}
+
+static void cfg_create(void)
+{
+    scr_cfg = base_screen();
+    lv_obj_t *done = lv_button_create(scr_cfg);                // top: Done
+    lv_obj_set_size(done, 120, 40);
+    lv_obj_set_style_radius(done, 20, 0);
+    lv_obj_set_style_bg_color(done, lv_color_hex(0x2A3138), 0);
+    lv_obj_set_style_shadow_width(done, 0, 0);
+    lv_obj_align(done, LV_ALIGN_TOP_MID, 0, 22);
+    lv_obj_t *dl = lv_label_create(done);
+    lv_obj_set_style_text_font(dl, f_small, 0);
+    tlabel(dl, T_DONE);
+    lv_obj_center(dl);
+    lv_obj_add_event_cb(done, cfg_close, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *box = lv_obj_create(scr_cfg);                    // the rows scroll; Done and brightness stay
+    lv_obj_remove_style_all(box);
+    lv_obj_set_size(box, 300, 290);
+    lv_obj_align(box, LV_ALIGN_TOP_MID, 0, 70);
+    lv_obj_set_flex_flow(box, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(box, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(box, 6, 0);
+    lv_obj_set_scroll_dir(box, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(box, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_add_flag(box, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    cfg_section(box, T_SEC_SCREEN);
+    cfg_add_row(box, R_DIM, T_DIM_QUIET, true);
+    cfg_add_row(box, R_MOTION, T_WAKE_PICKUP, true);
+    cfg_add_row(box, R_TIMING, T_TIMING, false);
+    cfg_section(box, T_SEC_UNITS);
+    cfg_add_row(box, R_TEMP, T_TEMPERATURE, false);
+    cfg_add_row(box, R_WIND, T_WIND, false);
+    cfg_add_row(box, R_CLOCK, T_CLOCK, false);
+    cfg_add_row(box, R_LANG, T_LANGUAGE, false);
+    cfg_section(box, T_SEC_SOUND);
+    cfg_add_row(box, R_CHIME, T_CHIME, false);
+    cfg_add_row(box, R_VOLUME, T_VOLUME, false);
+    cfg_add_row(box, R_TEST, T_TEST_SOUND, false);
+    cfg_section(box, T_SEC_MORE);
+    cfg_add_row(box, R_PHONE, T_PHONE, false);
+    cfg_add_row(box, R_WIFI, T_WIFI_NETWORK, false);
+    cfg_add_row(box, R_UPDATE, T_UPDATES, false);
+    cfg_add_row(box, R_RESTART, T_RESTART, false);
+    lv_label_set_text(cfg_val[R_PHONE], ">");
+    lv_label_set_text(cfg_val[R_WIFI], ">");
+    lv_label_set_text(cfg_val[R_TEST], ">");
+
+    cfg_bright = label(scr_cfg, f_tiny, C_DIM, 372);           // brightness: an arc along the bottom edge
+    cfg_arc = lv_arc_create(scr_cfg);
+    lv_obj_set_size(cfg_arc, DISP_W - 14, DISP_W - 14);
+    lv_obj_center(cfg_arc);
+    lv_arc_set_bg_angles(cfg_arc, 35, 145);
+    lv_arc_set_mode(cfg_arc, LV_ARC_MODE_REVERSE);             // drag towards the right = brighter
+    lv_arc_set_range(cfg_arc, 5, 100);
+    lv_obj_set_style_arc_width(cfg_arc, 10, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(cfg_arc, lv_color_hex(0x2A3138), LV_PART_MAIN);
+    lv_obj_set_style_arc_width(cfg_arc, 10, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(cfg_arc, lv_color_hex(0xFFC83D), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(cfg_arc, lv_color_white(), LV_PART_KNOB);
+    lv_obj_set_style_pad_all(cfg_arc, 6, LV_PART_KNOB);
+    lv_obj_remove_flag(cfg_arc, LV_OBJ_FLAG_CLICKABLE);       // display only (see cfg_bright_changed)
+    cfg_zone = lv_obj_create(scr_cfg);                         // touch band: the bottom of the circle
+    lv_obj_remove_style_all(cfg_zone);
+    lv_obj_set_size(cfg_zone, DISP_W, DISP_H - 364);
+    lv_obj_align(cfg_zone, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_remove_flag(cfg_zone, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_add_event_cb(cfg_zone, cfg_bright_changed, LV_EVENT_PRESSING, NULL);
+    lv_obj_add_event_cb(cfg_zone, cfg_bright_changed, LV_EVENT_RELEASED, NULL);
+    lv_obj_add_event_cb(cfg_zone, cfg_bright_changed, LV_EVENT_PRESS_LOST, NULL);
+
+    lv_obj_add_event_cb(scr_cfg, cfg_gesture, LV_EVENT_GESTURE, NULL);
+    lv_timer_create(cfg_tick, 1000, NULL);
+}
+
+void ui_init(void)
+{
+    // Text from outside (network and place names) keeps only what the fonts draw: Montserrat, then the syllabics
+    // chained behind it (mkfont)
+    textfit_init(ttf_start, ttf_end - ttf_start);
+    textfit_add(syl_start, syl_end - syl_start);
+    su_q = xQueueCreate(4, sizeof(radio_req_t));
+    xTaskCreatePinnedToCore(su_radio_task, "setup_radio", 4096, NULL, 3, NULL, 0);   // internal RAM: NVS writes
+    display_lock(-1);
+    f_time = mkfont(26);  f_city = mkfont(26);  f_big = mkfont(96);
+    f_cond = mkfont(28);  f_small = mkfont(20); f_tiny = mkfont(19); f_micro = mkfont(15);
+
+    scr_msg = base_screen();
+    msg_title = label(scr_msg, f_city, C_ACCENT, 140);
+    msg_body = label(scr_msg, f_small, C_TEXT, 190);
+    lv_obj_set_width(msg_body, 330);
+
+    scr_main = base_screen();
+    place_pager = pager_create(scr_main, true, MAX_PLACES, place_scrolled, place_settled, NULL);
+    pager_freeze(place_pager);                           // places are dragged as pictures (slide.c, drag_read)
+    for (int i = 0; i < MAX_PLACES; i++) place_page_create(i, pager_page(place_pager, i));
+    // Weather alert pill, in place of the city name while an alert is active (tap for details)
+    al_pill = lv_obj_create(scr_main);
+    lv_obj_remove_style_all(al_pill);
+    lv_obj_set_size(al_pill, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_radius(al_pill, 16, 0);
+    lv_obj_set_style_bg_opa(al_pill, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_hor(al_pill, 16, 0);
+    lv_obj_set_style_pad_ver(al_pill, 4, 0);
+    lv_obj_align(al_pill, LV_ALIGN_TOP_MID, 0, 70);
+    al_pill_lbl = lv_label_create(al_pill);
+    lv_obj_set_style_text_font(al_pill_lbl, f_small, 0);
+    lv_obj_add_flag(al_pill, LV_OBJ_FLAG_HIDDEN);
+    location_t loc;
+    config_get_location(&loc);
+    char city[sizeof(loc.name)];
+    textfit(loc.name, city, sizeof(city));                  // typed on a phone: may hold emoji (boxes otherwise)
+    lv_label_set_text(pp[0].city, city);
+    for (int i = 1; i < MAX_PLACES; i++) lv_obj_add_flag(pager_page(place_pager, i), LV_OBJ_FLAG_HIDDEN);
+
+    page_dots(scr_main, 2);
+    for (int i = 0; i < MAX_PLACES; i++) {                     // place dots, vertical, right edge (ui_places)
+        pl_dot[i] = lv_obj_create(scr_main);
+        lv_obj_remove_style_all(pl_dot[i]);
+        lv_obj_set_style_radius(pl_dot[i], 4, 0);
+        lv_obj_set_style_bg_opa(pl_dot[i], LV_OPA_COVER, 0);
+        lv_obj_add_flag(pl_dot[i], LV_OBJ_FLAG_HIDDEN);
+    }
+
+    scr_radar = radar_create(f_small, f_small, f_micro);
+    page_dots(scr_radar, 3);
+    lv_obj_add_event_cb(scr_main, gesture_cb, LV_EVENT_GESTURE, NULL);
+    lv_obj_add_event_cb(scr_main, open_cfg, LV_EVENT_LONG_PRESSED, NULL);
+    lv_obj_add_event_cb(scr_main, main_tap, LV_EVENT_SHORT_CLICKED, NULL);
+    hour_create();
+    update_create();                // pill on scr_main (made non-clickable by passthrough) + update screen
+    passthrough(scr_main);          // before the (clickable) overlay is added
+    lv_obj_add_flag(place_pager, LV_OBJ_FLAG_CLICKABLE);   // it must stay pressable to scroll between places
+
+    overlay = lv_obj_create(scr_main);
+    lv_obj_remove_style_all(overlay);
+    lv_obj_set_size(overlay, DISP_W, DISP_H);
+    lv_obj_set_style_bg_color(overlay, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(overlay, LV_OPA_COVER, 0);
+    lv_obj_add_flag(overlay, LV_OBJ_FLAG_HIDDEN | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(overlay, overlay_close, LV_EVENT_CLICKED, NULL);
+    ov_title = label(overlay, f_small, C_ACCENT, 48);
+    lv_label_set_text(ov_title, tr(T_SETTINGS));
+    lv_obj_add_event_cb(overlay, show_wifi_setup, LV_EVENT_LONG_PRESSED, NULL);
+    ov_qr = make_qr(overlay, 170);
+    lv_obj_align(ov_qr, LV_ALIGN_TOP_MID, 0, 84);
+    ov_url = label(overlay, f_tiny, C_TEXT, 276);
+    lv_obj_set_width(ov_url, 330);
+
+    lv_obj_add_event_cb(scr_msg, msg_long_press, LV_EVENT_LONG_PRESSED, NULL);
+    msg_qr = make_qr(scr_msg, 140);
+    lv_obj_align(msg_qr, LV_ALIGN_TOP_MID, 0, 250);
+    lv_obj_add_flag(msg_qr, LV_OBJ_FLAG_HIDDEN);
+
+    lv_obj_add_event_cb(scr_radar, gesture_cb, LV_EVENT_GESTURE, NULL);
+    setup_create();
+    alert_create();
+    extras_create();
+    status_create();
+    cfg_create();
+    touch_register_lvgl();
+    touch_set_read_hook(drag_read);                                     // drags and list scrolls (slide.c)
+    lv_indev_set_scroll_limit(lv_indev_get_next(NULL), 2 * DRAG_PX);    // LVGL's own scroll: only after drag_read's
+    slide_scroll_on_sideways(scroll_sideways);                          // a day swipe while the hours coast
+    slide_cache_init(drag_paint, key_of);
+    lv_timer_create(pictures_tick, 30, NULL);
+
+    lv_timer_create(clock_tick, 1000, NULL);
+    display_unlock();
+}
+
+void ui_message_qr(const char *title, const char *body, const char *qr)
+{
+    display_lock(-1);
+    lv_label_set_text(msg_title, title);
+    lv_label_set_text(msg_body, body);
+    if (qr) {
+        lv_qrcode_update(msg_qr, qr, strlen(qr));
+        lv_obj_remove_flag(msg_qr, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_align(msg_title, LV_ALIGN_TOP_MID, 0, 70);
+        lv_obj_align(msg_body, LV_ALIGN_TOP_MID, 0, 110);
+    } else {
+        lv_obj_add_flag(msg_qr, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_align(msg_title, LV_ALIGN_TOP_MID, 0, 140);
+        lv_obj_align(msg_body, LV_ALIGN_TOP_MID, 0, 190);
+    }
+    lv_screen_load(scr_msg);
+    display_unlock();
+}
+
+static void day_name(const char *date, int idx, char *out, size_t n)
+{
+    if (idx == 0) { snprintf(out, n, "%s", tr(T_TODAY)); return; }
+    struct tm tm = {0};
+    if (sscanf(date, "%d-%d-%d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday) == 3) {
+        tm.tm_year -= 1900; tm.tm_mon -= 1; tm.tm_hour = 12;
+        mktime(&tm);
+        snprintf(out, n, "%s", tr_weekday(tm.tm_wday, false));
+    } else snprintf(out, n, "-");
+}
+
+static void place_jump(void *user) { pager_go(place_pager, (int)(intptr_t)user, false); }
+
+void ui_places(int n, int active)
+{
+    display_lock(-1);
+    // Called after every place switch too: only what changed is touched (see clock_tick), so the cached pictures of
+    // the places stay valid. Other pages' pictures never show the pill (drag_paint).
+    if (n != n_places) slide_cache_dirty(NULL);     // pages added or removed: other neighbours
+    bool moved = active != cur_place;
+    for (int i = 0; i < MAX_PLACES; i++) {
+        set_hidden(pager_page(place_pager, i), i >= n);
+        // The alert pill goes on the place shown, in place of its city name. The place left had it in its picture,
+        // and is drawn without it from now on (drag_paint): those rows are out of date
+        bool hide = alerts.n && i == active;
+        if (lv_obj_has_flag(pp[i].city, LV_OBJ_FLAG_HIDDEN) != hide) { set_hidden(pp[i].city, hide); pill_rows_dirty(i); }
+    }
+    n_places = n;
+    cur_place = active;
+    place_dots(active);
+    int from = pager_current(place_pager);
+    if (from != active) {                            // chosen on the settings page: slide the pictures (slide.c)
+        bool shown = lv_screen_active() == scr_main && lv_obj_has_flag(overlay, LV_OBJ_FLAG_HIDDEN);
+        if (!shown || !slide_page(pager_page(place_pager, from), pager_page(place_pager, active), true,
+                                  active > from ? 1 : -1, place_jump, (void *)(intptr_t)active))
+            pager_go(place_pager, active, false);
+    }
+    if (moved) {
+        clock_shown[0] = 0;
+        clock_tick(NULL);
+        if (lv_screen_active() == scr_hour || lv_screen_active() == scr_extras) lv_screen_load(scr_main);
+    }
+    display_unlock();
+}
+
+void ui_on_place_select(void (*cb)(int i)) { place_select_cb = cb; }
+
+// The place shown's forecast also feeds the hourly view (and its graphs) and the extras page. force: redraw them even
+// if it's the same forecast (units or language changed).
+static void place_current(const weather_t *w, bool force)
+{
+    if (!w) {
+        have_wx = false;                 // the hourly view and extras wait for this place's forecast
+        if (lv_screen_active() == scr_hour || lv_screen_active() == scr_extras) lv_screen_load(scr_main);
+        return;
+    }
+    // A message screen ("Connected", "Fetching the weather") gives way to the forecast, even the same one again (it
+    // did before ui_place skipped unchanged forecasts, v1.10.1-rc.3)
+    if (lv_screen_active() == scr_msg) lv_screen_load(scr_main);
+    if (!force && have_wx && !memcmp(&wx, w, sizeof(wx))) return;
+    wx = *w;
+    have_wx = true;
+    wx_gen++;
+    slide_cache_dirty(scr_extras);                  // their pictures for drags (slide.c)
+    for (int d = 0; d < pager_count(hr_pager); d++) slide_cache_dirty(pager_page(hr_pager, d));
+    if (lv_screen_active() == scr_extras) extras_refresh();
+    if (lv_screen_active() == scr_hour) for (int d = 0; d < WX_DAYS; d++) hour_fill(d);
+}
+
+// The line above the clock: nothing while the forecast is fresh; "No connection" offline, "Updated N min ago" once the
+// forecast is over 30 min old (failures, or no Wi-Fi). A failed forecast was invisible: only the status page, two
+// swipes away, said why the numbers weren't changing. Display lock held.
+static void age_update(int i)
+{
+    place_page_t *p = &pp[i];
+    char b[48] = "";
+    int64_t age_s = p->ok_us ? (esp_timer_get_time() - p->ok_us) / 1000000 : 0;
+    if (!net_is_connected() && p->has_wx) strlcpy(b, tr(T_NO_CONNECTION), sizeof(b));
+    else if (p->has_wx && p->ok_us && age_s > 30 * 60) {
+        if (age_s < 2 * 3600) snprintf(b, sizeof(b), tr(T_UPDATED_MIN), (int)(age_s / 60));
+        else snprintf(b, sizeof(b), tr(T_UPDATED_H), (int)(age_s / 3600));
+    }
+    if (!strcmp(lv_label_get_text(p->age), b)) return;      // unchanged: leave the picture alone (slide.c)
+    lv_label_set_text(p->age, b);
+    lv_obj_t *page = pager_page(place_pager, i);
+    if (page == key_of(lv_screen_active())) return;
+    lv_area_t a, pa;
+    lv_obj_get_coords(p->age, &a);
+    lv_obj_get_coords(page, &pa);
+    slide_cache_dirty_rows(page, a.y1 - pa.y1 - 2, a.y2 - pa.y1 + 2);
+}
+
+void ui_place_state(int i, bool ok)
+{
+    if (i < 0 || i >= MAX_PLACES) return;
+    display_lock(-1);
+    place_page_t *p = &pp[i];
+    if (ok) p->ok_us = esp_timer_get_time();
+    p->failing = !ok;
+    if (!ok && !p->has_wx && p->drawn) {                     // "Loading..." forever: say why
+        const char *t = tr(T_FORECAST_RETRY);
+        if (strcmp(lv_label_get_text(p->cond), t)) {
+            lv_label_set_text(p->cond, t);
+            slide_cache_dirty(pager_page(place_pager, i));
+        }
+    }
+    age_update(i);
+    display_unlock();
+}
+
+// The place's local date, "YYYY-MM-DD"; false before the clock is set
+static bool local_date(int utc_offset, char *out, size_t n)
+{
+    time_t t = time(NULL);
+    if (t < 1600000000) return false;
+    t += utc_offset;
+    struct tm tm;
+    gmtime_r(&t, &tm);
+    strftime(out, n, "%Y-%m-%d", &tm);
+    return true;
+}
+
+void ui_place(int i, const char *name, const weather_t *w)
+{
+    if (i < 0 || i >= MAX_PLACES) return;
+    display_lock(-1);
+    place_page_t *p = &pp[i];
+    bool force = w && w == &pw[i];                  // ui_units_changed(): the same forecast in new units or language
+    // Every place switch sends the place shown again with the forecast it already has: then the page is left alone,
+    // so its picture for drags (slide.c) stays valid and the next drag starts at once
+    bool same = p->drawn && !force && !strcmp(p->name, name) &&
+                (w ? p->has_wx && !memcmp(&pw[i], w, sizeof(*w)) : !p->has_wx);
+    if (same) {
+        if (i == cur_place) place_current(w, false);
+        display_unlock();
+        return;
+    }
+    p->drawn = true;
+    slide_cache_dirty(pager_page(place_pager, i));  // this page's picture; the place shown's other screens: below
+    strlcpy(p->name, name, sizeof(p->name));
+    char city[sizeof(p->name)];
+    textfit(name, city, sizeof(city));                      // typed on a phone: may hold emoji (boxes otherwise)
+    lv_label_set_text(p->city, city);
+    if (!w) {                                                  // no forecast yet for this place
+        p->has_wx = false;
+        lv_label_set_text(p->temp, "-");
+        lv_label_set_text(p->cond, tr(T_LOADING));
+        lv_obj_add_flag(p->detail, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(p->nowcast, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(p->icon, LV_OBJ_FLAG_HIDDEN);
+        for (int k = 0; k < 3; k++) {
+            lv_label_set_text(p->fc_day[k], "");
+            lv_label_set_text(p->fc_temp[k], "");
+            lv_obj_add_flag(p->fc_icon[k], LV_OBJ_FLAG_HIDDEN);
+        }
+        if (i == cur_place) place_current(NULL, false);
+        display_unlock();
+        return;
+    }
+    if (w != &pw[i]) pw[i] = *w;
+    char today[12];
+    if (local_date(pw[i].utc_offset, today, sizeof(today)) && weather_from_today(&pw[i], today))
+        ESP_LOGI("ui", "place %d: forecast from today (%s), the days before dropped", i + 1, today);
+    w = &pw[i];
+    p->has_wx = true;
+    p->utc_offset = w->utc_offset;
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%d°", config_temp(w->temp));
+    lv_label_set_text(p->temp, buf);
+    lv_label_set_text(p->cond, weather_text(w->code));
+    char wind[16];
+    config_fmt_wind(w->wind, wind, sizeof(wind));
+    lv_label_set_text_fmt(p->feels, tr(T_FEELS), config_temp(w->feels));
+    lv_label_set_text_fmt(p->hum, tr(T_PERCENT), w->humidity);
+    lv_label_set_text(p->wind, wind);
+    lv_obj_remove_flag(p->detail, LV_OBJ_FLAG_HIDDEN);
+    draw_icon(p->icon, weather_kind(w->code), w->is_day, 80, i * 4);
+    lv_obj_remove_flag(p->icon, LV_OBJ_FLAG_HIDDEN);
+    if (w->nc_kind == NC_NONE) lv_obj_add_flag(p->nowcast, LV_OBJ_FLAG_HIDDEN);
+    else {
+        char hm[12];
+        config_fmt_hhmm(w->nc_time, hm, sizeof(hm));
+        lv_label_set_text_fmt(p->nowcast, tr(w->nc_snow ? (w->nc_kind == NC_STARTS ? T_SNOW_AROUND : T_SNOW_UNTIL)
+                                                        : (w->nc_kind == NC_STARTS ? T_RAIN_AROUND : T_RAIN_UNTIL)), hm);
+        lv_obj_remove_flag(p->nowcast, LV_OBJ_FLAG_HIDDEN);
+    }
+    for (int k = 0; k < 3; k++) {
+        if (k < w->ndays) {
+            day_name(w->day[k].date, k, buf, sizeof(buf));
+            lv_label_set_text(p->fc_day[k], buf);
+            snprintf(buf, sizeof(buf), "%d° / %d°", config_temp(w->day[k].tmax), config_temp(w->day[k].tmin));
+            lv_label_set_text(p->fc_temp[k], buf);
+            draw_icon(p->fc_icon[k], weather_kind(w->day[k].code), true, 36, i * 4 + k + 1);
+            lv_obj_remove_flag(p->fc_icon[k], LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    if (i == cur_place) place_current(w, force);
+    clock_shown[0] = 0;
+    clock_tick(NULL);
+    display_unlock();
+}
+
+void ui_message(const char *title, const char *body)
+{
+    display_lock(-1);
+    lv_label_set_text(msg_title, title);
+    lv_label_set_text(msg_body, body);
+    lv_obj_add_flag(msg_qr, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_align(msg_title, LV_ALIGN_TOP_MID, 0, 140);
+    lv_obj_align(msg_body, LV_ALIGN_TOP_MID, 0, 190);
+    lv_screen_load(scr_msg);
+    display_unlock();
+}
+
+
+// Diagnostics bench: the screens to time (hourly view filled with day 1). Call with the display lock held.
+int ui_bench_screens(lv_obj_t **scr, const char **name, int max)
+{
+    int n = 0;
+    static lv_obj_t *blank;
+    if (!blank) blank = base_screen();
+    if (n < max) { scr[n] = blank; name[n++] = "blank"; }
+    if (n < max) { scr[n] = scr_main; name[n++] = "weather"; }
+    if (have_wx && n < max && lv_screen_active() != scr_hour) {   // never disturb a view in use
+        for (int i = 0; i < WX_DAYS; i++) fill_page(i);
+        pager_go(hr_pager, 1, false);
+        set_dots(1);
+        scr[n] = scr_hour; name[n++] = "hourly";
+    }
+    if (n < max) { scr[n] = scr_radar; name[n++] = "radar"; }
+    return n;
+}
+
+lv_obj_t *ui_main_screen(void) { return scr_main; }
+
+void ui_on_data_refresh(void (*cb)(void)) { data_refresh_cb = cb; }
+
+void ui_units_changed(void)
+{
+    display_lock(-1);
+    slide_cache_dirty(NULL);                        // new content: the cached pictures are out of date
+    clock_shown[0] = 0;
+    for (int i = 0; i < tl_n; i++) lv_label_set_text(tl_obj[i], tr(tl_id[i]));   // fixed labels (language)
+    up_notes_id = -1;                      // "What's new" header
+    update_render();
+    if (lv_screen_active() == scr_status) status_refresh();
+    if (lv_screen_active() == scr_cfg) cfg_refresh();
+    for (int i = 0; i < n_places; i++)     // every place page; the one shown also redraws hourly, graphs, extras
+        if (pp[i].has_wx) ui_place(i, pp[i].name, &pw[i]);
+    clock_tick(NULL);
+    ui_alerts(&alerts);                    // "Until …"
+    radar_units_changed();                 // clock, frame time, ring and radius
+    display_unlock();
+}
+
+// Pages shown by the two pagers (test console "page"): the place on the weather screen, the day in the hourly view
+void ui_pages(int *place, int *day, int *places, int *days)
+{
+    *place = pager_current(place_pager);
+    *day = pager_current(hr_pager);
+    *places = n_places;
+    *days = wx.ndays;
+}
+
+// Name of what is on screen, for the test console (same names as ui_snapshot() where they exist)
+const char *ui_screen_name(void)
+{
+    lv_obj_t *s = lv_screen_active();
+    if (s == scr_main) return lv_obj_has_flag(overlay, LV_OBJ_FLAG_HIDDEN) ? "weather" : "phone";
+    if (s == scr_setup) return su_page ? "setup1" : "setup0";
+    return s == scr_extras ? "extras" : s == scr_status ? "status" : s == scr_radar ? "radar" :
+           s == scr_update ? "update" : s == scr_alert ? "alert" : s == scr_hour ? "hourly" :
+           s == scr_cfg ? "settings" : s == scr_msg ? "message" : "other";
+}
+
+lv_draw_buf_t *ui_snapshot(const char *screen)
+{
+    if (!strcmp(screen, "picture")) return slide_picture_copy();   // slide.c's picture of the screen shown (tests)
+    lv_obj_t *s = !strcmp(screen, "weather") ? scr_main : !strcmp(screen, "extras") ? scr_extras :
+                  !strcmp(screen, "status") ? scr_status : !strcmp(screen, "radar") ? scr_radar :
+                  !strcmp(screen, "update") ? scr_update : !strcmp(screen, "alert") ? scr_alert :
+                  !strcmp(screen, "settings") ? scr_cfg : lv_screen_active();
+    if (!strncmp(screen, "hourly", 6) && have_wx) {
+        s = scr_hour;
+        if (lv_screen_active() != scr_hour) {
+            int day = atoi(screen + 6);
+            if (day < 0 || day >= wx.ndays) day = 0;
+            for (int i = 0; i < WX_DAYS; i++) { fill_page(i); lv_obj_scroll_to_y(pg[i].list, 0, LV_ANIM_OFF); }
+            pager_go(hr_pager, day, false);
+            set_dots(day);
+        }
+    }
+    // Text-fit checks of screens a test can't open safely: "settings1".."settings3" (the list scrolled down by
+    // one screen each), "phone" (the settings-page QR), "setup0" / "setup1" (Wi-Fi setup pages, texts only:
+    // no access point or Easy Connect is started), "setup1fail" (Easy Connect's page after a failed attempt).
+    int cfg_down = !strncmp(screen, "settings", 8) && screen[8] ? atoi(screen + 8) : 0;
+    bool phone = !strcmp(screen, "phone"), setup = !strncmp(screen, "setup", 5);
+    bool ov_hidden = lv_obj_has_flag(overlay, LV_OBJ_FLAG_HIDDEN);
+    if (cfg_down) s = scr_cfg;
+    if (phone) {
+        s = overlay;
+        lv_label_set_text(ov_title, tr(T_SETTINGS));
+        lv_label_set_text_fmt(ov_url, tr(T_OV_HELP), "https://192.168.1.10");
+        lv_obj_remove_flag(overlay, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (setup && lv_screen_active() != scr_setup) {
+        s = scr_setup;
+        bool p1 = screen[5] == '1';
+        su_page = p1;
+        su_dots();                                   // sizes the page dots
+        lv_label_set_text(su_title, tr(p1 ? T_WIFI_DPP_TITLE : T_WIFI_SETUP));
+        if (p1) {
+            lv_label_set_text(su_body, tr(strcmp(screen + 6, "fail") ? T_WIFI_DPP_HOW : T_WIFI_DPP_FAIL));
+            qr_show(QR_PLACEHOLDER, true);           // what the page shows until its code exists
+        } else {
+            snprintf(su_ap_qr, sizeof(su_ap_qr), "WIFI:T:WPA;S:" SETUP_AP_SSID ";P:%s;;", net_setup_ap_pass());
+            qr_show(su_ap_qr, false);
+            lv_label_set_text_fmt(su_body, tr(T_WIFI_JOIN), SETUP_AP_SSID, net_setup_ap_pass());
+        }
+    }
+    if (s == scr_status) status_refresh();
+    if (s == scr_cfg) cfg_refresh();
+    if (s == scr_extras) extras_refresh();
+    lv_obj_t *list = lv_obj_get_parent(cfg_row[0]);
+    if (cfg_down && lv_screen_active() != scr_cfg) lv_obj_scroll_to_y(list, cfg_down * 300, LV_ANIM_OFF);
+    lv_obj_update_layout(s);
+    lv_draw_buf_t *db = lv_snapshot_take(s, LV_COLOR_FORMAT_RGB565);
+    if (cfg_down && lv_screen_active() != scr_cfg) lv_obj_scroll_to_y(list, 0, LV_ANIM_OFF);
+    if (phone && ov_hidden) lv_obj_add_flag(overlay, LV_OBJ_FLAG_HIDDEN);
+    return db;
+}
+
+// The phone's settings page changed something Settings shows (presence, sound, update channel): its picture
+void ui_settings_changed(void)
+{
+    display_lock(-1);
+    dirty_hidden_one(scr_cfg);
+    display_unlock();
+}
