@@ -3511,6 +3511,7 @@ static void busmap_open(int i)
     deps_track(i);
     printf("ui: bus map open (stop %d)\n", i + 1);
     bm_refresh();
+    netq_awake(NETQ_MAP, true);                             // its tiles without waiting for a beacon, as the radar
     slide_screen(scr_busmap, LV_SCR_LOAD_ANIM_MOVE_LEFT, 260);   // in from the right, as the radar
 }
 
@@ -3524,6 +3525,7 @@ static void busmap_close(const char *why, lv_dir_t dir)
 static void busmap_unloaded(lv_event_t *ev)
 {
     deps_track(-1);
+    netq_awake(NETQ_MAP, false);
     bm_stop_i = -1;
     lv_canvas_set_draw_buf(bm_img, bm_none);
     bm_quit = true;
