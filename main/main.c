@@ -28,6 +28,7 @@
 #include "sound.h"
 #include "textfit.h"
 #include "routes.h"
+#include "bus_routes.h"
 #include "services.h"
 #include "console.h"
 #include "cJSON.h"
@@ -288,10 +289,13 @@ void app_main(void)
     diag_mark("presence");
     presence_web_routes();      // GET/POST /api/presence, POST /api/calibrate, before web_start()
     routes_init(on_location_changed);   // the settings page's routes, before web_start()
+    bus_routes_init();          // /api/favs, /api/route (the stops)
+    bus_start();                // departures.c's task and the saved stops (it waits for Wi-Fi and the clock)
     ota_set_err_text(ota_err_text);
     ota_start(ui_ota);          // before ui_init (the status page's update-site row); checks once Wi-Fi is up; marks a
                                 // new firmware valid after 60 s
     ui_init();
+    ui_favs_changed();          // the stop pages
     diag_mark("ui");
     testcon_start();            // USB test console (tools/harness), ready before Wi-Fi so start-up can be tested
     console_init();             // the display's own commands

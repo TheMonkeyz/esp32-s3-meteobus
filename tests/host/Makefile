@@ -20,13 +20,16 @@ CFLAGS := -std=gnu11 -D_DEFAULT_SOURCE -g -O1 -Wall -Wno-unused-function -fsanit
           -fno-sanitize-recover=undefined -Ishim -I$(MAIN) -I$(CORE)/include -I$(FORGE)/forge_net/include \
           -I$(CJSON) -include shim/host.h
 COMMON := fake.c $(CJSON)/cJSON.c
-TESTS := weather alerts utf8 i18n version png textfit presence_blob
+TESTS := weather alerts utf8 i18n version png textfit presence_blob rtc_api
 
 all: $(TESTS:%=$(OUT)/test_%)
 	@set -e; for t in $(TESTS); do ./$(OUT)/test_$$t; done
 
 $(OUT)/test_weather: test_weather.c $(MAIN)/weather.c $(COMMON) | $(OUT)
 	$(CC) $(CFLAGS) -o $@ test_weather.c $(MAIN)/weather.c $(COMMON) -lm
+# RTC's replies (data/, as seen on 2026-10-06): rtc_api.c parses them with cJSON (from esp32-s3-rtcquebec)
+$(OUT)/test_rtc_api: test_rtc_api.c $(MAIN)/rtc_api.c $(MAIN)/rtc_api.h | $(OUT)
+	$(CC) $(CFLAGS) -o $@ test_rtc_api.c $(MAIN)/rtc_api.c $(CJSON)/cJSON.c -lm
 $(OUT)/test_alerts: test_alerts.c $(MAIN)/alerts.c $(COMMON) | $(OUT)
 	$(CC) $(CFLAGS) -o $@ test_alerts.c $(COMMON) -lm
 

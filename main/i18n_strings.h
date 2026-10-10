@@ -406,3 +406,43 @@ X(T_ZOOM_IN,        "Zoom in",                     "Zoom avant",
                     "ᐊᖏᓪᓕᒋᐊᕐᓕ")
 X(T_ZOOM_OUT,       "Zoom out",                    "Zoom arrière",
                     "ᒥᑭᓪᓕᒋᐊᕐᓕ")
+
+// Buses (from esp32-s3-rtcquebec): the stops screen and its notices
+X(T_DEP_MIN,       "%d min", "%d min",
+                    "%d min")
+X(T_DEP_NOW,       "< 1 min", "< 1 min",
+                    "< 1 min")
+X(T_DEP_UNIT,      "min", "min",
+                    "min")
+X(T_DEP_LIVE,      "Real time", "Temps réel",
+                    "ᒫᓐᓇ")
+X(T_DEP_SCHED,     "Scheduled", "Horaire prévu",
+                    "ᐅᐸᑦᑐᒃᓴᖅ")
+X(T_DEP_CANCELLED,  "Cancelled", "Annulé",
+                    "ᖁᔭᓈᖅᑕᐅᔪᖅ")
+X(T_DEP_NONE,      "No more departures today", "Plus de départs aujourd'hui",
+                    "ᐅᓪᓗᒥ ᐊᐅᓪᓚᖅᑐᖃᕈᓐᓇᐃᖅᑐᖅ")
+X(T_DEP_LOADING,   "Loading...", "Chargement...",
+                    "ᐅᑕᖅᑭᕆᑦᓯ...")
+X(T_DEP_UPDATED,   "Updated at %s", "Mis à jour à %s",
+                    "ᓄᑖᖅᑭᖅᑕᐅᔪᖅ: %s")
+X(T_DEP_OFFLINE,   "Can't reach the RTC", "Impossible de joindre le RTC",
+                    "RTC ᑲᓱᕈᓐᓇᙱᑦᑐᖅ")
+X(T_DEP_NOT_FOUND,  "Route %s doesn't stop here\nin this direction", "Le parcours %s ne s'arrête pas ici\ndans cette direction",
+                    "%s ᓄᖅᑲᙱᑦᑐᖅ ᒫᓂ")
+X(T_DEP_NOT_SERVED, "Stop not served for now", "Arrêt non desservi pour le moment",
+                    "ᓄᖅᑲᕐᕕᒃ ᐊᑐᖅᑕᐅᙱᑦᑐᖅ ᒫᓐᓇ")
+X(T_DEP_DROP_OFF,  "Drop-off only", "Descente seulement",
+                    "ᐊᑎᖅᑐᖃᕐᕕᒃ ᑭᓯᐊᓂ")
+X(T_BUS_NOTICES,   "%d notices", "%d avis",
+                    "%d ᑐᓴᒐᔅᓴᑦ")
+X(T_ALERTS_ROUTE,  "Alerts: %s", "Avis : %s",
+                    "ᑐᓴᒐᔅᓴᑦ: %s")
+X(T_ALERT_BEGIN,   "Start: %s", "Début : %s",
+                    "ᐱᒋᐊᕐᓂᖅ: %s")
+X(T_ALERT_END,     "End: %s", "Fin : %s",
+                    "ᐃᓱᐊᖓ: %s")
+X(T_NO_STOPS,      "No stops yet", "Aucun arrêt",
+                    "ᓄᖅᑲᕐᕕᖃᙱᑦᑐᖅ")
+X(T_NO_STOPS_HOW,  "Add your stops from your\nphone: press and hold,\nthen Location & more", "Ajoutez vos arrêts depuis\nvotre téléphone : appuyez\nlonguement, puis Endroit et plus",
+                    "ᓄᖅᑲᕐᕖᑦ ᐃᓚᓗᒋᑦ\nᐅᖄᓚᐅᑎᕋᓛᕐᒥ:\nᓇᕿᓪᓗᒍ ᓇᕿᒻᒥᓕ")

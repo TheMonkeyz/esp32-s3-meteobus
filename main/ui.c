@@ -24,6 +24,8 @@
 #include "sound.h"
 #include "presence.h"
 #include "textfit.h"
+#include "departures.h"
+#include "favs.h"
 #include "esp_system.h"
 #include "esp_log.h"
 #include "esp_attr.h"
@@ -60,6 +62,19 @@ static lv_obj_t *al_pill, *al_pill_lbl, *al_pill_dot, *scr_alert, *al_title, *al
 static lv_image_dsc_t al_map_dsc;
 static uint16_t *al_map_buf;
 static EXT_RAM_BSS_ATTR alerts_t alerts;           // ~4 KB, in PSRAM
+// Buses screen (bus_create): one page per favourite stop in a vertical pager, at the row's right end
+static lv_obj_t *scr_bus, *stop_pager, *stop_dot[FAVS_MAX];
+static int n_stops, cur_stop;                  // stops in use (pages shown: at least 1), the stop shown
+static uint32_t bus_changed;                   // deps task (ui_deps_changed): bit i = stop i, BUS_ALERTS = the notices
+#define BUS_ALERTS (1u << 31)
+static bool al_bus;                            // the alert screen shows a stop's notices (bus_alert_show)
+static lv_obj_t *al_back;                      // where the alert screen closes to: the weather or the buses screen
+static lv_obj_t *cfg_back;                     // where Settings closes to: the screen it was opened from
+static void stop_refresh(int i);
+static void stop_dots(int active);
+static const void *stop_neighbour(int side, void *user);
+static void stop_commit(int side, void *user);
+static void weather_alert_render(void);
 // Weather screen: one page per place in a vertical pager (pager.c); pills, page dots and place dots stay on top.
 typedef struct {
     lv_obj_t *time, *city, *icon, *temp, *cond, *nowcast, *fc_day[3], *fc_temp[3], *fc_icon[3];
@@ -174,6 +189,19 @@ static void set_hidden(lv_obj_t *o, bool hide)
 static void set_text(lv_obj_t *l, const char *t)
 {
     if (strcmp(lv_label_get_text(l), t)) lv_label_set_text(l, t);
+}
+
+// A pill's label: its text on one line, as wide as it is up to max_w, then cut with "…" (LV_LABEL_LONG_DOT needs a
+// fixed width: with the width set by its content it showed only "…")
+#define PILL_TEXT_W 186                   // the round edge leaves ~214 px at the bottom pill's lower edge (y 434)
+static void pill_text(lv_obj_t *l, const char *t)
+{
+    set_text(l, t);
+    lv_point_t sz;
+    lv_text_get_size(&sz, t, lv_obj_get_style_text_font(l, 0), 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    int w = sz.x + 1 < PILL_TEXT_W ? sz.x + 1 : PILL_TEXT_W;
+    if (lv_obj_get_style_width(l, 0) != w) lv_obj_set_width(l, w);
+    if (lv_obj_get_style_height(l, 0) != sz.y) lv_obj_set_height(l, sz.y);     // one line (LONG_DOT)
 }
 
 // Let presses on decorative children reach the screen (long-press, swipe)
@@ -455,8 +483,8 @@ static lv_obj_t *make_qr(lv_obj_t *parent, int size)
     return qr;
 }
 
-#define N_PAGES 3
-static void page_dots(lv_obj_t *scr, int active)   // 0 status, 1 extras, 2 weather
+#define N_PAGES 4
+static void page_dots(lv_obj_t *scr, int active)   // 0 status, 1 extras, 2 weather, 3 buses
 {
     for (int i = 0; i < N_PAGES; i++) {
         lv_obj_t *d = lv_obj_create(scr);
@@ -869,6 +897,8 @@ static void main_tap(lv_event_t *e)
     if (p.y >= PILL_TAP_Y) {                            // the bottom pill: the alert, else the update
         if (!lv_obj_has_flag(al_pill, LV_OBJ_FLAG_HIDDEN)) {
             printf("ui: tap alert\n");
+            al_back = scr_main;
+            if (al_bus) { al_bus = false; weather_alert_render(); slide_cache_dirty(scr_alert); }
             slide_screen(scr_alert, LV_SCR_LOAD_ANIM_MOVE_TOP, 260);
         } else if (!lv_obj_has_flag(up_pill, LV_OBJ_FLAG_HIDDEN)) update_show(scr_main);
         return;
@@ -967,7 +997,8 @@ static void hour_create(void)
 }
 
 /* ---------- drags that follow the finger (slide.c) ----------
- * Screens, left to right: status | extras | weather (the radar opens on top: a tap on the weather icon). Places: the weather screen's vertical pager. Days: the
+ * Screens, left to right: status | extras | weather | buses (the radar opens on top: a tap on the weather icon).
+ * Stops: the buses screen's vertical pager, as the places. Places: the weather screen's vertical pager. Days: the
  * hourly view's horizontal pager. A drag (10 px, along the larger axis) is handed to slide_drag(): the neighbour comes
  * in under the finger, the ends resist and bounce back. The pagers are frozen (LVGL no longer scrolls them). A
  * vertical drag on any other list goes to slide_scroll(); the radar's zoom swipes stay with LVGL (gestures). Pictures
@@ -977,9 +1008,9 @@ static void place_dots(int active);
 
 static lv_obj_t **drag_screens(int *n)
 {
-    static lv_obj_t *s[3];
-    s[0] = scr_status; s[1] = scr_extras; s[2] = scr_main;
-    *n = 3;
+    static lv_obj_t *s[4];
+    s[0] = scr_status; s[1] = scr_extras; s[2] = scr_main; s[3] = scr_bus;
+    *n = 4;
     return s;
 }
 
@@ -996,6 +1027,7 @@ static const void *key_of(lv_obj_t *scr)
 {
     if (scr == scr_main) return pager_page(place_pager, pager_current(place_pager));
     if (scr == scr_hour) return pager_page(hr_pager, pager_current(hr_pager));
+    if (scr == scr_bus) return pager_page(stop_pager, pager_current(stop_pager));
     return scr;
 }
 
@@ -1045,6 +1077,15 @@ static void cfg_open_state(void);
 
 static bool drag_paint(const void *key, lv_draw_buf_t *dst, int y0, int y1)
 {
+    int is = pager_index(stop_pager, key);
+    if (is >= 0) {                                       // a stop: its minutes brought up to date, its dots
+        int cur = pager_current(stop_pager);
+        if (y0 == 0) stop_refresh(is);
+        if (is != cur) { pager_peek(stop_pager, is); stop_dots(is); }
+        bool ok = slide_picture_rows(scr_bus, dst, y0, y1);
+        if (is != cur) { pager_peek(stop_pager, cur); stop_dots(cur); lv_obj_update_layout(scr_bus); }
+        return ok;
+    }
     int ip = pager_index(place_pager, key), ih = ip < 0 ? pager_index(hr_pager, key) : -1;
     if (ih >= 0 && lv_screen_active() != scr_hour && y0 == 0) {
         fill_page(ih);                                   // as main_tap opens it: today's data, the list at the top
@@ -1121,6 +1162,8 @@ static void pictures_tick(lv_timer_t *t)
             if (have_wx && k < 5) keys[k++] = pager_page(hr_pager, 0);
             if (k < 5) keys[k++] = scr_cfg;
         }
+        if (cur == scr_bus)
+            for (int d = -1; d <= 1; d += 2) if (stop_neighbour(d, NULL) && k < 5) keys[k++] = stop_neighbour(d, NULL);
     } else if (cur == scr_hour) {
         keys[k++] = key_of(cur);
         for (int d = -1; d <= 1; d += 2) if (day_neighbour(d, NULL)) keys[k++] = day_neighbour(d, NULL);
@@ -1183,6 +1226,7 @@ static void drag_read(lv_indev_t *in, lv_indev_data_t *data)
     bool took = false;
     if (horiz && drag_index(cur) >= 0) took = drag_start(false, screen_neighbour, screen_commit);
     else if (vert && cur == scr_main) took = drag_start(true, place_neighbour, place_commit);
+    else if (vert && cur == scr_bus) took = drag_start(true, stop_neighbour, stop_commit);
     else if (horiz && cur == scr_hour) took = drag_start(false, day_neighbour, day_commit);
     else if (vert && cur != scr_radar) {                                // a list (hourly hours, Settings, status...)
         lv_obj_t *list = slide_scroll_target(cur, drag_p0.x, drag_p0.y);   // (the radar: zoom swipes, LVGL gestures)
@@ -1211,7 +1255,7 @@ static void gesture_cb(lv_event_t *e)
     if (ov_state) return;                                // settings / Wi-Fi setup overlay is open
     LV_LOG_USER("gesture dir %d", dir);
     printf("ui: gesture dir=%d on %s\n", dir, cur == scr_radar ? "radar" : cur == scr_extras ? "extras" :
-           cur == scr_status ? "status" : "main");
+           cur == scr_status ? "status" : cur == scr_bus ? "buses" : "main");
     if (cur == scr_extras && dir == LV_DIR_RIGHT) {
         svc_probe_stale();
         status_refresh();
@@ -1227,6 +1271,12 @@ static void gesture_cb(lv_event_t *e)
         lv_indev_wait_release(in);
     } else if (cur == scr_extras && dir == LV_DIR_LEFT) {
         slide_screen(scr_main, LV_SCR_LOAD_ANIM_MOVE_LEFT, 280);
+        lv_indev_wait_release(in);
+    } else if (cur == scr_main && dir == LV_DIR_LEFT) {
+        slide_screen(scr_bus, LV_SCR_LOAD_ANIM_MOVE_LEFT, 280);
+        lv_indev_wait_release(in);
+    } else if (cur == scr_bus && dir == LV_DIR_RIGHT) {
+        slide_screen(scr_main, LV_SCR_LOAD_ANIM_MOVE_RIGHT, 280);
         lv_indev_wait_release(in);
     } else if (cur == scr_radar && (dir == LV_DIR_TOP || dir == LV_DIR_BOTTOM)) {
         radar_zoom(dir == LV_DIR_BOTTOM ? +1 : -1);  // swipe down = zoom in, up = zoom out
@@ -1517,7 +1567,7 @@ static void alert_close(lv_event_t *e)
         update_show(scr_alert);
         return;
     }
-    slide_screen(scr_main, LV_SCR_LOAD_ANIM_MOVE_BOTTOM, 260);
+    slide_screen(al_back ? al_back : scr_main, LV_SCR_LOAD_ANIM_MOVE_BOTTOM, 260);
 }
 
 static void alert_gesture(lv_event_t *e)
@@ -1594,6 +1644,7 @@ static void alert_create(void)
 }
 
 static void dirty_hidden_one(const void *key);
+static bool al_map_on;                     // the weather alert's region map is to be shown (al_bus: not now)
 
 // The rows of the bottom pill (alert or update), on place i's page: out of date in its picture, unless that page is
 // shown (slide.c). Only those rows: ~40, rendered again at once, so a drag right after finds it ready.
@@ -1632,12 +1683,9 @@ void ui_alert_map(uint16_t *buf, int w, int h)
         al_map_dsc.data_size = w * h * 2;
         lv_image_cache_drop(&al_map_dsc);
         lv_image_set_src(al_map, &al_map_dsc);
-        lv_obj_remove_flag(al_map, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(al_attr, LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_obj_add_flag(al_map, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(al_attr, LV_OBJ_FLAG_HIDDEN);
     }
+    al_map_on = buf != NULL;
+    if (!al_bus) { set_hidden(al_map, !al_map_on); set_hidden(al_attr, !al_map_on); }
     display_unlock();
     if (old != buf) free(old);
 }
@@ -1648,7 +1696,8 @@ void ui_alert_map_show(bool show)
 {
     display_lock(-1);
     show = show && al_map_buf;
-    if (lv_obj_has_flag(al_map, LV_OBJ_FLAG_HIDDEN) == show) {
+    al_map_on = show;
+    if (!al_bus && lv_obj_has_flag(al_map, LV_OBJ_FLAG_HIDDEN) == show) {
         set_hidden(al_map, !show);
         set_hidden(al_attr, !show);
         dirty_hidden_one(scr_alert);
@@ -1685,7 +1734,7 @@ void ui_alerts(const alerts_t *al)
     if (!alerts.n) {
         lv_obj_add_flag(al_map, LV_OBJ_FLAG_HIDDEN);
         pills_show();
-        if (lv_screen_active() == scr_alert) lv_screen_load(scr_main);
+        if (lv_screen_active() == scr_alert && !al_bus) lv_screen_load(scr_main);
         display_unlock();
         return;
     }
@@ -1693,10 +1742,24 @@ void ui_alerts(const alerts_t *al)
     lv_color_t c = alert_colour(a->colour);
     lv_obj_set_style_bg_color(al_pill, c, 0);
     lv_obj_set_style_text_color(al_pill_lbl, a->colour == 'r' ? lv_color_white() : lv_color_black(), 0);
-    if (alerts.n > 1) lv_label_set_text_fmt(al_pill_lbl, "%s +%d", a->name[AL], alerts.n - 1);
-    else lv_label_set_text(al_pill_lbl, a->name[AL]);
+    char pill[96];
+    if (alerts.n > 1) snprintf(pill, sizeof(pill), "%s +%d", a->name[AL], alerts.n - 1);
+    else snprintf(pill, sizeof(pill), "%s", a->name[AL]);
+    pill_text(al_pill_lbl, pill);
     pills_show();
+    if (!al_bus) weather_alert_render();
+    display_unlock();
+}
 
+// The alert screen with the weather's alerts (the first one's title, when and where, then every text). Display lock
+// held. Also on the way back from a stop's notices (main_tap).
+static void weather_alert_render(void)
+{
+    if (!alerts.n) return;
+    const alert_t *a = &alerts.a[0];
+    lv_color_t c = alert_colour(a->colour);
+    set_hidden(al_map, !al_map_on);
+    set_hidden(al_attr, !al_map_on);
     char until[32];
     fmt_until(a->ends, until, sizeof(until));
     lv_label_set_text(al_title, a->name[AL]);
@@ -1711,7 +1774,6 @@ void ui_alerts(const alerts_t *al)
         len += snprintf(body + len, sizeof(body) - len, tr(T_ALERT_ALSO), alerts.a[i].name[AL], until, alerts.a[i].text[AL]);
     }
     lv_label_set_text(al_body, body);
-    display_unlock();
 }
 
 // Test console ("alert sample en|fr|max|off"): the alert screen laid out with long names Environment Canada used
@@ -2632,7 +2694,7 @@ static void cfg_bright_changed(lv_event_t *e)
 
 static void cfg_close(lv_event_t *e)
 {
-    slide_screen(scr_main, LV_SCR_LOAD_ANIM_MOVE_BOTTOM, 260);
+    slide_screen(cfg_back ? cfg_back : scr_main, LV_SCR_LOAD_ANIM_MOVE_BOTTOM, 260);
 }
 
 static void cfg_gesture(lv_event_t *e)
@@ -2651,6 +2713,7 @@ static void open_cfg(lv_event_t *e)                // long-press on the weather 
         return;
     }
     ESP_LOGI("ui", "long press -> settings");
+    cfg_back = lv_screen_active() == scr_bus ? scr_bus : scr_main;
     restart_armed = 0;
     check_tapped = 0;
     back_to_cfg = false;
@@ -2778,6 +2841,386 @@ static void cfg_create(void)
     lv_timer_create(cfg_tick, 1000, NULL);
 }
 
+/* ---------- Buses: the stops screen ----------
+ * The row's right end (status | extras | weather | buses): one page per favourite stop in a vertical pager, on the same
+ * slots as a place's weather page (docs/MERGE-PLAN.md): how fresh (16), the clock (38), the stop's name and number (72),
+ * the route badge and the next departure (112), the direction (214), real time or scheduled (248), the three after it
+ * (306-372) and the route's notices in the bottom pill (404, tap: the alert screen). departures.c fetches the stop on
+ * view every 30 s and the others every 5 min; the minutes count down from the departure times in between. */
+#define C_LIVE    lv_color_hex(0x6FD08C)
+#define C_BAD     lv_color_hex(0xFF4D4D)
+#define C_BUSWARN lv_color_hex(0xFF8A3D)
+
+typedef struct {
+    lv_obj_t *age, *time, *title, *badge, *route, *big, *unit, *dir, *kind;
+    lv_obj_t *col_in[3], *col_at[3], *col_kind[3], *pill, *pill_lbl, *div;
+} stop_page_t;
+static stop_page_t sp[FAVS_MAX];
+static lv_obj_t *bus_empty_t, *bus_empty_h;
+
+static void set_color(lv_obj_t *l, lv_color_t c)
+{
+    if (!lv_color_eq(lv_obj_get_style_text_color(l, 0), c)) lv_obj_set_style_text_color(l, c, 0);
+}
+
+static void set_strike(lv_obj_t *l, bool on)
+{
+    lv_text_decor_t d = on ? LV_TEXT_DECOR_STRIKETHROUGH : LV_TEXT_DECOR_NONE;
+    if (lv_obj_get_style_text_decor(l, 0) != d) lv_obj_set_style_text_decor(l, d, 0);
+}
+
+// A departure's time on the clock (Québec's: TZ is set in main.c), 24 h or 12 h as the units say
+static void bus_hhmm(time_t t, char *out, int n)
+{
+    struct tm tm;
+    localtime_r(&t, &tm);
+    config_fmt_time(tm.tm_hour, tm.tm_min, out, n);
+}
+
+// "16 min", "< 1 min", or the time itself an hour or more away
+static void bus_when(time_t dep, time_t now, char *out, int n)
+{
+    long s = (long)(dep - now);
+    if (s >= 3600) bus_hhmm(dep, out, n);
+    else if (s < 60) snprintf(out, n, "%s", tr(T_DEP_NOW));
+    else snprintf(out, n, tr(T_DEP_MIN), (int)(s / 60));
+}
+
+static lv_obj_t *bus_label(lv_obj_t *pg, lv_font_t *f, lv_color_t c, int y, int w)
+{
+    lv_obj_t *l = label(pg, f, c, y);
+    lv_obj_set_size(l, w, lv_font_get_line_height(f));   // one line: LONG_DOT needs a fixed height too
+    lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
+    return l;
+}
+
+static void stop_page_create(int i, lv_obj_t *pg)
+{
+    stop_page_t *p = &sp[i];
+    p->age = bus_label(pg, f_micro, C_DIM, 16, 220);
+    p->time = label(pg, f_time, C_DIM, 38);
+    p->title = bus_label(pg, f_city, C_TEXT, 72, 320);
+    lv_obj_t *hero = lv_obj_create(pg);                  // route badge + next departure, centred together
+    lv_obj_remove_style_all(hero);
+    lv_obj_set_size(hero, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(hero, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(hero, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(hero, 14, 0);
+    lv_obj_align(hero, LV_ALIGN_TOP_MID, 0, 112);
+    p->badge = lv_obj_create(hero);
+    lv_obj_remove_style_all(p->badge);
+    lv_obj_set_size(p->badge, 80, 80);
+    lv_obj_set_style_radius(p->badge, 16, 0);
+    lv_obj_set_style_bg_color(p->badge, C_ACCENT, 0);
+    lv_obj_set_style_bg_opa(p->badge, LV_OPA_COVER, 0);
+    lv_obj_set_style_margin_bottom(p->badge, 8, 0);
+    p->route = lv_label_create(p->badge);
+    lv_obj_set_style_text_font(p->route, f_city, 0);
+    lv_obj_set_style_text_color(p->route, lv_color_hex(0x04121F), 0);
+    lv_label_set_text(p->route, "");
+    lv_obj_center(p->route);
+    p->big = lv_label_create(hero);
+    lv_obj_set_style_text_font(p->big, f_big, 0);
+    lv_obj_set_style_text_color(p->big, C_TEXT, 0);
+    lv_label_set_text(p->big, "");
+    p->unit = lv_label_create(hero);
+    lv_obj_set_style_text_font(p->unit, f_cond, 0);
+    lv_obj_set_style_text_color(p->unit, C_TEXT, 0);
+    lv_obj_set_style_margin_bottom(p->unit, 16, 0);
+    lv_label_set_text(p->unit, "");
+    p->dir = bus_label(pg, f_cond, C_TEXT, 214, 340);
+    p->kind = bus_label(pg, f_small, C_DIM, 248, 360);
+    p->div = lv_obj_create(pg);
+    lv_obj_remove_style_all(p->div);
+    lv_obj_set_size(p->div, 260, 2);
+    lv_obj_set_style_bg_color(p->div, lv_color_hex(0x2A3138), 0);
+    lv_obj_set_style_bg_opa(p->div, LV_OPA_COVER, 0);
+    lv_obj_align(p->div, LV_ALIGN_TOP_MID, 0, 298);
+    for (int k = 0; k < 3; k++) {                        // the three after it: in how long / when / real time or not
+        int dx = (k - 1) * 98;
+        p->col_in[k] = bus_label(pg, f_tiny, C_ACCENT, 306, 96);
+        lv_obj_align(p->col_in[k], LV_ALIGN_TOP_MID, dx, 306);
+        p->col_at[k] = bus_label(pg, f_cond, C_TEXT, 334, 96);
+        lv_obj_align(p->col_at[k], LV_ALIGN_TOP_MID, dx, 334);
+        p->col_kind[k] = bus_label(pg, f_micro, C_DIM, 372, 96);
+        lv_obj_align(p->col_kind[k], LV_ALIGN_TOP_MID, dx, 372);
+    }
+    p->pill = lv_obj_create(pg);                         // the route's notices (as the weather's alert pill)
+    lv_obj_remove_style_all(p->pill);
+    lv_obj_set_size(p->pill, LV_SIZE_CONTENT, 30);
+    lv_obj_set_style_radius(p->pill, 15, 0);
+    lv_obj_set_style_bg_color(p->pill, C_BUSWARN, 0);
+    lv_obj_set_style_bg_opa(p->pill, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_hor(p->pill, 14, 0);
+    lv_obj_align(p->pill, LV_ALIGN_TOP_MID, 0, PILL_Y);
+    p->pill_lbl = lv_label_create(p->pill);
+    lv_obj_set_style_text_font(p->pill_lbl, f_tiny, 0);
+    lv_obj_set_style_text_color(p->pill_lbl, lv_color_black(), 0);
+    lv_label_set_long_mode(p->pill_lbl, LV_LABEL_LONG_DOT);
+    lv_obj_center(p->pill_lbl);
+    lv_obj_add_flag(p->pill, LV_OBJ_FLAG_HIDDEN);
+}
+
+// Page i from departures.c's data (LVGL task). Only what changed is set (set_text, set_color...): an unchanged page
+// keeps its cached picture.
+static void stop_refresh(int i)
+{
+    stop_page_t *p = &sp[i];
+    time_t now = time(NULL);
+    struct tm tm;
+    localtime_r(&now, &tm);
+    bool clock_set = tm.tm_year > 120;
+    char buf[112];
+    if (clock_set) bus_hhmm(now, buf, sizeof(buf));
+    set_text(p->time, clock_set ? buf : "");
+    static dep_entry_t e;                                // ~0.7 KB: not on the LVGL task's stack (rtcquebec bug 3)
+    if (!deps_get(i, &e)) return;
+    const rtc_board_t *b = &e.board;
+    set_text(p->route, e.fav.route);
+    if (e.state == DEP_OK) {
+        char name[64];
+        textfit(b->stop_name, name, sizeof(name));
+        snprintf(buf, sizeof(buf), "%s  ·  %s", name, e.fav.stop);
+    } else snprintf(buf, sizeof(buf), "%s", e.fav.stop);
+    set_text(p->title, buf);
+    if (e.state == DEP_OK) {
+        char d[64];
+        textfit(b->direction, d, sizeof(d));
+        snprintf(buf, sizeof(buf), "→ %s", d);
+    } else buf[0] = 0;
+    set_text(p->dir, buf);
+
+    // The departures still ahead (one that left more than 30 s ago is gone; the next fetch drops it anyway). Older
+    // than 10 min (offline for a while): the times may be wrong, none rather than stale ones.
+    const rtc_dep_t *d[RTC_DEPS_MAX];
+    int nd = 0;
+    bool stale = e.state == DEP_OK && now - e.fetched > 10 * 60;
+    if (e.state == DEP_OK && clock_set && !stale)
+        for (int k = 0; k < b->n; k++) if (b->dep[k].depart > now - 30) d[nd++] = &b->dep[k];
+    if (nd > 0) {
+        long s = (long)(d[0]->depart - now);
+        if (s >= 3600) { bus_hhmm(d[0]->depart, buf, sizeof(buf)); set_text(p->unit, ""); }
+        else { snprintf(buf, sizeof(buf), s < 60 ? "<1" : "%ld", s / 60); set_text(p->unit, tr(T_DEP_UNIT)); }
+        set_text(p->big, buf);
+        set_strike(p->big, d[0]->cancelled);
+        set_color(p->big, d[0]->cancelled ? C_BAD : C_TEXT);
+    } else {
+        set_text(p->big, "--");
+        set_text(p->unit, "");
+        set_strike(p->big, false);
+        set_color(p->big, C_TEXT);
+    }
+
+    // The detail line: real time or scheduled, else what's wrong (as a weather page's details line)
+    lv_color_t kc = C_DIM;
+    if (e.state == DEP_NOT_FOUND) { snprintf(buf, sizeof(buf), tr(T_DEP_NOT_FOUND), e.fav.route); kc = C_BAD; }
+    else if (e.state == DEP_WAITING) snprintf(buf, sizeof(buf), "%s", e.failing ? tr(T_DEP_OFFLINE) : tr(T_DEP_LOADING));
+    else if (b->not_served) { snprintf(buf, sizeof(buf), "%s", tr(T_DEP_NOT_SERVED)); kc = C_BAD; }
+    else if (nd > 0) {
+        snprintf(buf, sizeof(buf), "%s", tr(d[0]->cancelled ? T_DEP_CANCELLED : d[0]->live ? T_DEP_LIVE : T_DEP_SCHED));
+        kc = d[0]->cancelled ? C_BAD : d[0]->live ? C_LIVE : C_DIM;
+    } else if (!stale && clock_set && b->n == 0) snprintf(buf, sizeof(buf), "%s", tr(T_DEP_NONE));
+    else if (b->drop_off_only) snprintf(buf, sizeof(buf), "%s", tr(T_DEP_DROP_OFF));
+    else buf[0] = 0;
+    set_text(p->kind, buf);
+    set_color(p->kind, kc);
+
+    for (int k = 0; k < 3; k++) {
+        const rtc_dep_t *x = k + 1 < nd ? d[k + 1] : NULL;
+        if (x) bus_when(x->depart, now, buf, sizeof(buf));
+        set_text(p->col_in[k], x ? buf : "");
+        if (x) bus_hhmm(x->depart, buf, sizeof(buf));
+        set_text(p->col_at[k], x ? buf : "");
+        set_strike(p->col_at[k], x && x->cancelled);
+        set_text(p->col_kind[k], !x ? "" : tr(x->cancelled ? T_DEP_CANCELLED : x->live ? T_DEP_LIVE : T_DEP_SCHED));
+        if (x) set_color(p->col_kind[k], x->cancelled ? C_BAD : x->live ? C_LIVE : C_DIM);
+    }
+
+    // How fresh, at the top (as a weather page's "Updated 3 min ago")
+    lv_color_t ac = C_DIM;
+    if (e.state == DEP_OK && e.failing && now - e.fetched > 2 * 60) { snprintf(buf, sizeof(buf), "%s", tr(T_DEP_OFFLINE)); ac = C_BAD; }
+    else if (e.state == DEP_OK) { char at[12]; bus_hhmm(e.fetched, at, sizeof(at)); snprintf(buf, sizeof(buf), tr(T_DEP_UPDATED), at); }
+    else buf[0] = 0;
+    set_text(p->age, buf);
+    set_color(p->age, ac);
+
+    // The route's notices: the first one's title, or how many
+    static EXT_RAM_BSS_ATTR dep_alert_t one[DEPS_ALERTS_MAX];
+    time_t fetched;
+    bool failing;
+    int na = deps_alerts(i, one, DEPS_ALERTS_MAX, &fetched, &failing);
+    if (na == 1) textfit(one[0].n.title, buf, sizeof(buf));
+    else if (na > 1) snprintf(buf, sizeof(buf), tr(T_BUS_NOTICES), na);
+    if (na) pill_text(p->pill_lbl, buf);
+    set_hidden(p->pill, na == 0);
+}
+
+// Without favourites: the first page says how to add them, the rest of it is hidden
+static void bus_empty_refresh(void)
+{
+    bool empty = n_stops == 0;
+    lv_obj_t *pg = pager_page(stop_pager, 0);
+    for (uint32_t k = 0; k < lv_obj_get_child_count(pg); k++) {
+        lv_obj_t *c = lv_obj_get_child(pg, k);
+        if (c == bus_empty_t || c == bus_empty_h) set_hidden(c, !empty);
+        else if (empty) set_hidden(c, true);
+        else if (c != sp[0].pill) set_hidden(c, false);       // (the pill: stop_refresh)
+    }
+}
+
+static void stop_dots(int active)
+{
+    static int drawn_active = -1, drawn_n = -1;
+    if (active == drawn_active && n_stops == drawn_n) return;
+    drawn_active = active;
+    drawn_n = n_stops;
+    for (int i = 0; i < FAVS_MAX; i++) {
+        if (n_stops < 2 || i >= n_stops) { set_hidden(stop_dot[i], true); continue; }
+        lv_obj_set_size(stop_dot[i], 7, i == active ? 18 : 7);
+        lv_obj_set_style_bg_color(stop_dot[i], i == active ? C_TEXT : C_DIM, 0);
+        lv_obj_set_style_bg_opa(stop_dot[i], i == active ? LV_OPA_COVER : LV_OPA_60, 0);
+        lv_obj_align(stop_dot[i], LV_ALIGN_RIGHT_MID, -14, (2 * i - (n_stops - 1)) * 8 + (i < active ? -5 : i > active ? 5 : 0));
+        set_hidden(stop_dot[i], false);
+    }
+}
+
+static void stop_scrolled(int i, void *user) { stop_dots(i); }
+static void stop_settled(int i, void *user)
+{
+    if (i != cur_stop) ESP_LOGI("ui", "stop %d", i + 1);
+    cur_stop = i;
+}
+
+static const void *stop_neighbour(int side, void *user)
+{
+    int i = pager_current(stop_pager) + side;
+    return i < 0 || i >= n_stops ? NULL : pager_page(stop_pager, i);
+}
+
+static void stop_commit(int side, void *user)
+{
+    int i = pager_current(stop_pager) + side;
+    if (side && i >= 0 && i < n_stops) pager_switch(stop_pager, i);
+}
+
+// The alert screen with stop i's notices (its route in its direction): title, start and end as RTC writes them
+static void bus_alert_show(int i)
+{
+    static EXT_RAM_BSS_ATTR dep_alert_t na[DEPS_ALERTS_MAX];
+    static dep_entry_t e;
+    time_t fetched;
+    bool failing;
+    int n = deps_alerts(i, na, DEPS_ALERTS_MAX, &fetched, &failing);
+    if (!n || !deps_get(i, &e)) return;
+    printf("ui: tap bus notices (stop %d, %d)\n", i + 1, n);
+    al_bus = true;
+    al_back = scr_bus;
+    lv_label_set_text_fmt(al_title, tr(T_ALERTS_ROUTE), e.fav.route);
+    lv_obj_set_style_text_color(al_title, C_BUSWARN, 0);
+    al_layout();
+    set_hidden(al_map, true);
+    set_hidden(al_attr, true);
+    char d[64] = "";
+    if (e.state == DEP_OK) textfit(e.board.direction, d, sizeof(d));
+    lv_label_set_text_fmt(al_sub, "%s%s", d[0] ? "→ " : "", d);
+    static EXT_RAM_BSS_ATTR char body[DEPS_ALERTS_MAX * 480];
+    int len = 0;
+    for (int k = 0; k < n && len < (int)sizeof(body) - 1; k++) {
+        const rtc_notice_t *x = &na[k].n;
+        char be[64] = "", en[64] = "";
+        if (x->begin[0]) snprintf(be, sizeof(be), tr(T_ALERT_BEGIN), x->begin);
+        if (x->end[0]) snprintf(en, sizeof(en), tr(T_ALERT_END), x->end);
+        len += snprintf(body + len, sizeof(body) - len, "%s%s%s%s%s%s%s%s", k ? "\n\n" : "", x->title,
+                        x->subtitle[0] ? "\n" : "", x->subtitle, be[0] ? "\n" : "", be, en[0] ? "\n" : "", en);
+    }
+    lv_label_set_text(al_body, body);
+    lv_obj_scroll_to_y(al_box, 0, LV_ANIM_OFF);
+    slide_cache_dirty(scr_alert);
+    slide_screen(scr_alert, LV_SCR_LOAD_ANIM_MOVE_TOP, 260);
+}
+
+static void bus_tap(lv_event_t *e)
+{
+    lv_indev_t *in = lv_indev_active();
+    if (!in || ov_state || !n_stops) return;
+    lv_point_t p;
+    lv_indev_get_point(in, &p);
+    if (p.y >= PILL_TAP_Y && !lv_obj_has_flag(sp[cur_stop].pill, LV_OBJ_FLAG_HIDDEN)) bus_alert_show(cur_stop);
+}
+
+// Every second: the stop on view to departures.c (fetched every 30 s; none while the buses screen isn't shown), its
+// minutes counted down, and the pages the fetch task changed (ui_deps_changed)
+static void bus_tick(lv_timer_t *t)
+{
+    lv_obj_t *cur = lv_screen_active();
+    bool on_bus = cur == scr_bus || (cur == scr_alert && al_bus);
+    deps_show(on_bus && n_stops ? cur_stop : -1);
+    uint32_t ch = __atomic_exchange_n(&bus_changed, 0, __ATOMIC_ACQ_REL);
+    if (ch & BUS_ALERTS) ch |= (1u << FAVS_MAX) - 1;
+    for (int i = 0; i < n_stops; i++) {
+        lv_obj_t *page = pager_page(stop_pager, i);
+        bool shown = cur == scr_bus && i == cur_stop;
+        if (!shown && !(ch & (1u << i))) continue;
+        stop_refresh(i);
+        if (!shown) slide_cache_dirty(page);
+    }
+}
+
+// departures.c's task: favourite i has new data (or DEPS_CHANGED_ALERTS): refreshed by bus_tick within a second
+void ui_deps_changed(int i)
+{
+    uint32_t bit = i == DEPS_CHANGED_ALERTS ? BUS_ALERTS : i >= 0 && i < FAVS_MAX ? 1u << i : 0;
+    if (bit) __atomic_fetch_or(&bus_changed, bit, __ATOMIC_ACQ_REL);
+}
+
+// The favourites changed (start-up, the settings page): as many pages as stops, at least the first (empty state)
+void ui_favs_changed(void)
+{
+    display_lock(-1);
+    dep_entry_t *e = heap_caps_malloc(sizeof(*e), MALLOC_CAP_SPIRAM);
+    int n = 0;
+    while (e && n < FAVS_MAX && deps_get(n, e)) n++;
+    free(e);
+    n_stops = n;
+    for (int i = 0; i < FAVS_MAX; i++) set_hidden(pager_page(stop_pager, i), i >= (n ? n : 1));
+    if (cur_stop >= (n ? n : 1)) { cur_stop = 0; pager_go(stop_pager, 0, false); }
+    bus_empty_refresh();
+    for (int i = 0; i < n; i++) stop_refresh(i);
+    stop_dots(cur_stop);
+    slide_cache_dirty(NULL);
+    display_unlock();
+}
+
+static void bus_create(void)
+{
+    scr_bus = base_screen();
+    stop_pager = pager_create(scr_bus, true, FAVS_MAX, stop_scrolled, stop_settled, NULL);
+    pager_freeze(stop_pager);                            // stops are dragged as pictures (slide.c, drag_read)
+    for (int i = 0; i < FAVS_MAX; i++) stop_page_create(i, pager_page(stop_pager, i));
+    lv_obj_t *pg0 = pager_page(stop_pager, 0);
+    bus_empty_t = label(pg0, f_city, C_ACCENT, 150);
+    tlabel(bus_empty_t, T_NO_STOPS);
+    bus_empty_h = label(pg0, f_small, C_TEXT, 200);
+    lv_obj_set_width(bus_empty_h, 340);
+    tlabel(bus_empty_h, T_NO_STOPS_HOW);
+    for (int i = 1; i < FAVS_MAX; i++) lv_obj_add_flag(pager_page(stop_pager, i), LV_OBJ_FLAG_HIDDEN);
+    page_dots(scr_bus, 3);
+    for (int i = 0; i < FAVS_MAX; i++) {                 // stop dots, vertical, right edge (stop_dots)
+        stop_dot[i] = lv_obj_create(scr_bus);
+        lv_obj_remove_style_all(stop_dot[i]);
+        lv_obj_set_style_radius(stop_dot[i], 4, 0);
+        lv_obj_set_style_bg_opa(stop_dot[i], LV_OPA_COVER, 0);
+        lv_obj_add_flag(stop_dot[i], LV_OBJ_FLAG_HIDDEN);
+    }
+    bus_empty_refresh();
+    lv_obj_add_event_cb(scr_bus, gesture_cb, LV_EVENT_GESTURE, NULL);
+    lv_obj_add_event_cb(scr_bus, open_cfg, LV_EVENT_LONG_PRESSED, NULL);
+    lv_obj_add_event_cb(scr_bus, bus_tap, LV_EVENT_SHORT_CLICKED, NULL);
+    passthrough(scr_bus);
+    lv_obj_add_flag(stop_pager, LV_OBJ_FLAG_CLICKABLE);
+    lv_timer_create(bus_tick, 1000, NULL);
+}
+
 void ui_init(void)
 {
     // Text from outside (network and place names) keeps only what the fonts draw: Montserrat, then the syllabics
@@ -2813,7 +3256,6 @@ void ui_init(void)
     lv_obj_align(al_pill, LV_ALIGN_TOP_MID, 0, PILL_Y);
     al_pill_lbl = lv_label_create(al_pill);
     lv_obj_set_style_text_font(al_pill_lbl, f_tiny, 0);
-    lv_obj_set_style_max_width(al_pill_lbl, 186, 0);    // the round edge: ~214 px wide at y 434
     lv_label_set_long_mode(al_pill_lbl, LV_LABEL_LONG_DOT);
     al_pill_dot = lv_obj_create(al_pill);
     lv_obj_remove_style_all(al_pill_dot);
@@ -2848,6 +3290,7 @@ void ui_init(void)
     lv_obj_add_event_cb(scr_main, open_cfg, LV_EVENT_LONG_PRESSED, NULL);
     lv_obj_add_event_cb(scr_main, main_tap, LV_EVENT_SHORT_CLICKED, NULL);
     hour_create();
+    bus_create();
     update_create();                // pill on scr_main (made non-clickable by passthrough) + update screen
     passthrough(scr_main);          // before the (clickable) overlay is added
     lv_obj_add_flag(place_pager, LV_OBJ_FLAG_CLICKABLE);   // it must stay pressable to scroll between places
@@ -3159,6 +3602,7 @@ void ui_units_changed(void)
     clock_tick(NULL);
     ui_alerts(&alerts);                    // "Until …"
     radar_units_changed();                 // clock, frame time, ring and radius
+    for (int i = 0; i < n_stops; i++) stop_refresh(i);   // the stops (24 h / 12 h, language)
     display_unlock();
 }
 
@@ -3186,6 +3630,11 @@ const char *ui_screen_name(void)
     lv_obj_t *s = lv_screen_active();
     if (s == scr_main) return lv_obj_has_flag(overlay, LV_OBJ_FLAG_HIDDEN) ? "weather" : "phone";
     if (s == scr_setup) return su_page ? "setup1" : "setup0";
+    if (s == scr_bus) {
+        static char name[16];
+        if (cur_stop) snprintf(name, sizeof(name), "stop%d", cur_stop + 1); else strcpy(name, "stop");
+        return name;
+    }
     return s == scr_extras ? "extras" : s == scr_status ? "status" : s == scr_radar ? "radar" :
            s == scr_update ? "update" : s == scr_alert ? "alert" : s == scr_hour ? "hourly" :
            s == scr_cfg ? "settings" : s == scr_msg ? "message" : "other";
@@ -3236,6 +3685,12 @@ lv_draw_buf_t *ui_snapshot(const char *screen)
             lv_label_set_text_fmt(su_body, tr(T_WIFI_JOIN), SETUP_AP_SSID, net_setup_ap_pass());
         }
     }
+    int stop = !strncmp(screen, "stop", 4) ? (screen[4] ? atoi(screen + 4) - 1 : 0) : -1, stop_was = cur_stop;
+    if (stop >= 0 && stop < (n_stops ? n_stops : 1)) {   // a stop's page, shown or not
+        s = scr_bus;
+        if (stop != stop_was) { pager_peek(stop_pager, stop); stop_dots(stop); }
+        stop_refresh(stop);
+    } else stop = -1;
     if (s == scr_status) status_refresh();
     if (s == scr_cfg) cfg_refresh();
     if (s == scr_extras) extras_refresh();
@@ -3245,6 +3700,7 @@ lv_draw_buf_t *ui_snapshot(const char *screen)
     lv_draw_buf_t *db = lv_snapshot_take(s, LV_COLOR_FORMAT_RGB565);
     if (cfg_down && lv_screen_active() != scr_cfg) lv_obj_scroll_to_y(list, 0, LV_ANIM_OFF);
     if (phone && ov_hidden) lv_obj_add_flag(overlay, LV_OBJ_FLAG_HIDDEN);
+    if (stop >= 0 && stop != stop_was) { pager_peek(stop_pager, stop_was); stop_dots(stop_was); }
     return db;
 }
 

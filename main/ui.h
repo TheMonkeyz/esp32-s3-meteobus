@@ -24,7 +24,9 @@ void ui_place_state(int i, bool ok);
 // Once: the "choose your location" settings QR (a new display) and/or the gesture hint (after it, or alone)
 void ui_first_run(bool location, bool gestures);
 void ui_pages(int *place, int *day, int *places, int *days);
-void ui_hero_icon(int *x, int *y);                     // test console "page": where a tap opens the radar   // test console (display lock held)
+void ui_hero_icon(int *x, int *y);
+void ui_deps_changed(int i);                           // departures.c's task: a stop's data or the notices changed
+void ui_favs_changed(void);                            // the favourite stops changed (start-up, settings page)                     // test console "page": where a tap opens the radar   // test console (display lock held)
 const char *ui_screen_name(void);        // "weather", "radar", "settings", "setup0"... (display lock held)
 bool ui_alert_sample(const char *which, int *title_h, int *lines, int *box_y);   // test console (lock held)
 bool ui_setup_fail_sample(int *lines, int *bottom);  // test console (lock held): Easy Connect's failure text

@@ -305,6 +305,17 @@ static lv_draw_buf_t *get(const void *key, bool render, bool force, const void *
     if (e >= 0 && !cache[e].dirty) return cache[e].buf;
     if (!render || !paint_cb || !key) return NULL;
     if (e < 0 && (e = slot_for(force, spare, key)) < 0) return NULL;
+    if (!cache[e].buf && !room_for(1) && force) {
+        // No room for another buffer: a slide needs this picture now, so it takes the buffer of the picture worth
+        // least (not a spare). Allocating anyway took PSRAM's low point from ~450 to 268 KB when the radar, opened
+        // on top of the weather screen since MeteoBus v0.2.0 (no longer a neighbour kept ready), slid in.
+        int alt = -1, alt_p = -1;
+        for (int i = 0; i < CACHE_N; i++) {
+            if (!cache[i].buf || cache[i].key == spare || cache[i].key == key) continue;
+            if (priority(i) > alt_p) { alt_p = priority(i); alt = i; }
+        }
+        if (alt >= 0) e = alt;
+    }
     if (!cache[e].buf) {
         if (!room_for(1) && !force) return NULL;
         cache[e].buf = lv_draw_buf_create(DISP_W, DISP_H, LV_COLOR_FORMAT_RGB565, 0);
