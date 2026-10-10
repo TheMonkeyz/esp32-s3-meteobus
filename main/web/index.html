@@ -760,6 +760,11 @@ async function loadFavs(){
 }
 async function saveFavs(list){
   say($('favMsg'), t('asking'), true);
+  // The rows stand for the list before this save, and their buttons act on it: a Remove tapped right after a Move up,
+  // before the display's answer came back, removed the stop that used to be first (Playwright on the Mac runner,
+  // 2026-10-10). Disabled until the new list shows; a tap waits for it.
+  const rows = [...$('favList').querySelectorAll('button')];
+  rows.forEach(b => b.disabled = true);
   try {
     const r = await fetch('/api/favs', {method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({favs: list.map(f => ({stop: f.stop, route: f.route, dir: f.dir}))})});
@@ -771,10 +776,12 @@ async function saveFavs(list){
       return false;
     }
     say($('favMsg'), t('saved'), true);
+    favs = list; showFavs();                         // the new order at once, then the display's own copy
     await loadFavs();
     setTimeout(loadFavs, 4000);                      // the names come with the first fetch
     return true;
   } catch(e) { say($('favMsg'), t('noReach'), false); return false; }
+  finally { rows.forEach(b => b.disabled = false); } // (rows still shown: a refusal, or the list was the same)
 }
 $('favFind').onclick = async () => {
   const route = $('favRoute').value.trim(), stop = $('favStop').value.trim();
