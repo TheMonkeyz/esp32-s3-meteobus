@@ -147,3 +147,46 @@ void vQueueDelete(QueueHandle_t q)
 }
 
 bool emu_in_task(void) { return current != NULL; }
+
+/* ---------- semaphores (freertos/semphr.h): mutexes are always free, binary semaphores count ---------- */
+#include "freertos/semphr.h"
+#define SEM_MAGIC 0x53454d31u
+struct emu_sem { uint32_t magic; int count; };
+
+SemaphoreHandle_t xSemaphoreCreateBinary(void)
+{
+    struct emu_sem *s = calloc(1, sizeof(*s));
+    if (s) s->magic = SEM_MAGIC;                         // created empty, as FreeRTOS's
+    return s;
+}
+
+static struct emu_sem *as_sem(SemaphoreHandle_t h)
+{
+    struct emu_sem *s = h;
+    return s && h != (SemaphoreHandle_t)1 && s->magic == SEM_MAGIC ? s : NULL;
+}
+
+// A wait in a task goes back to the main loop; a wait in the main loop (a settings page handler, emu_web.c: POST
+// /api/favs waits for the radar task's deps_step) runs the tasks itself meanwhile, so the one that gives it gets its turn
+BaseType_t emu_sem_take(SemaphoreHandle_t h, TickType_t ms)
+{
+    struct emu_sem *s = as_sem(h);
+    if (!s) return pdTRUE;                               // a mutex
+    int64_t end = ms == portMAX_DELAY ? INT64_MAX : esp_timer_get_time() + (int64_t)ms * 1000;
+    while (!s->count) {
+        if (esp_timer_get_time() >= end) return pdFALSE;
+        if (current) vTaskDelay(5);
+        else { emu_tasks_run(); emscripten_sleep(5); }
+    }
+    s->count = 0;
+    return pdTRUE;
+}
+
+BaseType_t emu_sem_give(SemaphoreHandle_t h)
+{
+    struct emu_sem *s = as_sem(h);
+    if (!s) return pdTRUE;
+    if (s->count) return pdFALSE;
+    s->count = 1;
+    return pdTRUE;
+}

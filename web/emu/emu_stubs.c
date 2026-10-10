@@ -125,33 +125,47 @@ void testcon_add_where(testcon_where_fn_t fn) { (void)fn; }
 
 bool nvs_check(esp_err_t err, const char *what) { (void)what; return err == ESP_OK; }
 
-/* ---------- the buses (MeteoBus): no RTC in the browser, so no stops (the buses screen shows how to add them) ---------- */
-#include "departures.h"
+/* ---------- the buses (MeteoBus): departures.c, rtc_api.c, favs.c and bus_routes.c are the firmware's own ---------- */
+// netq.c only saves the board's internal RAM (one TLS download at a time) and pulls esp_wifi: here every download is a
+// fetch() and the tasks take turns anyway
 #include "netq.h"
-void deps_start(void (*changed)(int i), void (*wake)(void)) { (void)changed; (void)wake; }
-bool deps_step(void) { return false; }
-void deps_set_favs(const rtc_fav_t *favs, int n) { (void)favs; (void)n; }
-void deps_show(int i) { (void)i; }
-bool deps_get(int i, dep_entry_t *out) { (void)i; (void)out; return false; }
-int deps_alerts(int fav, dep_alert_t *out, int max, time_t *fetched, bool *failing)
-{
-    (void)fav; (void)out; (void)max;
-    if (fetched) *fetched = 0;
-    if (failing) *failing = false;
-    return 0;
-}
-int deps_alerts_for(int i) { (void)i; return 0; }
-void deps_track(int i) { (void)i; }
-int deps_buses(rtc_bus_t *out, int max, time_t *fetched, bool *failing)
-{
-    (void)out; (void)max;
-    if (fetched) *fetched = 0;
-    if (failing) *failing = false;
-    return 0;
-}
-int deps_trace(float *latlon, int max, int *len) { (void)latlon; (void)max; (void)len; return 0; }
-int deps_stalled_s(void) { return 0; }
 void netq_set(netq_who_t who, bool busy) { (void)who; (void)busy; }
 bool netq_others_busy(netq_who_t self) { (void)self; return false; }
 bool netq_wait_others(int max_ms) { (void)max_ms; return true; }
 void netq_awake(netq_who_t who, bool on) { (void)who; (void)on; }
+
+/* ---------- Québec's clock, as the display's ---------- */
+// main.c sets TZ=EST5EDT,M3.2.0,M11.1.0 and never changes it: localtime_r is Québec's time on the board (the stop
+// pages' clock and departure times, departures.c's service date and the notices' query). Emscripten's localtime_r is
+// the visitor's own zone (it ignores TZ), so a visitor in Vancouver saw departures 3 h early. The weather code uses
+// each place's own offset (config_local_time), not this.
+#include <time.h>
+static long days_from_civil(int y, int m, int d)           // (rtc_api.c's: Howard Hinnant's algorithm)
+{
+    y -= m <= 2;
+    long era = (y >= 0 ? y : y - 399) / 400;
+    int yoe = y - era * 400;
+    int doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+    return era * 146097 + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719468;
+}
+static time_t sunday_utc(int y, int m, int nth, int hour_utc)   // the nth Sunday of the month, at hour_utc
+{
+    long first = days_from_civil(y, m, 1);
+    int wday = (int)((first % 7 + 11) % 7);                 // 1970-01-01 was a Thursday (4)
+    return (time_t)((first + (7 - wday) % 7 + 7 * (nth - 1)) * 86400L + hour_utc * 3600L);
+}
+struct tm *localtime_r(const time_t *t, struct tm *out)
+{
+    struct tm g;
+    gmtime_r(t, &g);
+    int y = g.tm_year + 1900;
+    // EDT from the 2nd Sunday of March, 2:00 EST (7:00 UTC), to the 1st Sunday of November, 2:00 EDT (6:00 UTC)
+    bool dst = *t >= sunday_utc(y, 3, 2, 7) && *t < sunday_utc(y, 11, 1, 6);
+    time_t local = *t + (dst ? -4 : -5) * 3600;
+    gmtime_r(&local, out);
+    out->tm_isdst = dst;
+    out->tm_gmtoff = (dst ? -4 : -5) * 3600;
+    out->tm_zone = dst ? "EDT" : "EST";
+    return out;
+}
+struct tm *localtime(const time_t *t) { static struct tm tm; return localtime_r(t, &tm); }

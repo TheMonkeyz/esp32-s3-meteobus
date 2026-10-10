@@ -3,22 +3,23 @@
 The firmware's own screens, compiled to WebAssembly: LVGL 9.2.2 with the display's settings (`lv_kconfig.h`, generated
 from its sdkconfig), `ui.c`, `slide.c`, `pager.c`, `config.c`, `i18n.c`, the forecast, air-quality and alerts code
 (`weather.c`, `alerts.c`), the radar (`radar.c`, `png_rows.c` with miniz's tinfl as the chip's ROM has), the alert
-sounds (`sound.c`), the brightness, dimming and wake on pick-up (espforge's `forge_presence`, with `audio.c`) and the settings page's routes
-(`routes.c`, forge_ota's `ota_web.c`), all unchanged. Only the hardware is replaced:
+sounds (`sound.c`), the brightness, dimming and wake on pick-up (espforge's `forge_presence`, with `audio.c`), the
+buses (`departures.c`, `rtc_api.c`, `favs.c`, and `bus_routes.c` for the settings page's "My stops"; since October 10)
+and the settings page's routes (`routes.c`, forge_ota's `ota_web.c`), all unchanged. Only the hardware is replaced:
 
 | File | Stands in for |
 |---|---|
 | `emu_display.c` | the AMOLED panel: a 466x466 RGB565 framebuffer that `index.html` copies to a round canvas |
 | `emu_touch.c` | the touch chip: the mouse or a finger on the canvas |
-| `emu_http.c` | `esp_http_client`: `fetch()`, awaited with ASYNCIFY (Open-Meteo, GeoMet and the alerts API allow it) |
-| `emu_nvs.c` | NVS: the settings, kept in the page's `localStorage` |
-| `emu_stubs.c` | Wi-Fi, updates (Restart reloads the page), service statuses |
+| `emu_http.c` | `esp_http_client`: `fetch()`, awaited with ASYNCIFY (Open-Meteo, GeoMet, the alerts API and RTC allow it) |
+| `emu_nvs.c` | NVS: the settings and the bus stops, kept in the page's `localStorage` |
+| `emu_stubs.c` | Wi-Fi, updates (Restart reloads the page), service statuses, `netq.c` (no-ops: it only spares the board's internal RAM, and pulls esp_wifi), Québec's clock (`localtime_r`, below) |
 | `emu_audio.c` | the speaker and the microphones (`esp_codec_dev`): sound.c's PCM, collected between open and close, played through Web Audio at the codec volume (the first touch unlocks audio, browsers' rule); forge_presence's 100 ms reads (through `main/audio.c`), from the browser's microphone once the visitor turns it on, else silence at the same pace |
 | `emu_imu.c` | the motion sensor (QMI8658): a phone's accelerometer (`devicemotion`), or the page's "Pick it up" button; a computer lies still |
 | `emu_web.c` | the web server: the settings page below the emulator (`build/settings.html`, the display's `main/web/index.html` with `emu-settings.js` first in its head) queues its `/api/` requests, served here between LVGL frames by the display's own handlers; Wi-Fi scan and save answer that they need the real display |
-| `emu_tasks.c` | FreeRTOS tasks: each one an Emscripten fiber, run by the main loop between LVGL frames; a wait inside a task (`vTaskDelay`, `ulTaskNotifyTake`, a request) goes back to the main loop. radar.c's task runs as is |
+| `emu_tasks.c` | FreeRTOS tasks: each one an Emscripten fiber, run by the main loop between LVGL frames; a wait inside a task (`vTaskDelay`, `ulTaskNotifyTake`, a request) goes back to the main loop. radar.c's task runs as is, with the buses' requests and the bus map in its idle time (`radar_set_side_work`), as on the display. Mutexes are always free; binary semaphores are real (`departures.c`'s `job_done`: a settings page lookup in the main loop runs the tasks while it waits) |
 | `emu_partition.c` | the radar's map cache partition, in memory |
-| `emu_main.c` | `main.c` after Wi-Fi is up: fetch every place, alerts (with the region map) and air quality, then run LVGL |
+| `emu_main.c` | `main.c` after Wi-Fi is up: the saved stops (`bus_start`), fetch every place, alerts (with the region map) and air quality, then run LVGL |
 | `shim/` | ESP-IDF and FreeRTOS headers; `vTaskDelay` hands control back to the browser (`emscripten_sleep`) |
 
 The firmware itself has one `#ifdef EMU_BUILD`: `ui.c` finds its fonts as arrays here (`build/fonts.c`).
@@ -62,6 +63,28 @@ Emscripten 6.0.11. The `pages` job adds it to the site; if the emulator build fa
 - A new visitor gets three places: Québec City (the firmware's default), Vancouver and Iqaluit (`default_places()` in
   `emu_main.c`, added once, to a visitor with a single place; NVS `emu`/`places` remembers it), so dragging up and
   down between places works from the start, across three time zones.
+- A new visitor also gets two bus stops (October 10; before, the buses screen only said how to add stops): Métrobus
+  801 at Parliament Hill (stop 1560, "C. Parlementaire", R.-Lévesque Est / L.-A.-Taschereau, direction 1, toward
+  Terminus de la Faune) and Métrobus 800 at the Gare du Palais (stop 2562, "Gare-Palais/2562", direction 1, toward
+  Terminus Chute-Montmorency): central, public, each served every ~10-15 min, two routes so the two pages differ
+  (checked against RTC's API on 2026-10-10: `ListeArret_ParcoursPeriode` for the stops, `BorneVirtuelle_ArretParcours`
+  answers with departures for both). `default_stops()` in `emu_main.c` saves them with `favs_save()` (NVS `favs`)
+  once, to a visitor with no stops, and NVS `emu`/`stops` remembers it: stops removed on the settings page ("My
+  stops", or POST `/api/favs` with `{"favs":[]}`) stay removed after a reload; clearing the site's data brings them
+  back. To change them, edit `two[]` there.
+- RTC's API answers browsers (checked 2026-10-10): `api-iv.rtcquebec.ca/api/legacy/...` (BorneVirtuelle_ArretParcours,
+  Parcours_Periode, ListeAutobus_Parcours, ListeParcoursTypeTrace_ParcoursPeriode) sends `Access-Control-Allow-Origin:
+  *`, and the notices (`www.rtcquebec.ca/en/api/notices_v2`) echo the page's origin. So each visitor polls RTC as a
+  display does, with the firmware's own rules (`departures.h`): the stop on view every 30 s, the others every 5 min,
+  each favourite route's notices every 10 min, the buses every 20 s while the bus map is open (and its route's path
+  once), 2 s apart at least, one at a time, in the radar task's idle second (`deps_step`) whatever screen is shown,
+  as on the display: an open tab asks RTC for each stop every 5 min even on the weather screen (browsers slow a hidden
+  tab's timers, not stop them). A public page with many open tabs multiplies that.
+- Québec's clock: the display sets `TZ=EST5EDT,M3.2.0,M11.1.0` (main.c) and its bus code uses `localtime_r` (the
+  stop pages' clock and departure times, the service date in the requests, the notices' query). Emscripten's
+  `localtime_r` is the visitor's own zone and ignores `TZ`, so `emu_stubs.c` replaces it with Eastern time (DST from
+  the 2nd Sunday of March to the 1st Sunday of November; equal to glibc's with that TZ every 15 min over 2024-2030).
+  The weather keeps each place's own offset (`config_local_time`).
 - Fetches pause the screen while they wait (one thread); a forecast takes ~0.3-0.5 s.
 - The radar loads the zoom shown only: the display preloads every zoom level's map once, which a public page would turn
   into bulk downloads against OpenStreetMap's tile policy (`radar_preload_start` is never called here, and radar.c
