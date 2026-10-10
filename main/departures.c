@@ -1,5 +1,6 @@
-// Next departures of the favourites (see departures.h). One task makes every request to RTC, the settings page's
-// lookups included, so there is never more than one at a time and the polling rules hold in one place.
+// Next departures of the favourites (see departures.h). Every request to RTC, the settings page's lookups included, is
+// made by deps_step() in the radar task's idle time (radar_set_side_work), so there is never more than one at a time
+// and the polling rules hold in one place.
 #include "departures.h"
 #include <stdio.h>
 #include <string.h>

@@ -680,7 +680,7 @@ order, and ~11 ms on the bus.
   tries again a second later. Why: each TLS download holds 10-15 KB of internal RAM while it runs (CLAUDE.md lesson
   27), and a place switch (forecast, alerts, air and the radar at once) was already at the harness's floors before the
   buses came. The bus map's tiles need no flag: they are drawn in the radar task's idle time, as `deps_step()` runs,
-  so they never overlap. `NETQ_MAP` and `netq_wait_others()` exist but nothing uses them (2026-10-10).
+  so they never overlap. `NETQ_MAP` only names the bus map for `netq_awake()`.
 - **Wi-Fi power save** (v0.2.0-rc.4, `netq_awake(who, on)`): off (`WIFI_PS_NONE`) while the radar or the bus map is open,
   back to ESP-IDF's default for a station (`WIFI_PS_MIN_MODEM`, which forge_net keeps) when neither is. In that mode
   each reply waits for the router's next beacon, ~100 ms a request: the radar's 14 past frames (28 GeoMet requests)

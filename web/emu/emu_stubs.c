@@ -131,7 +131,6 @@ bool nvs_check(esp_err_t err, const char *what) { (void)what; return err == ESP_
 #include "netq.h"
 void netq_set(netq_who_t who, bool busy) { (void)who; (void)busy; }
 bool netq_others_busy(netq_who_t self) { (void)self; return false; }
-bool netq_wait_others(int max_ms) { (void)max_ms; return true; }
 void netq_awake(netq_who_t who, bool on) { (void)who; (void)on; }
 
 /* ---------- Québec's clock, as the display's ---------- */

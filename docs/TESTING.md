@@ -306,8 +306,8 @@ the window at the end.
 
 **MeteoBus metrics** (`baseline.json`, 2026-10-10): `bus_map_ms` (the map's first picture, 9 OSM tiles at zoom 15:
 max 8,000 ms, 1.85-2.39 s measured), `bus_map_zoom_fps` (min 30, 42.6 measured), `psram_kb.bus_map` (min 600 KB, 1,411
-measured), `snapshot_ms.stop`, `.stop2`, `.stop3` (max 5,000 ms, 1.4-2.1 s). Only three stops have a limit: on a board
-with four favourites or more `snapshot_ms.stop4`… would come out NEW and fail the run until the baseline gets them.
+measured), `snapshot_ms.stop`, `.stop2`, `.stop3` (max 5,000 ms, 1.4-2.1 s). Only the first three stops are timed (their
+pictures are all saved): a board with four favourites or more would otherwise add NEW metrics and fail the run.
 `radar_history_s` (max 7.0 s) was over its limit on 2026-10-09 on the unchanged weather firmware too (7.2-8.2 s): Wi-Fi
 power save made each GeoMet reply wait for a beacon (~100 ms a request). Since v0.2.0-rc.4 it is off while the radar or the
 bus map is open (`netq_awake()`, ARCHITECTURE "Network queue"): 3.1-3.9 s. A slow request: time the same URL from

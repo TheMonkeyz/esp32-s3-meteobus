@@ -29,13 +29,3 @@ bool netq_others_busy(netq_who_t self)
 {
     return (__atomic_load_n(&busy, __ATOMIC_ACQUIRE) & ~(unsigned)self) != 0;
 }
-
-bool netq_wait_others(int max_ms)
-{
-    int64_t end = esp_timer_get_time() + (int64_t)max_ms * 1000;
-    while (__atomic_load_n(&busy, __ATOMIC_ACQUIRE)) {
-        if (esp_timer_get_time() > end) return false;
-        vTaskDelay(pdMS_TO_TICKS(200));
-    }
-    return true;
-}

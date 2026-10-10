@@ -293,7 +293,8 @@ def buses_screen(ctx):
         if name not in ctx.snapped:
             ms = b.snap(name, ctx.out(f'screen_{name}.png'))
             ctx.snapped.add(name)
-            ctx.metric(f'snapshot_ms.{name}', round(ms))
+            if name in ('stop', 'stop2', 'stop3'):   # the baseline's three: a board with 4-8 stops would add NEW metrics
+                ctx.metric(f'snapshot_ms.{name}', round(ms))
     at = len(ctx.log.lines())
     b.cmd('tap 233 418')                                 # the notice pill, when the route has notices
     time.sleep(1.2)
