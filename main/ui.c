@@ -3385,10 +3385,11 @@ static void bm_scale_anim(int32_t from, int32_t to)
 static bool bm_draw(void)
 {
     display_lock(-1);
-    bool want = bm_buf && bm_back && !bm_quit && bm_zoom != bm_zoom_drawn;
+    bool want = bm_buf && !bm_quit && bm_zoom != bm_zoom_drawn;
     int z = bm_zoom;
     double lat = bm_lat, lon = bm_lon;
-    uint16_t *px = want ? (uint16_t *)bm_back->data : NULL;
+    lv_draw_buf_t *into = bm_back ? bm_back : bm_buf;   // the first picture: into the one shown (nothing on it yet)
+    uint16_t *px = want ? (uint16_t *)into->data : NULL;
     if (want) bm_drawing = true;
     display_unlock();
     if (!want) return false;
@@ -3408,9 +3409,10 @@ static bool bm_draw(void)
         return true;
     }
     int was = bm_zoom_drawn;
-    lv_draw_buf_t *shown = bm_buf;             // the new picture in front, the old one for the next zoom
-    bm_buf = bm_back;
-    bm_back = shown;
+    if (into == bm_back) {                     // the new picture in front, the old one for the next zoom
+        bm_back = bm_buf;
+        bm_buf = into;
+    }
     lv_anim_delete(bm_img, bm_scale_cb);
     lv_image_set_scale(bm_img, LV_SCALE_NONE);
     lv_canvas_set_draw_buf(bm_img, bm_buf);
@@ -3484,11 +3486,11 @@ static void busmap_open(int i)
     EXT_RAM_BSS_ATTR static dep_entry_t e;
     if (!deps_get(i, &e) || e.state != DEP_OK || (e.board.lat == 0 && e.board.lon == 0)) return;   // no place yet
     if (bm_buf || bm_drawing) return;                       // the last one is still closing
-    // Two pictures (868 KB of PSRAM while the map is open): the one shown, and the next zoom's, drawn behind it
+    // One picture now; the next zoom's (drawn behind the one shown) at the first zoom, once the picture cache has let
+    // go of what the map doesn't need: both at the opening took PSRAM's low point to 112 KB (floor 300, rc.2)
     bm_buf = lv_draw_buf_create(DISP_W, DISP_H, LV_COLOR_FORMAT_RGB565, 0);
-    bm_back = lv_draw_buf_create(DISP_W, DISP_H, LV_COLOR_FORMAT_RGB565, 0);
     bm_ll = heap_caps_malloc(2 * DEPS_TRACE_POINTS * sizeof(float), MALLOC_CAP_SPIRAM);
-    if (!bm_buf || !bm_back || !bm_ll) {
+    if (!bm_buf || !bm_ll) {
         ESP_LOGW("ui", "bus map: no memory for the pictures");
         bm_free();
         return;
@@ -3547,6 +3549,11 @@ static void bm_zoom_step(int step)
 {
     int z = bm_zoom + step;
     if (z < BM_ZOOM_MIN || z > BM_ZOOM_MAX || !bm_buf) return;
+    if (!bm_back && !bm_drawing) {             // the second picture (none: the zoom draws in place, blank meanwhile)
+        if (!bm_released) { bm_released = true; slide_cache_release_unneeded(); }
+        bm_back = lv_draw_buf_create(DISP_W, DISP_H, LV_COLOR_FORMAT_RGB565, 0);
+        if (!bm_back) ESP_LOGW("ui", "bus map: no room for a second picture");
+    }
     bm_zoom = z;
     ESP_LOGI("ui", "bus map: zoom %d", z);
     int32_t sc = lv_image_get_scale(bm_img);
