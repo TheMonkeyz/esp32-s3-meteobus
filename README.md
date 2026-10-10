@@ -6,7 +6,8 @@
 
 <p align="center">
   <b>Firmware for the Waveshare ESP32-S3-Touch-AMOLED-1.75</b><br>
-  Local weather, an hourly forecast and a live rain radar on a round AMOLED screen. No API keys needed.
+  Local weather, an hourly forecast, a live rain radar and your Québec City bus stops' next departures (RTC) on a
+  round AMOLED screen. No API keys needed.
 </p>
 
 <p align="center">
@@ -101,26 +102,44 @@ page's *Password saved on your phone? Copy it* tip explains how to copy it: Sett
 
 ## 📱 Using it
 
-The main screens sit in a row: **Status · Extras · Weather · Radar**. From the weather screen, swipe **right** for
-the extras page (and right again for the status page), **left** for the radar. Tap a forecast day for the hourly
-view, and long-press for Settings.
+The main screens sit in a row: **Status · Extras · Weather · Buses**. From the weather screen, swipe **right** for
+the extras page (and right again for the status page), **left** for your bus stops. Tap the weather icon for the
+radar, a forecast day for the hourly view, and long-press for Settings.
 
 ### Weather screen
 
 <img align="right" width="200" src="web/flash/img/weather.png" alt="Weather screen">
 
 Clock, city, icon and temperature, conditions, then feels-like, humidity (blue drop) and wind (wind mark). A line
-says when rain or snow starts or stops within 2 h ("Rain around 14:45"). At the bottom, the 3-day high/low with
-icons.
+says when rain or snow starts or stops within 2 h ("Rain around 14:45"). Then the 3-day high/low with icons, and at
+the bottom a weather alert in a coloured pill (tap it for the details) or, without an alert, an update waiting. With
+both, the alert pill has a blue dot and the alert screen ends with **Update available**.
 
 With several places, there is one page per place (dots on the right edge), each with its own local time.
 
 - **Drag up/down** to change place. The page follows the finger, snaps, and bounces at the first and last.
+- **Tap the weather icon** (it has a small radar badge) for the radar.
 - **Tap a day** of the forecast for its hourly view.
-- **Swipe right** for the extras page, **left** for the radar.
+- **Swipe right** for the extras page, **left** for your bus stops.
 - **Long-press** for the Settings screen.
 
 <br clear="right">
+
+### Buses
+
+One page per favourite stop (add them on the phone's settings page, **My stops**), laid out like the weather screen:
+when it was updated, the clock, the stop's name and number, the route and the next departure in big, the direction,
+real time or scheduled, and the three departures after it. The stop on view is asked from the RTC every 30 s while
+the buses are on screen; the others every 5 minutes. The route's notices (a detour, a stop moved) show in an orange
+pill at the bottom.
+
+- **Drag up/down** to change stop.
+- **Tap the route badge** (it has a small map pin) for the bus map: the stop, the route's path and its buses on the
+  way. Swipe down or up to zoom; tap or swipe sideways to close.
+- **Tap the orange pill** for the route's notices.
+- **Swipe right** for the weather.
+
+The departures come from the RTC's website (rtcquebec.ca), which has no public API: this is for personal use.
 
 ### Hourly view
 
@@ -146,7 +165,7 @@ The area around the location: a dimmed OpenStreetMap map, Environment Canada rad
 - **Tap** to play the last 3 h (15 frames, 3 fps), looping for a minute (new radar images join the loop). Tap again
   to stop.
 - **Swipe down** to zoom in, **up** to zoom out: ≈25 km up to ≈1,550 km radius in 7 doubling steps, animated.
-- **Swipe right** to go back.
+- **Swipe sideways** to go back (it also goes back by itself after 5 minutes untouched).
 
 <br clear="right">
 

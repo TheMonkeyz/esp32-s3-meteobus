@@ -23,6 +23,13 @@ def check(cond, msg):
         raise Fail(msg)
 
 
+def open_radar(ctx):
+    """From the weather screen: a tap on the weather icon (its radar badge) opens the radar (MeteoBus v0.2.0)."""
+    b = ctx.board
+    m = b.cmd('page', r'test: page .*icon=(\d+),(\d+)')
+    b.cmd(f'tap {m.group(1)} {m.group(2)}')
+
+
 def go_weather(ctx):
     """Back to the weather screen from wherever the display is."""
     b = ctx.board
@@ -34,7 +41,7 @@ def go_weather(ctx):
             b.cmd('tap 233 45')                      # Done
         elif s in ('extras', 'status'):
             b.cmd('swipe left')
-        elif s in ('radar', 'update', 'alert'):
+        elif s in ('radar', 'update', 'alert') or s.startswith('stop'):
             b.cmd('swipe right')
         elif s in ('phone', 'hourly'):                # a tap closes them
             b.cmd('tap 233 233')
@@ -82,13 +89,18 @@ def every_screen(ctx):
              ('swipe right', 'status'),                  # the left end: bounces back
              ('swipe left', 'extras'),
              ('drag 233 233 300 233 600', 'extras'),     # short and slow: snaps back
-             ('swipe left', 'weather'), ('swipe left', 'radar'),
-             ('swipe left', 'radar'),                    # the right end: bounces back
+             ('swipe left', 'weather'), ('swipe left', 'stop'),
+             ('swipe left', 'stop'),                     # the right end (the buses): bounces back
              ('swipe right', 'weather'),
+             ('icon', 'radar'), ('swipe left', 'weather'),   # the radar opens from the icon; sideways closes it
+             ('icon', 'radar'), ('swipe right', 'weather'),
              ('press 233 233', 'settings'), ('tap 233 45', 'weather'),
              ('tap 125 350', 'hourly'), ('swipe left', 'hourly'), ('tap 233 233', 'weather')]
     for cmd, want in route:
-        b.cmd(cmd)
+        if cmd == 'icon':
+            open_radar(ctx)
+        else:
+            b.cmd(cmd)
         b.wait_screen(want, 6)
         if want not in ctx.snapped:
             ms = b.snap({'hourly': 'current'}.get(want, want), ctx.out(f'screen_{want}.png'))
@@ -245,6 +257,123 @@ def alert_layout(ctx):
 
 
 # ---------------------------------------------------------------- web
+
+# ---------------------------------------------------------------- buses (MeteoBus v0.2.0, from esp32-s3-rtcquebec)
+
+def stop_names(ctx):
+    """The stop pages, top to bottom, for the favourites the display has now ("stop", "stop2"...)."""
+    n = len(ctx.board.api('/api/favs').get('favs', []))
+    return ['stop'] + [f'stop{i}' for i in range(2, n + 1)] if n else []
+
+
+def go_stops(ctx):
+    go_weather(ctx)
+    ctx.board.cmd('swipe left')
+    ctx.board.wait_screen('stop', 6)
+    time.sleep(0.8)
+
+
+@test('navigation')
+def buses_screen(ctx):
+    """The buses at the row's right end: swipe up through every stop and down back (both ends bounce), a stop's notice
+    pill opens its notices and a tap brings the stop back, a long press opens Settings and Done returns to the stop."""
+    b = ctx.board
+    p = stop_names(ctx)
+    if not p:
+        ctx.note('no favourite stop on this board: not checked (add some: Board.api("/api/favs", ...))')
+        return
+    go_stops(ctx)
+    route = ([('swipe up', x) for x in p[1:]] + [('swipe up', p[-1])] +
+             [('swipe down', x) for x in p[-2::-1]] + [('swipe down', 'stop')])
+    for cmd, want in route:
+        b.cmd(cmd)
+        time.sleep(0.8)
+        b.wait_screen(want, 6)
+    for name in p:
+        if name not in ctx.snapped:
+            ms = b.snap(name, ctx.out(f'screen_{name}.png'))
+            ctx.snapped.add(name)
+            ctx.metric(f'snapshot_ms.{name}', round(ms))
+    at = len(ctx.log.lines())
+    b.cmd('tap 233 418')                                 # the notice pill, when the route has notices
+    time.sleep(1.2)
+    if b.screen() == 'alert':
+        b.snap('alert', ctx.out('screen_bus_alert.png'))
+        b.cmd('tap 233 233')
+        b.wait_screen('stop', 6)
+        ctx.note('notice pill: the notices, a tap back to the stop')
+    else:
+        check(b.screen() == 'stop', f'a tap at the bottom of a stop without notices left it ({b.screen()})')
+    b.cmd('press 233 233')
+    b.wait_screen('settings', 6)
+    b.cmd('tap 233 45')                                  # Done
+    b.wait_screen('stop', 6)
+    b.cmd('swipe right')
+    b.wait_screen('weather', 6)
+    ctx.note(f'{" <-> ".join(p)} by vertical swipes, both ends bounce; Settings closes back to the stop')
+
+
+@test('navigation')
+def bus_map(ctx):
+    """The bus map (MeteoBus v0.2.0): a tap on the route badge opens it around the stop, its tiles drawn into a picture
+    allocated for it; swipe down zooms in; a sideways swipe closes it, and its picture is freed (the map and the radar
+    take turns in PSRAM, docs/MERGE-PLAN.md)."""
+    b = ctx.board
+    if not stop_names(ctx):
+        ctx.note('no favourite stop on this board: not checked')
+        return
+    go_stops(ctx)
+    at = len(ctx.log.lines())
+    m = b.cmd('page', r'test: page .*badge=(\d+),(\d+)')
+    b.cmd(f'tap {m.group(1)} {m.group(2)}')
+    b.wait_screen('busmap', 6)
+    d = ctx.log.wait(r'ui: bus map: zoom 15 (drawn|failed) in (\d+) ms', 40, 'the map drawn', start=at)
+    check(d.group(1) == 'drawn', "the map's tiles failed to load")
+    ctx.metric('bus_map_ms', int(d.group(2)))
+    time.sleep(1.5)
+    b.snap('busmap', ctx.out('screen_busmap.png'))
+    heap = b.cmd('heap', r'test: heap (.*)').group(1)
+    psram = int(re.search(r'psram=(\d+)', heap).group(1))
+    ctx.metric('psram_kb.bus_map', psram)
+    at2 = len(ctx.log.lines())
+    b.cmd('swipe down')                                   # zoom in
+    ctx.log.wait(r'ui: bus map: zoom 16 drawn', 40, 'zoom 16 drawn', start=at2)
+    b.cmd('swipe right')
+    b.wait_screen('stop', 6)
+    ctx.log.wait(r'ui: bus map: closed, picture freed', 20, 'the map picture freed', start=at2)
+    check(ctx.log.count(r'slide: \d+ picture\(s\) let go', start=at), 'the picture cache kept every picture while the map was open')
+    ctx.note(f'map drawn in {d.group(2)} ms, zoom 16, closed and freed; PSRAM {psram} KB free with the map open')
+    b.cmd('swipe right')
+    b.wait_screen('weather', 6)
+
+
+@test('navigation')
+def stop_on_view_every_30s(ctx):
+    """The RTC's polling rules (departures.c): the stop on view every 30 s while the buses screen is shown, and not
+    every 30 s once the weather is back on screen (the others: at most every 5 min)."""
+    b = ctx.board
+    favs = b.api('/api/favs').get('favs', [])
+    if not favs:
+        ctx.note('no favourite stop on this board: not checked')
+        return
+    f = favs[0]
+    pat = re.compile(r'deps: GET /BorneVirtuelle_ArretParcours\?noArret=%s&noParcours=%s&codeDirection=%s&' %
+                     (re.escape(str(f['stop'])), re.escape(str(f['route'])), re.escape(str(f['dir']))))
+    go_stops(ctx)
+    at = len(ctx.log.lines())
+    time.sleep(70)
+    on = sum(1 for l in ctx.log.lines()[at:] if pat.search(l))
+    check(on >= 2, f'the stop on view ({f["route"]} at {f["stop"]}) was fetched {on} time(s) in 70 s, not every 30 s')
+    b.cmd('swipe right')
+    b.wait_screen('weather', 6)
+    at = len(ctx.log.lines())
+    time.sleep(70)
+    off = sum(1 for l in ctx.log.lines()[at:] if pat.search(l))
+    check(off <= 1, f'with the weather on screen the stop was still fetched {off} times in 70 s (every 5 min at most)')
+    check(not ctx.log.count(r'RTC fetch task has been stuck', start=0),
+          'the RTC fetch task got stuck (ui: "buses: the RTC fetch task has been stuck"; v0.2.0-rc.11 with its stack in PSRAM)')
+    ctx.note(f'{f["route"]} at {f["stop"]}: {on} fetches in 70 s on view, {off} in the 70 s after')
+
 
 @test('navigation')
 def hourly_touches(ctx):
@@ -440,12 +569,12 @@ def render_bench(ctx):
 
 @test('perf')
 def radar_timing(ctx):
-    """Swipe to the radar: time to the first new frame; play the animation and read the frame rate."""
+    """Open the radar (tap on the weather icon): time to the first new frame; play the animation and read the frame rate."""
     b = ctx.board
     go_weather(ctx)
     at = len(ctx.log.lines())
     t0 = time.time()
-    b.cmd('swipe left')
+    open_radar(ctx)
     b.wait_screen('radar', 6)
     try:
         m = ctx.log.wait(r'radar: Frame ', 30, 'a radar frame after opening the radar', start=at)
@@ -581,8 +710,6 @@ def swipes(ctx):
     time.sleep(1)
     measure(ctx, 'screen_weather_to_extras', ['swipe right'])
     measure(ctx, 'screen_extras_to_weather', ['swipe left'])
-    measure(ctx, 'screen_weather_to_radar', ['swipe left'])
-    b.cmd('swipe right')
     b.wait_screen('weather', 6)
     places = len(b.api('/api/config').get('places', []))
     since = len(ctx.log.lines())

@@ -64,6 +64,9 @@ void slide_cache_dirty_rows(const void *key, int y0, int y1);   // only rows y0.
 // Every picture but the screen shown's (its changes reach it as LVGL draws them) and those `except` returns true for
 // (their owner marks the rows that change: the places' clocks, the radar's pill)
 void slide_cache_dirty_hidden(bool (*except)(const void *key));
+// Frees the pictures not in the keep list (slide_cache_keep): a screen that needs PSRAM for a while (the bus
+// map) makes room; the pictures come back as the cache refills
+void slide_cache_release_unneeded(void);
 bool slide_cache_idle_work(int quiet_ms);
 lv_draw_buf_t *slide_cache_get(const void *key, bool render);   // a clean picture, rendered now if `render`
 bool slide_picture(lv_obj_t *scr, lv_draw_buf_t *dst);          // a whole screen into dst

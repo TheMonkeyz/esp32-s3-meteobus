@@ -28,6 +28,8 @@
 #include "sound.h"
 #include "textfit.h"
 #include "routes.h"
+#include "bus_routes.h"
+#include "netq.h"
 #include "services.h"
 #include "console.h"
 #include "cJSON.h"
@@ -288,10 +290,13 @@ void app_main(void)
     diag_mark("presence");
     presence_web_routes();      // GET/POST /api/presence, POST /api/calibrate, before web_start()
     routes_init(on_location_changed);   // the settings page's routes, before web_start()
+    bus_routes_init();          // /api/favs, /api/route (the stops)
+    bus_start();                // the saved stops; their requests run in the radar task's idle time
     ota_set_err_text(ota_err_text);
     ota_start(ui_ota);          // before ui_init (the status page's update-site row); checks once Wi-Fi is up; marks a
                                 // new firmware valid after 60 s
     ui_init();
+    ui_favs_changed();          // the stop pages
     diag_mark("ui");
     testcon_start();            // USB test console (tools/harness), ready before Wi-Fi so start-up can be tested
     console_init();             // the display's own commands
@@ -337,6 +342,7 @@ void app_main(void)
     bool shown_once = false;                 // a forecast has replaced the start-up message
     bool was_net = true;
     while (1) {
+        netq_set(NETQ_MAIN, true);                           // the RTC's requests wait (netq.h)
         int64_t now = esp_timer_get_time();
         int a = config_active_place(), n = config_place_count();
         location_t loc;
@@ -429,6 +435,7 @@ void app_main(void)
         if (extras_due && extras_due < next) next = extras_due;
         if (!net && next < esp_timer_get_time() + 5000000LL) next = esp_timer_get_time() + 5000000LL;   // offline: look again in 5 s
         int64_t wait_ms = (next - esp_timer_get_time()) / 1000;
+        netq_set(NETQ_MAIN, false);
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(wait_ms > 1000 ? wait_ms : 1000));   // woken early by a switch / edit
     }
 }

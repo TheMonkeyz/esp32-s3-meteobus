@@ -34,6 +34,10 @@ select{width:100%;padding:11px 12px;border-radius:10px;border:1px solid var(--li
 #places .pn b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #places button{width:auto;margin:0;padding:7px 12px;font-size:14px}
 #places .on{color:var(--acc);font-size:13px;font-weight:600;white-space:nowrap}#places .chev{color:var(--dim);font-size:20px}
+#favList .fav{display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid var(--line)}
+#favList .route{min-width:44px;padding:6px 8px;border-radius:8px;background:var(--acc);color:#04121f;font-weight:700;text-align:center}
+#favList .fn{flex:1;min-width:0}#favList .fn b,#favList .fn span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#favList button{width:auto;margin:0;padding:7px 12px;font-size:14px}
 #edTitle{font-size:18px;font-weight:600;margin-bottom:4px}
 #map{height:260px;border-radius:12px;margin-top:10px;border:1px solid var(--line);background:#0c0e12}
 button.danger{background:#3a1f1f;color:#ff9a9a}
@@ -76,6 +80,25 @@ details.coords{margin-top:10px;font-size:14px;color:var(--dim)}details.coords su
     <button class="danger" id="delPlace" data-i18n="delPlace"></button>
   </div>
   <div id="msg"></div>
+</div>
+
+<div class="card" id="stopsCard">
+  <h2 data-i18n="stops">My stops</h2>
+  <div class="muted" data-i18n="stopsHelp"></div>
+  <div id="favList"></div>
+  <div class="muted" id="favNone" data-i18n="noStops" style="display:none;margin-top:8px"></div>
+  <div class="row">
+    <div><label for="favStop" data-i18n="stopNo"></label><input id="favStop" inputmode="numeric" maxlength="6" autocomplete="off"></div>
+    <div><label for="favRoute" data-i18n="routeNo"></label><input id="favRoute" maxlength="5" autocomplete="off"></div>
+  </div>
+  <div class="muted" data-i18n="stopHint" style="margin-top:6px"></div>
+  <button class="sec" id="favFind" data-i18n="findDirs"></button>
+  <div id="favDirBox" style="display:none">
+    <label for="favDir" data-i18n="direction"></label>
+    <select id="favDir"></select>
+    <button id="favAdd" data-i18n="addStop"></button>
+  </div>
+  <div id="favMsg"></div>
 </div>
 
 <div class="card" id="unitCard">
@@ -218,6 +241,24 @@ window.fetch = async (url, opt = {}) => {
 // Adding a language: a block here, and the firmware's i18n (main/i18n_strings.h, i18n.c).
 const I18N = {
  en: {
+  stops: 'My stops',
+  stopsHelp: 'They show on the display\'s buses screen (swipe left from the weather); drag up or down there for the next stop.',
+  noStops: 'No stops yet: add one below.',
+  stopNo: 'Stop number',
+  routeNo: 'Route',
+  stopHint: 'The stop number is on the sign at the stop (4 digits).',
+  findDirs: 'Find directions',
+  direction: 'Direction',
+  addStop: 'Add this stop',
+  moveUp: 'Move up',
+  removeStop: 'Remove',
+  asking: 'Asking the RTC…',
+  noRoute: 'Route {0} doesn\'t exist.',
+  notServed: 'Route {0} doesn\'t stop at {1} in that direction.',
+  rtcDown: 'The RTC didn\'t answer. Try again in a moment.',
+  badFav: 'Check the stop and route numbers.',
+  stopsFull: 'That\'s the most stops the display can show ({0}).',
+  dupStop: 'That stop is already in the list.',
   title: 'MeteoBus', places: 'Places',
   placesHelp: 'Tap a place to change it. On the display, drag up or down on the weather screen to switch.',
   setupPlaces: "This setup network has no internet, so the map and the place search won't load here. Save your Wi-Fi first, then choose your places on the secure page (the display shows its code). Or type the coordinates now.",
@@ -282,6 +323,24 @@ const I18N = {
   needKey: 'To change settings, scan the code on the display: press and hold the weather screen. This phone then remembers it.',
  },
  fr: {
+  stops: 'Mes arrêts',
+  stopsHelp: 'Ils s\'affichent à l\'écran des autobus de l\'afficheur (glissez vers la gauche depuis la météo); glissez ensuite vers le haut ou le bas pour l\'arrêt suivant.',
+  noStops: 'Aucun arrêt : ajoutez-en un ci-dessous.',
+  stopNo: 'Numéro d\'arrêt',
+  routeNo: 'Parcours',
+  stopHint: 'Le numéro d\'arrêt est inscrit sur le panneau de l\'arrêt (4 chiffres).',
+  findDirs: 'Trouver les directions',
+  direction: 'Direction',
+  addStop: 'Ajouter cet arrêt',
+  moveUp: 'Monter',
+  removeStop: 'Retirer',
+  asking: 'Interrogation du RTC…',
+  noRoute: 'Le parcours {0} n\'existe pas.',
+  notServed: 'Le parcours {0} ne s\'arrête pas au {1} dans cette direction.',
+  rtcDown: 'Le RTC n\'a pas répondu. Réessayez dans un moment.',
+  badFav: 'Vérifiez les numéros d\'arrêt et de parcours.',
+  stopsFull: 'L\'écran affiche au plus {0} arrêts.',
+  dupStop: 'Cet arrêt est déjà dans la liste.',
   title: 'MeteoBus', places: 'Endroits',
   placesHelp: "Touchez un endroit pour le modifier. Sur l'afficheur, glissez vers le haut ou le bas sur l'écran météo pour changer d'endroit.",
   setupPlaces: "Ce réseau de configuration n'a pas accès à Internet : la carte et la recherche d'endroits ne s'afficheront pas ici. Enregistrez d'abord votre Wi-Fi, puis choisissez vos endroits sur la page sécurisée (l'afficheur montre son code). Ou entrez les coordonnées dès maintenant.",
@@ -352,7 +411,7 @@ const I18N = {
   betaNote: "Versions candidates : les nouveautés quelques jours plus tôt. Elles sont testées, mais un problème est plus probable qu'avec les versions stables.",
  },
  iu: {
-  title: 'ᓯᓚᒧᑦ ᓴᖅᑭᔭᐅᑦ',
+  title: 'MeteoBus',
   places: 'ᐃᓃᑦ',
   placesHelp: 'ᐃᓂ ᓇᕿᓪᓕ ᐊᓯᔾᔨᕐᓗᒍ. ᓴᖅᑭᔭᐅᒻᒥ, ᓯᓚᐅᑉ ᐃᒐᓚᐅᔮᓂ ᓄᓱᐊᕐᓕ ᖁᓕᒧᑦ ᐅᕝᕙᓘᓐᓃᑦ ᐊᑎᒧᑦ ᐊᓯᐊᓄᑦ ᐃᑳᕐᓗᒍ.',
   setupPlaces: 'ᐅᓇ ᑲᓱᖃᑎᒌᑦ internet-ᖃᙱᑦᑐᖅ: ᓄᓇᙳᐊᖅ ᓄᓇᓖᓪᓗ ᕿᓂᕐᓂᖓ ᒫᓂ ᑕᑯᒃᓴᐅᙱᑦᑐᑦ. Wi-Fi ᔭᒐᔾᔭᐃᕐᓕ ᓯᕗᓪᓕᖅᐹᒥᒃ, ᑖᕙᓂ ᐃᓂᒋᔭᑎᑦ ᕿᓂᕐᓗᒋᑦ ᒪᑉᐱᒐᕐᒥ ᐱᔾᔭᐃᖅᓯᒪᔪᒥ (ᓴᖅᑭᔭᐅᑦ ᐊᔾᔨᓕᐅᒐᒥᓂᒃ ᑕᑯᑎᑦᓯᔪᖅ). ᐅᕝᕙᓘᓐᓃᑦ ᓈᓴᐅᑎᑦ ᓇᕿᑦᑕᐅᕐᓗᒋᑦ ᒫᓐᓇ.',
@@ -500,6 +559,24 @@ const I18N = {
   noSpeaker: 'ᓂᐱᖃᐅᑦ ᐱᖃᙱᑦᑐᖅ.',
   betaNote: 'Beta: ᓄᑖᑦ ᐅᓪᓗᓂᒃ ᓯᕗᓪᓕᖅᐱᐊᖅᓴᖅᑐᑦ. ᒥᓯᓕᖅᑕᐅᔪᑦ, ᑭᓯᐊᓂ ᐊᔪᕐᓇᕐᓂᖅᓴᐅᕗᑦ ᐊᐅᓚᔾᔪᐃᑦᑐᓂᑦ.',
   needKey: 'ᐋᖅᑭᔅᓯᒪᐅᑎᑦ ᐊᓯᔾᔨᖅᓱᖅᑯᓐᓇᑎᑦ, ᐊᔾᔨᓕᐅᕐᓕ ᑎᑎᕋᐅᔭᒧᑦ ᓴᖅᑭᖅᑐᒥ: ᓇᕿᓪᓗᒍ ᓇᕿᒻᒥᓕ ᓯᓚᒧᑦ. ᐅᖄᓚᐅᑎᕋᓛᕐᒧᑦ ᐳᐃᒍᖅᑕᐃᓕᓗᒍ.',
+  stops: 'ᓄᖅᑲᕐᕖᑦᑲ',
+  stopsHelp: 'ᓴᖅᑭᔭᐅᒥ ᓴᖅᑭᖅᑐᑦ: ᓂᕈᓗᓪᓕ ᓴᐅᒥᒧᑦ, ᖁᓕᒧᑦ ᐊᑖᓄᓪᓗ.',
+  noStops: 'ᓄᖅᑲᕐᕕᖃᙱᑦᑐᖅ: ᐃᓚᓕ ᐊᑖᓂ.',
+  stopNo: 'ᓄᖅᑲᕐᕕᐅᑉ ᓈᓴᐅᑎᖓ',
+  routeNo: 'ᐊᖅᑯᑦ',
+  stopHint: 'ᓈᓴᐅᑎᖓ ᓄᖅᑲᕐᕕᒻᒥ ᑎᑎᕋᖅᓯᒪᔪᖅ (4).',
+  findDirs: 'ᓇᒧᙵᐅᓐᓃᑦ ᕿᓂᕐᓕ',
+  direction: 'ᓇᒧᙵᐅᓐᓂᖓ',
+  addStop: 'ᓄᖅᑲᕐᕕᒃ ᐅᓇ ᐃᓚᓕ',
+  moveUp: 'ᖁᓕᒧᑦ',
+  removeStop: 'ᐲᕐᓕ',
+  asking: 'RTC ᐊᐱᕆᔪᖅ…',
+  noRoute: '{0} ᐊᖅᑯᑎᐅᙱᑦᑐᖅ.',
+  notServed: '{0} ᓄᖅᑲᙱᑦᑐᖅ {1}-ᒥ.',
+  rtcDown: 'RTC ᑭᐅᙱᑦᑐᖅ. ᑲᓱᒃᑲᓐᓂᕐᓕ.',
+  badFav: 'ᓈᓴᐅᑏᑦ ᖃᐅᔨᒋᐊᕐᓗᒋᑦ.',
+  stopsFull: 'ᓄᖅᑲᕐᕖᑦ {0} ᑭᓯᐊᓂ.',
+  dupStop: 'ᓄᖅᑲᕐᕕᒃ ᐅᓇ ᐃᓚᓕᖅᓯᒪᔪᖅ.',
  },
 };
 let LANG = 'en';
@@ -519,6 +596,7 @@ function applyLang(){
   $('showPw').textContent = t(pw ? 'show' : 'hide'); $('showPw').setAttribute('aria-label', t(pw ? 'showPw' : 'hidePw'));
   if (cfg) { showPlaces(); if (editing >= 0) $('edTitle').textContent = editing >= cfg.places.length ? t('newPlace') : t('editPlace', cfg.places[editing].name); }
   if (fwLast) { $('fwNotes').dataset.t = ''; fwShow(fwLast); }
+  if (typeof showFavs === 'function') showFavs();
 }
 
 function say(el, text, ok){ el.textContent = text; el.className = ok ? 'ok' : 'err'; }
@@ -643,6 +721,81 @@ $('cancelEd').onclick = () => { closeEditor(); $('msg').textContent = ''; };
 $('delPlace').onclick = () => {
   const p = cfg.places[editing];
   if (confirm(t('delConfirm', p.name))) placeAct({delete: editing}, t('deleted', p.name));
+};
+
+/* ---------- Favourite stops: GET /api/favs, POST /api/route (a route's directions), POST /api/favs (the whole list).
+ * The display asks the RTC itself (departures.c: one request at a time); the page never calls the RTC. ---------- */
+let favs = [], favMax = 8, found = null;
+const favKey = f => f.stop + '/' + f.route + '/' + f.dir;
+function showFavs(){
+  const box = $('favList'); box.innerHTML = '';
+  $('favNone').style.display = favs.length ? 'none' : 'block';
+  favs.forEach((f, i) => {
+    const d = document.createElement('div'); d.className = 'fav';
+    const r = document.createElement('span'); r.className = 'route'; r.textContent = f.route;
+    const n = document.createElement('div'); n.className = 'fn';
+    const b = document.createElement('b'); b.textContent = f.direction || (t('direction') + ' ' + f.dir);
+    const s = document.createElement('span'); s.className = 'muted'; s.textContent = (f.stop_name ? f.stop_name + ' · ' : '') + f.stop;
+    n.append(b, s); d.append(r, n);
+    if (i > 0) {
+      const up = document.createElement('button'); up.className = 'sec'; up.textContent = '↑'; up.title = t('moveUp');
+      up.setAttribute('aria-label', t('moveUp'));
+      up.onclick = () => { const x = favs.slice(); [x[i - 1], x[i]] = [x[i], x[i - 1]]; saveFavs(x); };
+      d.append(up);
+    }
+    const rm = document.createElement('button'); rm.className = 'sec'; rm.textContent = '✕'; rm.title = t('removeStop');
+    rm.setAttribute('aria-label', t('removeStop'));
+    rm.onclick = () => saveFavs(favs.filter((_, k) => k !== i));
+    d.append(rm);
+    box.appendChild(d);
+  });
+}
+async function loadFavs(){
+  try { const j = await (await fetch('/api/favs')).json(); favs = j.favs || []; favMax = j.max || 8; showFavs(); } catch(e) {}
+}
+async function saveFavs(list){
+  say($('favMsg'), t('asking'), true);
+  try {
+    const r = await fetch('/api/favs', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({favs: list.map(f => ({stop: f.stop, route: f.route, dir: f.dir}))})});
+    if (!r.ok) { say($('favMsg'), t('notSaved', r.status), false); return false; }
+    const j = await r.json();
+    if (!j.ok) {
+      const f = list[j.bad] || {};
+      say($('favMsg'), j.why === 'not_served' ? t('notServed', f.route, f.stop) : j.why === 'rtc' ? t('rtcDown') : t('badFav'), false);
+      return false;
+    }
+    say($('favMsg'), t('saved'), true);
+    await loadFavs();
+    setTimeout(loadFavs, 4000);                      // the names come with the first fetch
+    return true;
+  } catch(e) { say($('favMsg'), t('noReach'), false); return false; }
+}
+$('favFind').onclick = async () => {
+  const route = $('favRoute').value.trim(), stop = $('favStop').value.trim();
+  $('favDirBox').style.display = 'none'; found = null;
+  if (!/^\d{1,6}$/.test(stop) || !/^[0-9A-Za-z]{1,5}$/.test(route)) { say($('favMsg'), t('badFav'), false); return; }
+  say($('favMsg'), t('asking'), true);
+  try {
+    const r = await fetch('/api/route', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({route})});
+    if (!r.ok) { say($('favMsg'), t('notSaved', r.status), false); return; }
+    const j = await r.json();
+    if (!j.ok) { say($('favMsg'), j.why === 'no_route' ? t('noRoute', route) : t('rtcDown'), false); return; }
+    found = j;
+    $('favDir').replaceChildren(...j.dirs.map(d => new Option(d.name, d.code)));
+    $('favDirBox').style.display = 'block';
+    $('favMsg').textContent = '';
+  } catch(e) { say($('favMsg'), t('noReach'), false); }
+};
+$('favAdd').onclick = async () => {
+  if (!found) return;
+  const f = {stop: $('favStop').value.trim(), route: found.route, dir: $('favDir').value};
+  if (favs.length >= favMax) { say($('favMsg'), t('stopsFull', favMax), false); return; }
+  if (favs.some(x => favKey(x) === favKey(f))) { say($('favMsg'), t('dupStop'), false); return; }
+  if (await saveFavs(favs.concat([f]))) {
+    $('favDirBox').style.display = 'none'; found = null;
+    $('favStop').value = ''; $('favRoute').value = '';
+  }
 };
 
 async function load(){
@@ -946,6 +1099,7 @@ $('fwInstall').onclick = () => { if (confirm(t('installConfirm', fwLast && fwLas
 $('fwChan').onchange = () => fwPost({channel: $('fwChan').value});
 fwLoad();
 load();
+loadFavs();
 say($('msg'), '', true);
 </script>
 </body></html>

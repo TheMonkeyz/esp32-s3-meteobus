@@ -124,3 +124,33 @@ void testcon_register(const char *name, const char *usage, testcon_fn_t fn) { (v
 void testcon_add_where(testcon_where_fn_t fn) { (void)fn; }
 
 bool nvs_check(esp_err_t err, const char *what) { (void)what; return err == ESP_OK; }
+
+/* ---------- the buses (MeteoBus): no RTC in the browser, so no stops (the buses screen shows how to add them) ---------- */
+#include "departures.h"
+#include "netq.h"
+void deps_start(void (*changed)(int i), void (*wake)(void)) { (void)changed; (void)wake; }
+bool deps_step(void) { return false; }
+void deps_set_favs(const rtc_fav_t *favs, int n) { (void)favs; (void)n; }
+void deps_show(int i) { (void)i; }
+bool deps_get(int i, dep_entry_t *out) { (void)i; (void)out; return false; }
+int deps_alerts(int fav, dep_alert_t *out, int max, time_t *fetched, bool *failing)
+{
+    (void)fav; (void)out; (void)max;
+    if (fetched) *fetched = 0;
+    if (failing) *failing = false;
+    return 0;
+}
+int deps_alerts_for(int i) { (void)i; return 0; }
+void deps_track(int i) { (void)i; }
+int deps_buses(rtc_bus_t *out, int max, time_t *fetched, bool *failing)
+{
+    (void)out; (void)max;
+    if (fetched) *fetched = 0;
+    if (failing) *failing = false;
+    return 0;
+}
+int deps_trace(float *latlon, int max, int *len) { (void)latlon; (void)max; (void)len; return 0; }
+int deps_stalled_s(void) { return 0; }
+void netq_set(netq_who_t who, bool busy) { (void)who; (void)busy; }
+bool netq_others_busy(netq_who_t self) { (void)self; return false; }
+bool netq_wait_others(int max_ms) { (void)max_ms; return true; }

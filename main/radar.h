@@ -11,6 +11,11 @@ void radar_units_changed(void);   // clock format / distance unit changed: redra
 // Download every zoom level's map that isn't cached yet, in the background.
 // While it runs, the radar screen shows a "Preparing maps" panel.
 void radar_preload_start(void);
+// Other downloads run in the radar task while the radar isn't on screen (MeteoBus: the buses' requests and the bus
+// map's picture): work() every second, and at once after radar_side_wake(). It shares the task's internal stack
+// and never downloads at the same time as the radar.
+void radar_set_side_work(bool (*work)(void));
+void radar_side_wake(void);
 
 // For other screens (alert map): a w x h RGB565 window at (x0, y0) of the cached basemap for zoom z (4..10), the map
 // whose top-left corner is (ox, oy) in world pixels at that zoom (W x H, centred on a location). False if that level

@@ -91,6 +91,7 @@ fw:T_ERR_EMPTY	Empty reply	Kiujjutaa imaqanngittuq	low	"its answer is empty"
 fw:T_WHATS_NEW	What's new	Nutaat	medium	"new things"
 fw:T_PILL_UPDATE	Update %s	Nutaaq %s	medium	"new %s" (pill on the weather screen)
 fw:T_PILL_UPDATING	Updating %d%%	Nutaaruriaqtuq %d%%	medium	Microsoft Inuktitut terminology (Pirurvik): update
+fw:T_ALERT_UPDATE	Update available  >	Nutaaq atuinnaq  >	medium	as T_UP_AVAILABLE ("new, available"); the alert screen's last row
 fw:T_UP_DOWNLOADING	Downloading... keep it plugged in	Minarijuq... kasuqsimatillugu	low	Microsoft Inuktitut terminology (Pirurvik): download = minarili; keep plugged in
 fw:T_UP_INSTALLED	Installed. Restarting...	Ilitaujuq. Ikitikkannirtuq...	medium	Microsoft Inuktitut terminology (Pirurvik): install = ilili, restart = ikitikkannirli
 fw:T_UP_KEPT	Your settings are kept	Aaqqissimautitit pigijaujut	low	Microsoft Inuktitut terminology (Pirurvik): setting = aaqqissimaut
@@ -145,7 +146,7 @@ fw:T_SETTINGS	Settings	Aaqqissimautit	medium	Microsoft Inuktitut terminology (Pi
 fw:T_HINT_TITLE	Choose your location	Inigijait qinirlugu	low	"choose your place"; inigi- (place where one lives) + qinir- (look for); needs review
 fw:T_HINT_HELP	%s\nScan with your phone to choose\nyour city and other settings.\n\nTap to close	%s\nAjjiliurli uqaalautiralaarmut\nnunaliit aaqqissimautillu qinirlugit.\n\nNaqilli: matuli	low	"photograph (scan) with your phone / choose the town and settings / tap: close"; from T_OV_HELP
 fw:T_GEST_TITLE	Getting around	Qanuq atuqtauvaa	low	"how it is used"; needs review
-fw:T_GEST_HELP	Swipe sideways: other screens\nDrag up or down: your places\nTap a day: hour by hour\nPress and hold: settings\n\nTap to close	Nirululli saumimut talirpimullu: asingit\nQulimut ataanullu: inigijatit\nUllu naqilugu: ikarraani\nNaqillugu naqimmili: aaqqissimautit\n\nNaqilli: matuli	low	"swipe left and right: the others / up and down: your places / tap a day: by the hour / long-press: settings / tap: close"; from T_WIFI_JOIN, T_CONNECTING, T_SETTINGS; needs review
+fw:T_GEST_HELP	Swipe sideways: other screens\nDrag up or down: your places\nTap the weather icon: radar\nTap a day: hour by hour\nPress and hold: settings\n\nTap to close	Nirululli saumimut talirpimullu: asingit\nQulimut ataanullu: inigijatit\nSilaup ajjinga naqilugu: `Radar`\nUllu naqilugu: ikarraani\nNaqillugu naqimmili: aaqqissimautit\n\nNaqilli: matuli	low	"swipe left and right: the others / up and down: your places / tap a day: by the hour / long-press: settings / tap: close"; from T_WIFI_JOIN, T_CONNECTING, T_SETTINGS; needs review + (2026-10-09, MeteoBus) "tap the weather's picture: radar" (silaup ajjinga = the weather's picture), unreviewed
 fw:T_OV_HELP	%s\nScan with your phone and accept\nthe certificate warning.\n\nLong-press for Wi-Fi setup\nTap to close	%s\nAjjiliurli uqaalautiralaarmut ammalu\ninirtiruti angiqtauli.\n\nNaqillugu naqimmili: `Wi-Fi`\nNaqilli: matuli	low	Microsoft Inuktitut terminology (Pirurvik): scan = ajjiliurli, press and hold = naqillugu naqimmili, tap = naqilli, close = matuli
 fw:T_WIFI_RECEIVED	Wi-Fi received	`Wi-Fi` pijaujuq	low	"Wi-Fi received"
 fw:T_WIFI_GOT	Got \"%s\" from your phone.\nRestarting...	"%s" uqaalautiralaarmit.\nIkitikkannirtuq...	low	"%s" from the phone, restarting
@@ -185,7 +186,7 @@ fw:T_ZOOM_CLOSEST	Closest zoom	Angilligiarunnanngittuq	medium	"cannot zoom in mo
 fw:T_ZOOM_WIDEST	Widest zoom	Mikilligiarunnanngittuq	medium	"cannot zoom out more"
 fw:T_ZOOM_IN	Zoom in	Angilligiarli	high	Microsoft Inuktitut terminology (Pirurvik): zoom in
 fw:T_ZOOM_OUT	Zoom out	Mikilligiarli	high	Microsoft Inuktitut terminology (Pirurvik): zoom out
-web:title	Weather display	Silamut saqqijaut	low	"weather display" (saqqijaut = shower/display device)
+web:title	MeteoBus	`MeteoBus`	low	product name, kept in Latin letters (was "Silamut saqqijaut", weather display)
 web:places	Places	Iniit	high	Tusaalanga glossary: ini = place
 web:placesHelp	Tap a place to change it. On the display, drag up or down on the weather screen to switch.	Ini naqilli asijjirlugu. Saqqijaummi, silaup igalaujaani nusuarli qulimut uvvaluunniit atimut asianut ikaarlugu.	low	Microsoft Inuktitut terminology (Pirurvik): tap = naqilli, drag = nusuarli; qulimut = up, atimut = down
 web:setupPlaces	This setup network has no internet, so the map and the place search won't load here. Save your Wi-Fi first, then choose your places on the secure page (the display shows its code). Or type the coordinates now.	Una kasuqatigiit `internet`-qanngittuq: nunannguaq nunaliillu qinirninga maani takuksaunngittut. `Wi-Fi` jagajjairli sivulliqpaamik, taavani inigijatit qinirlugit mappigarmi pijjaiqsimajumi (saqqijaut ajjiliugaminik takutitsijuq). Uvvaluunniit naasautit naqittaurlugit maanna.	low	built from this sheet: kasuqatigiit = network, nunannguaq = map, qinirli = find, jagajjairli = save, mappigaq pijjaiqsimajuq = secure page, naasautit = coordinates (mapNoNet, gpsNote1); a reviewer should check it all
@@ -333,9 +334,9 @@ web:quietNote	No sound during quiet hours, except for red alerts. Each warning s
 web:noSpeaker	No speaker found on this display.	Nipiqaut piqanngittuq.	low	Microsoft Inuktitut terminology (Pirurvik): speaker = nipiqaut
 web:betaNote	Release candidates: new features a few days early. They are tested, but a problem is more likely than with stable releases.	`Beta`: nutaat ullunik sivulliqpiaqsaqtut. Misiliqtaujut, kisiani ajurnarniqsauvut aulajjuittunit.	low	"new things a few days earlier; tested, but more likely to have a problem than stable ones"; needs review
 web:needKey	To change settings, scan the code on the display: press and hold the weather screen. This phone then remembers it.	Aaqqissimautit asijjiqsuqqunnatit, ajjiliurli titiraujamut saqqiqtumi: naqillugu naqimmili silamut. Uqaalautiralaarmut puiguqtaililugu.	low	"to change settings, photograph (scan) the code shown: long-press the weather screen; the phone won't forget it" from T_SETTINGS, T_OV_HELP; needs review
-site:pageTitle	MeteoBus – Web Flasher	Silamut saqqijaut – ilili	low	browser tab title: "weather display – install" (as web:title; Microsoft Inuktitut terminology (Pirurvik): install = ilili)
+site:pageTitle	MeteoBus – Web Flasher	`MeteoBus` – ilili	low	browser tab title: "MeteoBus – install" (Microsoft Inuktitut terminology (Pirurvik): install = ilili)
 site:pageDesc	Install the weather display firmware on a Waveshare ESP32-S3-Touch-AMOLED-1.75 from your browser.	Silamut saqqijaut: `Waveshare ESP32-S3-Touch-AMOLED-1.75`-mut ilili maani.	low	"weather display: install it for the Waveshare board, here" (search engines and link previews)
-site:brand	MeteoBus	Silamut saqqijaut	low	same as web:title (saqqijaut = display device)
+site:brand	MeteoBus	`MeteoBus`	low	product name, kept in Latin letters (as web:title)
 site:langLabel	Language	Uqausiq	high	Microsoft Inuktitut terminology (Pirurvik): language (label of the language picker)
 site:ghLink	<span class="long">Source on </span>GitHub	<span class="long">Pilirijjutit </span>`GitHub`	low	"programs" for source code (no term found); the first word is hidden on phones
 site:draft	Draft	Isulinngittuq	low	"it is not finished" (isuli- finish, -nngit- not) for "draft"
@@ -444,3 +445,44 @@ site:use4	The microphones dim the screen when the room is quiet and wake it on s
 site:foot1	Source code, releases and documentation: <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus">github.com/TheMonkeyz/esp32-s3-meteobus</a>. Downloads for other tools: <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/releases">releases</a>.	Pilirijjutit ammalu titiraqsimajut: <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus">`github.com/TheMonkeyz/esp32-s3-meteobus`</a>. Minait: <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/releases">nutaat</a>.	low	"programs and documents (titiraqsimajut = things written). Downloads (minaq, Microsoft): new versions"
 site:foot2	Weather: Open-Meteo. Radar: Environment and Climate Change Canada (GeoMet). Map © OpenStreetMap contributors. Flashing by ESP Web Tools.	Sila: `Open-Meteo`. `Radar`: `Environment and Climate Change Canada (GeoMet)`. Nunannguaq `© OpenStreetMap contributors`. `ESP Web Tools`-kkut ilitaujuq.	low	agency name and the map attribution kept as published; "installed through ESP Web Tools"
 site:foot3	Firmware © 2026 Laurent Mathieu, <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/blob/main/LICENSE">MIT license</a> (<a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/blob/main/THIRD_PARTY_NOTICES.md">third-party notices</a>). Set in Montserrat, the display's font (<a href="fonts/montserrat-OFL.txt">SIL Open Font License</a>).	Qarasaujaup pilirijjutinga © 2026 `Laurent Mathieu`, <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/blob/main/LICENSE">`MIT`</a> (<a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/blob/main/THIRD_PARTY_NOTICES.md">asingit</a>). `Montserrat` (<a href="fonts/montserrat-OFL.txt">`SIL Open Font License`</a>).	low	"firmware © …, MIT (others: the third-party notices). Montserrat (its license)"
+fw:T_DEP_MIN	%d min	%d `min`	medium	minutes until a departure (MeteoBus, 2026-10-09, unreviewed)
+fw:T_DEP_NOW	< 1 min	< 1 `min`	medium	under a minute (MeteoBus, 2026-10-09, unreviewed)
+fw:T_DEP_UNIT	min	`min`	medium	after the big number of minutes (MeteoBus, 2026-10-09, unreviewed)
+fw:T_DEP_LIVE	Real time	Maanna	low	maanna = now (as T_NOW): the bus is tracked now (MeteoBus, 2026-10-09, unreviewed)
+fw:T_DEP_SCHED	Scheduled	Upattuksaq	low	upattuksaq = the one that is to arrive (by the timetable) (MeteoBus, 2026-10-09, unreviewed)
+fw:T_DEP_CANCELLED	Cancelled	Qujanaaqtaujuq	low	from qujanaarli = cancel (web:cancel) (MeteoBus, 2026-10-09, unreviewed)
+fw:T_DEP_NONE	No more departures today	Ullumi aullaqtuqarunnaiqtuq	low	ullumi = today; aullaq- = leave, -qarunnaiq- = no more (MeteoBus, 2026-10-09, unreviewed)
+fw:T_DEP_LOADING	Loading...	Utaqqiritsi...	low	as T_LOADING (MeteoBus, 2026-10-09, unreviewed)
+fw:T_DEP_UPDATED	Updated at %s	Nutaaqqiqtaujuq: %s	low	as T_UPDATED_MIN (MeteoBus, 2026-10-09, unreviewed)
+fw:T_DEP_OFFLINE	Can't reach the RTC	`RTC` kasurunnanngittuq	low	as T_CANT_REACH; RTC = Réseau de transport de la Capitale (MeteoBus, 2026-10-09, unreviewed)
+fw:T_DEP_NOT_FOUND	Route %s doesn't stop here\nin this direction	%s nuqqanngittuq maani	low	nuqqaq- = stop (a vehicle), maani = here (MeteoBus, 2026-10-09, unreviewed)
+fw:T_DEP_NOT_SERVED	Stop not served for now	Nuqqarvik atuqtaunngittuq maanna	low	nuqqarvik = stopping place; atuqtaunngittuq = not used (MeteoBus, 2026-10-09, unreviewed)
+fw:T_DEP_DROP_OFF	Drop-off only	Atiqtuqarvik kisiani	low	atiq- = get off; kisiani = only (MeteoBus, 2026-10-09, unreviewed)
+fw:T_BUS_NOTICES	%d notices	%d tusagassat	low	tusagassaq = news, a notice (MeteoBus, 2026-10-09, unreviewed)
+fw:T_ALERTS_ROUTE	Alerts: %s	Tusagassat: %s	low	the route's notices (title of the alert screen) (MeteoBus, 2026-10-09, unreviewed)
+fw:T_ALERT_BEGIN	Start: %s	Pigiarniq: %s	low	pigiaq- = begin (MeteoBus, 2026-10-09, unreviewed)
+fw:T_ALERT_END	End: %s	Isuanga: %s	low	isua = its end (MeteoBus, 2026-10-09, unreviewed)
+fw:T_NO_STOPS	No stops yet	Nuqqarviqanngittuq	low	no stopping places (MeteoBus, 2026-10-09, unreviewed)
+fw:T_NO_STOPS_HOW	Add your stops from your\nphone: press and hold,\nthen Location & more	Nuqqarviit ilalugit\nuqaalautiralaarmi:\nnaqillugu naqimmili	low	add the stops on the phone: press and hold (as T_GEST_HELP) (MeteoBus, 2026-10-09, unreviewed)
+web:stops	My stops	Nuqqarviitka	low	my stopping places (MeteoBus, 2026-10-09, unreviewed)
+web:stopsHelp	They show on the display's buses screen (swipe left from the weather); drag up or down there for the next stop.	Saqqijaumi saqqiqtut: nirululli saumimut, qulimut ataanullu.	low	they show on the display: swipe left, up and down (MeteoBus, 2026-10-09, unreviewed)
+web:noStops	No stops yet: add one below.	Nuqqarviqanngittuq: ilali ataani.	low	 (MeteoBus, 2026-10-09, unreviewed)
+web:stopNo	Stop number	Nuqqarviup naasautinga	low	the stopping place's number (MeteoBus, 2026-10-09, unreviewed)
+web:routeNo	Route	Aqqut	low	aqqut = way, route (MeteoBus, 2026-10-09, unreviewed)
+web:stopHint	The stop number is on the sign at the stop (4 digits).	Naasautinga nuqqarvimmi titiraqsimajuq (4).	low	its number is written at the stop (MeteoBus, 2026-10-09, unreviewed)
+web:findDirs	Find directions	Namunngaunniit qinirli	low	find where it goes (MeteoBus, 2026-10-09, unreviewed)
+web:direction	Direction	Namunngaunninga	low	where it goes (MeteoBus, 2026-10-09, unreviewed)
+web:addStop	Add this stop	Nuqqarvik una ilali	low	as web:addPlace (MeteoBus, 2026-10-09, unreviewed)
+web:moveUp	Move up	Qulimut	low	up (MeteoBus, 2026-10-09, unreviewed)
+web:removeStop	Remove	Piirli	medium	as web:delPlace (MeteoBus, 2026-10-09, unreviewed)
+web:asking	Asking the RTC…	`RTC` apirijuq…	low	apiri- = ask (MeteoBus, 2026-10-09, unreviewed)
+web:noRoute	Route {0} doesn't exist.	{0} aqqutiunngittuq.	low	 (MeteoBus, 2026-10-09, unreviewed)
+web:notServed	Route {0} doesn't stop at {1} in that direction.	{0} nuqqanngittuq {1}-mi.	low	 (MeteoBus, 2026-10-09, unreviewed)
+web:rtcDown	The RTC didn't answer. Try again in a moment.	`RTC` kiunngittuq. Kasukkannirli.	low	as T_TAP_RETRY (MeteoBus, 2026-10-09, unreviewed)
+web:badFav	Check the stop and route numbers.	Naasautiit qaujigiarlugit.	low	check the numbers (MeteoBus, 2026-10-09, unreviewed)
+web:stopsFull	That's the most stops the display can show ({0}).	Nuqqarviit {0} kisiani.	low	only {0} stops (MeteoBus, 2026-10-09, unreviewed)
+web:dupStop	That stop is already in the list.	Nuqqarvik una ilaliqsimajuq.	low	already added (MeteoBus, 2026-10-09, unreviewed)
+fw:T_MAP_NEXT	Next bus: %s	Tikilirijuq: %s	low	tikiliri- = is arriving (MeteoBus, 2026-10-09, unreviewed)
+fw:T_MAP_LOADING	Loading the map...	Nunannguaq... utaqqiritsi	low	as T_LOADING_RADAR (MeteoBus, 2026-10-09, unreviewed)
+fw:T_MAP_NO_TILES	Can't load the map	Nunannguaq minarijaujunnanngittuq	low	as T_MAPS_LOADING (MeteoBus, 2026-10-09, unreviewed)
+fw:T_MAP_NO_BUS	No bus on the way now	Tikilirijuqanngittuq maanna	low	none arriving now (MeteoBus, 2026-10-09, unreviewed)

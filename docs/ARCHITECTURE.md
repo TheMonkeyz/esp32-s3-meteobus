@@ -33,7 +33,7 @@ The panel's init sequence and pin map come from Waveshare's BSP
 |---|---|---|
 | `main` (app_main) | 0 / 1, 10 KB stack | Boot flow, then weather loop: fetch every 10 min; woken early by a location change. Also draws the alert region map (TLS tile downloads + inflate when the basemap isn't cached): `app: alert map … stack N B spare` |
 | `lvgl` | 1 / 4 | `lv_timer_handler()` loop under a recursive mutex (`display_lock()`) |
-| `radar` | 0 / 3, 10 KB stack | Basemap, latest radar frame, history frames' downloads; sleeps unless the radar screen is visible |
+| `radar` | 0 / 3, 10 KB stack | Basemap, latest radar frame, history frames' downloads while the radar screen is visible; otherwise, every second, the buses' work (`radar_set_side_work`, MeteoBus): one RTC request (`deps_step()`) or the bus map's picture |
 | `radar_dec` | 0 / 2, 6 KB stack **in PSRAM** | Decodes the history frames `radar` downloaded (`pipe_load()`, see Radar), below `radar`: while a download waits on the network. The project's only task with its stack in PSRAM (`xTaskCreatePinnedToCoreWithCaps`): it must never write flash (the cache is off meanwhile), and doesn't: it decodes, sets the frame under the display lock and updates a label |
 | `presence` | 0 / 2 | Reads 100 ms of audio, computes the level, runs the dim/off state machine, fades brightness |
 | `diag` | 0 / 1 | Every 60 s logs heap, frame timing, CPU and stack per task |
@@ -95,11 +95,18 @@ LVGL timer and event callbacks already run inside the lock.
   `0xC9D1DA`) before the speed. The TinyTTF Montserrat has no symbol glyphs, so small icons are drawn
   (`LV_EVENT_DRAW_MAIN`), not typed.
   Decorative objects are made non-clickable so presses bubble up to the screen.
-- Moves between screens (status | extras | weather | radar), between places and between days follow the finger:
-  they are drawn as pictures by `slide.c` ("Moves" below), started by `drag_read` in `ui.c` (in the touch read).
-  `LV_EVENT_GESTURE` (`gesture_cb`) is left with the radar's zoom swipes (up / down). Every other
-  screen change (hourly view, Settings, alerts, update) calls `slide_screen()`, which takes the same arguments as
-  `lv_screen_load_anim()`.
+- Moves between screens (status | extras | weather | buses), between places, between stops and between days follow
+  the finger: they are drawn as pictures by `slide.c` ("Moves" below), started by `drag_read` in `ui.c` (in the touch
+  read). `LV_EVENT_GESTURE` (`gesture_cb`) is left with the radar's and the bus map's zoom swipes (up / down). Every
+  other screen change (the radar, the bus map, hourly view, Settings, alerts, update) calls `slide_screen()`, which
+  takes the same arguments as `lv_screen_load_anim()`.
+- **Since MeteoBus v0.2.0** (docs/MERGE-PLAN.md): the radar opens on top of the weather screen with a tap on the
+  weather icon (`main_tap` → `radar_open()`; the icon's radar badge is drawn by `badge_draw` on `LV_EVENT_DRAW_POST`)
+  and closes with a sideways swipe or after 5 min untouched (`radar_idle`); leaving it however it happens stops it
+  (`radar_unloaded`, `LV_EVENT_SCREEN_UNLOADED`). The weather alert pill is at the bottom (`PILL_Y`, under the
+  forecast), sharing that slot with the update pill (`pills_show()`: the alert first, with a blue dot when an update
+  waits; the alert screen then ends with "Update available >", `al_upd`). Pill labels are sized by `pill_text()`
+  (`LV_LABEL_LONG_DOT` needs a fixed width and height).
 - **Places:** the weather widgets live on one page per place (`place_page_t pp[MAX_PLACES]`) in a vertical pager
   (`pager.c`) on `scr_main`; the alert pill, update pill, page dots, place dots and settings overlay are siblings
   above it. `passthrough(scr_main)` makes everything non-clickable, then the pager gets `CLICKABLE` back (a
@@ -434,7 +441,7 @@ order, and ~11 ms on the bus.
 
 ## Extras page (`ui.c`, `weather.c`)
 
-- Screens left to right: status, extras, weather, radar (page dots show 4, `N_PAGES`). Moves between them are drags
+- Screens left to right: status, extras, weather, buses (page dots show 4, `N_PAGES`). Moves between them are drags
   drawn by `slide.c`, started in the touch read (`drag_read`, see Moves).
 - Data: the weather request adds `current=uv_index` and `daily=sunrise,sunset,uv_index_max`; a second request goes to
   `air-quality-api.open-meteo.com` (`current=us_aqi,pm2_5,alder_pollen,birch_pollen,grass_pollen,ragweed_pollen`), same
@@ -555,6 +562,34 @@ order, and ~11 ms on the bus.
   530 KB of PSRAM) and redrawn only when `wx_gen` (bumped by each forecast) or the current hour changes. Drawn on
   every frame it was about 200 shapes and dragging fell from 14.9 to 12.1 fps; from the canvas it's back to 15 fps.
   The fill colours are pre-mixed with the black background instead of using transparency.
+
+## Buses (`departures.c`, `rtc_api.c`, `favs.c`, `bus_routes.c`, `ui.c`; from esp32-s3-rtcquebec)
+
+- **Data:** RTC's website API (undocumented, personal use). No task of its own: `deps_step()` makes at most one
+  request, and the radar task calls it every second while the radar isn't on screen (`radar_set_side_work`; it has
+  the internal stack TLS needs and never downloads at the same time; a request also waits while the weather loop
+  downloads, `netq.c`). rtcquebec's `deps` task cost a 6 KB internal stack, and with it in PSRAM it stopped for good
+  once in the middle of a request (v0.2.0-rc.11). The rules: the stop on view every 30 s while the buses screen (or its map, or its notices) is shown, every other
+  stop at most every 5 min, each favourite route's notices every 10 min, the map's buses every 20 s while it is open,
+  2 s between requests, nothing while offline or before SNTP. Its endpoints and fields: esp32-s3-rtcquebec's
+  docs/ARCHITECTURE.md, "Data sources"; `rtc_api.c` holds all of it (pure C, host-tested: `tests/host/test_rtc_api.c`
+  with the replies in `tests/host/data/`). The service is "RTC" in the health list.
+- **Favourites:** NVS namespace `favs` (`n`, then `f0`..`f7` = `stop/route/dir`, typed keys), at most 8. The settings
+  page's "My stops" card: `GET /api/favs`, `POST /api/route` (a route's two directions), `POST /api/favs` (the whole
+  list, a new one checked with RTC first); keyed, also on the setup network (`bus_routes.c`).
+- **Screen:** `scr_bus`, the row's right end: a vertical pager of stop pages (as the places), on the weather page's
+  slots: how fresh (16), clock (38, Québec time: TZ is `EST5EDT`), stop name · number (72), the route badge and the
+  next departure (112), → direction (214), real time / scheduled / what's wrong (248), the three after it (306-372),
+  the route's notices in the bottom pill (`PILL_Y`, orange; tap: the alert screen with them, `bus_alert_show`, which
+  closes back to the stop). `bus_tick` (1 s): `deps_show()`, the shown stop's countdown, the pages the `deps` task
+  changed (`ui_deps_changed` sets bits, the LVGL task refreshes). `drag_paint` refreshes a stop page before its first
+  strip. Names for the console and snapshots: `stop`, `stop2`..`stop8`.
+- **Bus map** (`scr_busmap`): a tap on the route badge (its map-pin badge: `pin_draw`). Its picture (466×466 RGB565,
+  434 KB) exists only while the map is open, drawn by the radar task's idle work (`bm_draw`, before the RTC's
+  requests): the tiles from `radar_osm_render()` (OSM, zoom 13..17, 15 first; swipe down = in), the route's path on
+  the picture (`deps_trace`); the stop and the buses are small objects on top. Once it has slid in, the picture cache
+  lets go of the pictures it doesn't need (`slide_cache_release_unneeded()`). Closed by a tap, a sideways swipe or 5
+  min untouched; `busmap_unloaded` frees the picture, or `bm_draw` once a drawing under way ends (display lock).
 
 ## Radar (`radar.c`)
 

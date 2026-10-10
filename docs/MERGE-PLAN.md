@@ -1,5 +1,8 @@
 # Merging weather_amoled and esp32-s3-rtcquebec: UI flow and memory
 
+**Status (2026-10-09):** steps done in v0.2.0 (radar from the icon and the bottom pill; the buses; the bus map with
+memory taking turns and one download at a time). How it differs from this plan: CLAUDE.md, "MeteoBus so far".
+
 ## Context
 The user asked how the UI would work if the two apps for the Waveshare ESP32-S3-Touch-AMOLED-1.75 were merged, and whether
 the board has enough memory for both. This is a design answer, with no code changes yet.

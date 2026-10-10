@@ -197,6 +197,8 @@ X(T_PILL_UPDATE,    "Update %s",                   "Mise à jour %s",
                     "ᓄᑖᖅ %s")
 X(T_PILL_UPDATING,  "Updating %d%%",               "Mise à jour %d %%",
                     "ᓄᑖᕈᕆᐊᖅᑐᖅ %d%%")
+X(T_ALERT_UPDATE,   "Update available  >",         "Nouvelle version  >",
+                    "ᓄᑖᖅ ᐊᑐᐃᓐᓇᖅ  >")
 X(T_UP_DOWNLOADING, "Downloading... keep it plugged in", "Téléchargement... laissez-le branché",
                     "ᒥᓇᕆᔪᖅ... ᑲᓱᖅᓯᒪᑎᓪᓗᒍ")
 X(T_UP_INSTALLED,   "Installed. Restarting...",    "Installée. Redémarrage...",
@@ -309,9 +311,9 @@ X(T_HINT_HELP,      "%s\nScan with your phone to choose\nyour city and other set
                     "%s\nᐊᔾᔨᓕᐅᕐᓕ ᐅᖄᓚᐅᑎᕋᓛᕐᒧᑦ\nᓄᓇᓖᑦ ᐋᖅᑭᔅᓯᒪᐅᑎᓪᓗ ᕿᓂᕐᓗᒋᑦ.\n\nᓇᕿᓪᓕ: ᒪᑐᓕ")
 X(T_GEST_TITLE,     "Getting around",              "Pour naviguer",
                     "ᖃᓄᖅ ᐊᑐᖅᑕᐅᕚ")
-X(T_GEST_HELP,      "Swipe sideways: other screens\nDrag up or down: your places\nTap a day: hour by hour\nPress and hold: settings\n\nTap to close",
-                    "Glissez de côté : autres écrans\nVers le haut ou le bas : endroits\nTouchez un jour : heure par heure\nAppuyez longuement : réglages\n\nTouchez pour fermer",
-                    "ᓂᕈᓗᓪᓕ ᓴᐅᒥᒧᑦ ᑕᓕᕐᐱᒧᓪᓗ: ᐊᓯᖏᑦ\nᖁᓕᒧᑦ ᐊᑖᓄᓪᓗ: ᐃᓂᒋᔭᑎᑦ\nᐅᓪᓗ ᓇᕿᓗᒍ: ᐃᑲᕐᕌᓂ\nᓇᕿᓪᓗᒍ ᓇᕿᒻᒥᓕ: ᐋᖅᑭᔅᓯᒪᐅᑎᑦ\n\nᓇᕿᓪᓕ: ᒪᑐᓕ")
+X(T_GEST_HELP,      "Swipe sideways: other screens\nDrag up or down: your places\nTap the weather icon: radar\nTap a day: hour by hour\nPress and hold: settings\n\nTap to close",
+                    "Glissez de côté : autres écrans\nVers le haut ou le bas : endroits\nTouchez l'icône météo : radar\nTouchez un jour : heure par heure\nAppuyez longuement : réglages\n\nTouchez pour fermer",
+                    "ᓂᕈᓗᓪᓕ ᓴᐅᒥᒧᑦ ᑕᓕᕐᐱᒧᓪᓗ: ᐊᓯᖏᑦ\nᖁᓕᒧᑦ ᐊᑖᓄᓪᓗ: ᐃᓂᒋᔭᑎᑦ\nᓯᓚᐅᑉ ᐊᔾᔨᖓ ᓇᕿᓗᒍ: Radar\nᐅᓪᓗ ᓇᕿᓗᒍ: ᐃᑲᕐᕌᓂ\nᓇᕿᓪᓗᒍ ᓇᕿᒻᒥᓕ: ᐋᖅᑭᔅᓯᒪᐅᑎᑦ\n\nᓇᕿᓪᓕ: ᒪᑐᓕ")
 X(T_OV_HELP,        "%s\nScan with your phone and accept\nthe certificate warning.\n\nLong-press for Wi-Fi setup\nTap to close",
                     "%s\nBalayez le code avec votre\ntéléphone et acceptez\nl'avertissement de certificat.\n\nAppuyez longuement : Wi-Fi\nTouchez pour fermer",
                     "%s\nᐊᔾᔨᓕᐅᕐᓕ ᐅᖄᓚᐅᑎᕋᓛᕐᒧᑦ ᐊᒻᒪᓗ\nᐃᓂᕐᑎᕈᑎ ᐊᖏᖅᑕᐅᓕ.\n\nᓇᕿᓪᓗᒍ ᓇᕿᒻᒥᓕ: Wi-Fi\nᓇᕿᓪᓕ: ᒪᑐᓕ")
@@ -404,3 +406,51 @@ X(T_ZOOM_IN,        "Zoom in",                     "Zoom avant",
                     "ᐊᖏᓪᓕᒋᐊᕐᓕ")
 X(T_ZOOM_OUT,       "Zoom out",                    "Zoom arrière",
                     "ᒥᑭᓪᓕᒋᐊᕐᓕ")
+
+// Buses (from esp32-s3-rtcquebec): the stops screen and its notices
+X(T_DEP_MIN,       "%d min", "%d min",
+                    "%d min")
+X(T_DEP_NOW,       "< 1 min", "< 1 min",
+                    "< 1 min")
+X(T_DEP_UNIT,      "min", "min",
+                    "min")
+X(T_DEP_LIVE,      "Real time", "Temps réel",
+                    "ᒫᓐᓇ")
+X(T_DEP_SCHED,     "Scheduled", "Horaire prévu",
+                    "ᐅᐸᑦᑐᒃᓴᖅ")
+X(T_DEP_CANCELLED,  "Cancelled", "Annulé",
+                    "ᖁᔭᓈᖅᑕᐅᔪᖅ")
+X(T_DEP_NONE,      "No more departures today", "Plus de départs aujourd'hui",
+                    "ᐅᓪᓗᒥ ᐊᐅᓪᓚᖅᑐᖃᕈᓐᓇᐃᖅᑐᖅ")
+X(T_DEP_LOADING,   "Loading...", "Chargement...",
+                    "ᐅᑕᖅᑭᕆᑦᓯ...")
+X(T_DEP_UPDATED,   "Updated at %s", "Mis à jour à %s",
+                    "ᓄᑖᖅᑭᖅᑕᐅᔪᖅ: %s")
+X(T_DEP_OFFLINE,   "Can't reach the RTC", "Impossible de joindre le RTC",
+                    "RTC ᑲᓱᕈᓐᓇᙱᑦᑐᖅ")
+X(T_DEP_NOT_FOUND,  "Route %s doesn't stop here\nin this direction", "Le parcours %s ne s'arrête pas ici\ndans cette direction",
+                    "%s ᓄᖅᑲᙱᑦᑐᖅ ᒫᓂ")
+X(T_DEP_NOT_SERVED, "Stop not served for now", "Arrêt non desservi pour le moment",
+                    "ᓄᖅᑲᕐᕕᒃ ᐊᑐᖅᑕᐅᙱᑦᑐᖅ ᒫᓐᓇ")
+X(T_DEP_DROP_OFF,  "Drop-off only", "Descente seulement",
+                    "ᐊᑎᖅᑐᖃᕐᕕᒃ ᑭᓯᐊᓂ")
+X(T_BUS_NOTICES,   "%d notices", "%d avis",
+                    "%d ᑐᓴᒐᔅᓴᑦ")
+X(T_ALERTS_ROUTE,  "Alerts: %s", "Avis : %s",
+                    "ᑐᓴᒐᔅᓴᑦ: %s")
+X(T_ALERT_BEGIN,   "Start: %s", "Début : %s",
+                    "ᐱᒋᐊᕐᓂᖅ: %s")
+X(T_ALERT_END,     "End: %s", "Fin : %s",
+                    "ᐃᓱᐊᖓ: %s")
+X(T_NO_STOPS,      "No stops yet", "Aucun arrêt",
+                    "ᓄᖅᑲᕐᕕᖃᙱᑦᑐᖅ")
+X(T_NO_STOPS_HOW,  "Add your stops from your\nphone: press and hold,\nthen Location & more", "Ajoutez vos arrêts depuis\nvotre téléphone : appuyez\nlonguement, puis Endroit et plus",
+                    "ᓄᖅᑲᕐᕖᑦ ᐃᓚᓗᒋᑦ\nᐅᖄᓚᐅᑎᕋᓛᕐᒥ:\nᓇᕿᓪᓗᒍ ᓇᕿᒻᒥᓕ")
+X(T_MAP_NEXT,     "Next bus: %s", "Prochain bus : %s",
+                    "ᑎᑭᓕᕆᔪᖅ: %s")
+X(T_MAP_LOADING,  "Loading the map...", "Chargement de la carte...",
+                    "ᓄᓇᙳᐊᖅ... ᐅᑕᖅᑭᕆᑦᓯ")
+X(T_MAP_NO_TILES, "Can't load the map", "Impossible de charger la carte",
+                    "ᓄᓇᙳᐊᖅ ᒥᓇᕆᔭᐅᔪᓐᓇᙱᑦᑐᖅ")
+X(T_MAP_NO_BUS,   "No bus on the way now", "Aucun bus en route",
+                    "ᑎᑭᓕᕆᔪᖃᙱᑦᑐᖅ ᒫᓐᓇ")

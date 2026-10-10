@@ -15,9 +15,24 @@ const port = Number(process.argv[2] || process.env.PORT || 8099);
 const MAX_PLACES = 4;
 const STATES = ['idle', 'checking', 'up_to_date', 'available', 'downloading', 'done', 'failed'];   // web.c ota_state_name
 
+// RTC in the mock (as esp32-s3-rtcquebec's): routes 800 (directions 0 / 1) and 11; route 800 direction 0 stops at 1025
+// and 1005, direction 1 at 1026; any other stop or route is "not served". Route "999" makes the RTC unreachable.
+const ROUTES = {
+  800: { route: '800', name: 'Terminus Chute-Montmorency - Colline Parlementaire',
+         dirs: [{ code: '0', name: 'Colline Parlementaire' }, { code: '1', name: 'Terminus Chute-Montmorency' }] },
+  11: { route: '11', name: "Terminus Place-D'Youville - Pointe-de-Sainte-Foy",
+        dirs: [{ code: '0', name: 'Pointe-de-Sainte-Foy' }, { code: '1', name: "Place-D'Youville" }] },
+};
+const STOPS = {
+  '1025/800/0': { stop_name: 'St-Dominique', direction: 'Colline Parlementaire' },
+  '1005/800/0': { stop_name: 'Champlain/1005', direction: 'Colline Parlementaire' },
+  '1026/800/1': { stop_name: 'St-Dominique', direction: 'Terminus Chute-Montmorency' },
+};
+
 function fresh() {
   return {
     places: [{ name: 'Québec', lat: 46.8139, lon: -71.208 }],
+    favs: [],
     active: 0,
     units: { temp: 'c', wind: 'kmh', clock: 24, lang: 'en' },
     ssid: 'HomeNet',
@@ -60,6 +75,25 @@ const config = () => ({
 });
 
 const routes = {
+  // the stops (bus_routes.c): GET /api/favs, POST /api/route (a route's directions), POST /api/favs (the whole list)
+  'GET /api/favs': () => [200, { max: 8, favs: st.favs.map(f => ({ ...f, ...(STOPS[f.stop + '/' + f.route + '/' + f.dir] || {}) })) }],
+  'POST /api/route': b => {
+    if (b && b.route === '999') return [200, { ok: false, why: 'rtc' }];
+    const r = b && ROUTES[b.route];
+    return [200, r ? { ok: true, ...r } : { ok: false, why: 'no_route' }];
+  },
+  'POST /api/favs': b => {
+    if (!b || !Array.isArray(b.favs) || b.favs.length > 8) return [200, { ok: false, bad: 0, why: 'invalid' }];
+    for (let i = 0; i < b.favs.length; i++) {
+      const f = b.favs[i];
+      if (!/^\d{1,6}$/.test(f.stop) || !/^[0-9A-Za-z]{1,5}$/.test(f.route) || !/^\d{1,3}$/.test(f.dir))
+        return [200, { ok: false, bad: i, why: 'invalid' }];
+      if (f.route === '999') return [200, { ok: false, bad: i, why: 'rtc' }];
+      if (!STOPS[f.stop + '/' + f.route + '/' + f.dir]) return [200, { ok: false, bad: i, why: 'not_served' }];
+    }
+    st.favs = b.favs.map(f => ({ stop: f.stop, route: f.route, dir: f.dir }));
+    return [200, { ok: true }];
+  },
   'GET /api/config': () => {                       // web.c config_get: no coordinates on the setup network
     const c = config();
     if (!st.setupNet) return [200, c];
