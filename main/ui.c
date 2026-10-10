@@ -3273,7 +3273,10 @@ static void bus_create(void)
 #define BM_ZOOM 15
 #define BM_BUSES RTC_BUSES_MAX
 static lv_obj_t *scr_busmap, *bm_img, *bm_title, *bm_status, *bm_attr, *bm_stop, *bm_bus[BM_BUSES];
-static lv_draw_buf_t *bm_buf;             // the map picture (434 KB, PSRAM): while the map is open
+static lv_draw_buf_t *bm_buf;             // the map picture shown (434 KB, PSRAM): while the map is open
+static lv_draw_buf_t *bm_back;            // the next zoom's picture, drawn while bm_buf is shown scaled (then swapped)
+#define BM_ZOOM_MS 300                     // the zoom's motion, as the radar's (ZOOM_ANIM_MS)
+static uint32_t bm_anim_until;             // lv_tick when the zoom's motion ends (markers hidden until then)
 static lv_draw_buf_t *bm_none;            // 1 x 1: the canvas's buffer while the map is closed (it can't have none)
 static bool bm_path_drawn;                 // the path is on the picture drawn at bm_zoom_drawn
 static void bm_text(lv_obj_t *l, const char *t, int max_w);
@@ -3334,14 +3337,58 @@ static void bm_draw_path(void)
 // The map's picture, drawn in the radar task's idle time (bus_side_work, radar_set_side_work): the tiles around the
 // stop at the zoom asked, then the path. The picture is only freed by whoever holds it last: busmap_unloaded if no
 // drawing is under way, else this, once it is done (both under the display lock).
-static bool bm_drawing;                    // the radar task is drawing into bm_buf now
+static bool bm_drawing;                    // the radar task is drawing into bm_back now
+
+// Both pictures and the path's points, once the map is closed and no drawing is under way (display lock held)
+static void bm_free(void)
+{
+    if (bm_buf) lv_draw_buf_destroy(bm_buf);
+    if (bm_back) lv_draw_buf_destroy(bm_back);
+    bm_buf = bm_back = NULL;
+    free(bm_ll);
+    bm_ll = NULL;
+    ESP_LOGI("ui", "bus map: closed, pictures freed");
+}
+
+static void bm_scale_cb(void *o, int32_t v) { lv_image_set_scale((lv_obj_t *)o, v); }
+static void bm_zoom_step(int step);
+static void busmap_close(const char *why, lv_dir_t dir);
+
+// A swipe made while slide.c drew the zoom (LVGL didn't see it): up / down zoom, sideways back (as the gestures)
+static void bm_zoom_swipe(int dx, int dy)
+{
+    if (abs(dy) >= 40 && abs(dy) > abs(dx)) bm_zoom_step(dy > 0 ? 1 : -1);
+    else if (abs(dx) >= 40) busmap_close("swipe", dx > 0 ? LV_DIR_RIGHT : LV_DIR_LEFT);
+}
+
+static void bm_markers_back(lv_timer_t *t) { bm_refresh(); }
+
+// The picture shown, scaled from `from` to `to` (256 = 1x) as the radar's zoom: drawn by slide.c straight to the
+// panel (~60 fps), else LVGL's animation (another move going on). Display lock held.
+static void bm_scale_anim(int32_t from, int32_t to)
+{
+    lv_anim_delete(bm_img, bm_scale_cb);
+    bm_anim_until = lv_tick_get() + BM_ZOOM_MS + 100;
+    lv_timer_t *t = lv_timer_create(bm_markers_back, BM_ZOOM_MS + 120, NULL);   // the markers once it's still
+    lv_timer_set_repeat_count(t, 1);
+    if (bm_buf && slide_zoom(bm_img, (const uint16_t *)bm_buf->data, from, to, BM_ZOOM_MS, bm_zoom_swipe)) return;
+    lv_image_set_scale(bm_img, from);
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, bm_img);
+    lv_anim_set_exec_cb(&a, bm_scale_cb);
+    lv_anim_set_values(&a, from, to);
+    lv_anim_set_duration(&a, BM_ZOOM_MS);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+    lv_anim_start(&a);
+}
 static bool bm_draw(void)
 {
     display_lock(-1);
-    bool want = bm_buf && !bm_quit && bm_zoom != bm_zoom_drawn;
+    bool want = bm_buf && bm_back && !bm_quit && bm_zoom != bm_zoom_drawn;
     int z = bm_zoom;
     double lat = bm_lat, lon = bm_lon;
-    uint16_t *px = want ? (uint16_t *)bm_buf->data : NULL;
+    uint16_t *px = want ? (uint16_t *)bm_back->data : NULL;
     if (want) bm_drawing = true;
     display_unlock();
     if (!want) return false;
@@ -3350,25 +3397,32 @@ static bool bm_draw(void)
     double ox = floor(cx - DISP_W / 2), oy = floor(cy - DISP_H / 2);
     int64_t t0 = esp_timer_get_time();
     bool ok = radar_osm_render(z, ox, oy, px, DISP_W, DISP_H);
+    // Let a zoom-in's motion end first (it scales the picture shown), as the radar's wait_zoom_anim()
+    uint32_t now = lv_tick_get();
+    if (bm_anim_until > now && bm_anim_until - now < 2000) vTaskDelay(pdMS_TO_TICKS(bm_anim_until - now));
     display_lock(-1);
     bm_drawing = false;
-    if (bm_quit) {                             // closed meanwhile: the picture is ours to free
-        lv_draw_buf_t *buf = bm_buf;
-        bm_buf = NULL;
+    if (bm_quit) {                             // closed meanwhile: the pictures are ours to free
+        bm_free();
         display_unlock();
-        if (buf) lv_draw_buf_destroy(buf);
-        free(bm_ll);
-        bm_ll = NULL;
-        ESP_LOGI("ui", "bus map: closed, picture freed");
         return true;
     }
+    int was = bm_zoom_drawn;
+    lv_draw_buf_t *shown = bm_buf;             // the new picture in front, the old one for the next zoom
+    bm_buf = bm_back;
+    bm_back = shown;
+    lv_anim_delete(bm_img, bm_scale_cb);
+    lv_image_set_scale(bm_img, LV_SCALE_NONE);
+    lv_canvas_set_draw_buf(bm_img, bm_buf);
     bm_ox = ox; bm_oy = oy;
     bm_zoom_drawn = z;
     bm_path_drawn = false;
     bm_failed = !ok;
     bm_draw_path();
     lv_obj_invalidate(bm_img);
-    bm_refresh();                              // the stop and the buses with the new picture, not a second later
+    // A zoom out: the wider map shrinks into place from 2x (4x after two swipes), so no border shows
+    if (was > z && ok) bm_scale_anim(LV_SCALE_NONE << (was - z > 2 ? 2 : was - z), LV_SCALE_NONE);
+    bm_refresh();                              // the stop and the buses with the new picture (after a motion: at its end)
     display_unlock();
     ESP_LOGI("ui", "bus map: zoom %d %s in %d ms", z, ok ? "drawn" : "failed", (int)((esp_timer_get_time() - t0) / 1000));
     return true;
@@ -3388,7 +3442,8 @@ static void bm_marker(lv_obj_t *o, double lat, double lon)
     double dx = x - DISP_W / 2, dy = y - DISP_H / 2;
     // Hidden from a zoom swipe until the new zoom's picture is in (they were drawn at the old zoom's positions, then
     // jumped: the user, 2026-10-10)
-    bool in = bm_zoom_drawn >= 0 && bm_zoom_drawn == bm_zoom && dx * dx + dy * dy < 220.0 * 220.0;
+    bool in = bm_zoom_drawn >= 0 && bm_zoom_drawn == bm_zoom && dx * dx + dy * dy < 220.0 * 220.0 &&
+              (int32_t)(lv_tick_get() - bm_anim_until) >= 0;
     if (in) lv_obj_set_pos(o, (int)lround(x) - lv_obj_get_style_width(o, 0) / 2, (int)lround(y) - lv_obj_get_style_height(o, 0) / 2);
     set_hidden(o, !in);
 }
@@ -3429,17 +3484,19 @@ static void busmap_open(int i)
     EXT_RAM_BSS_ATTR static dep_entry_t e;
     if (!deps_get(i, &e) || e.state != DEP_OK || (e.board.lat == 0 && e.board.lon == 0)) return;   // no place yet
     if (bm_buf || bm_drawing) return;                       // the last one is still closing
+    // Two pictures (868 KB of PSRAM while the map is open): the one shown, and the next zoom's, drawn behind it
     bm_buf = lv_draw_buf_create(DISP_W, DISP_H, LV_COLOR_FORMAT_RGB565, 0);
+    bm_back = lv_draw_buf_create(DISP_W, DISP_H, LV_COLOR_FORMAT_RGB565, 0);
     bm_ll = heap_caps_malloc(2 * DEPS_TRACE_POINTS * sizeof(float), MALLOC_CAP_SPIRAM);
-    if (!bm_buf || !bm_ll) {
-        ESP_LOGW("ui", "bus map: no memory for the picture");
-        if (bm_buf) lv_draw_buf_destroy(bm_buf);
-        free(bm_ll);
-        bm_buf = NULL; bm_ll = NULL;
+    if (!bm_buf || !bm_back || !bm_ll) {
+        ESP_LOGW("ui", "bus map: no memory for the pictures");
+        bm_free();
         return;
     }
     for (int k = 0; k < DISP_W * DISP_H; k++) ((uint16_t *)bm_buf->data)[k] = 0x18E3;     // rgb565(24, 28, 24)
+    lv_image_set_scale(bm_img, LV_SCALE_NONE);
     lv_canvas_set_draw_buf(bm_img, bm_buf);
+    bm_anim_until = 0;
     bm_stop_i = i;
     bm_lat = e.board.lat;
     bm_lon = e.board.lon;
@@ -3468,13 +3525,9 @@ static void busmap_unloaded(lv_event_t *ev)
     bm_stop_i = -1;
     lv_canvas_set_draw_buf(bm_img, bm_none);
     bm_quit = true;
-    if (!bm_drawing && bm_buf) {                            // else bm_draw frees it when its drawing ends
-        lv_draw_buf_destroy(bm_buf);
-        bm_buf = NULL;
-        free(bm_ll);
-        bm_ll = NULL;
-        ESP_LOGI("ui", "bus map: closed, picture freed");
-    }
+    lv_anim_delete(bm_img, bm_scale_cb);
+    lv_image_set_scale(bm_img, LV_SCALE_NONE);
+    if (!bm_drawing && bm_buf) bm_free();                   // else bm_draw frees them when its drawing ends
 }
 
 
@@ -3484,16 +3537,23 @@ static void busmap_gesture(lv_event_t *ev)
     if (!in) return;
     lv_dir_t dir = lv_indev_get_gesture_dir(in);
     if (dir == LV_DIR_LEFT || dir == LV_DIR_RIGHT) busmap_close("swipe", dir);
-    else {
-        int z = bm_zoom + (dir == LV_DIR_BOTTOM ? 1 : -1);  // swipe down = zoom in, up = zoom out (as the radar)
-        if (z >= BM_ZOOM_MIN && z <= BM_ZOOM_MAX && bm_buf) {
-            bm_zoom = z;
-            ESP_LOGI("ui", "bus map: zoom %d", z);
-            radar_side_wake();
-            bm_refresh();
-        }
-    }
+    else bm_zoom_step(dir == LV_DIR_BOTTOM ? 1 : -1);      // swipe down = zoom in, up = zoom out (as the radar)
     lv_indev_wait_release(in);
+}
+
+// A zoom step, as the radar's: in, the picture shown grows 2x now and the sharper one replaces it once drawn; out, it
+// stays until the wider one is drawn, which then shrinks into place (bm_draw). The markers hide meanwhile.
+static void bm_zoom_step(int step)
+{
+    int z = bm_zoom + step;
+    if (z < BM_ZOOM_MIN || z > BM_ZOOM_MAX || !bm_buf) return;
+    bm_zoom = z;
+    ESP_LOGI("ui", "bus map: zoom %d", z);
+    int32_t sc = lv_image_get_scale(bm_img);
+    if (step > 0) bm_scale_anim(sc, sc * 2 > 1024 ? 1024 : sc * 2);
+    else if (sc > LV_SCALE_NONE) bm_scale_anim(sc, sc / 2);   // undo a zoom-in not drawn yet
+    radar_side_wake();
+    bm_refresh();
 }
 
 // Every second while the map is shown: the buses and the line at the bottom; the pictures it doesn't need let go

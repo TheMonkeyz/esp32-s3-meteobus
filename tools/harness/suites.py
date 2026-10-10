@@ -342,11 +342,20 @@ def bus_map(ctx):
     psram = int(re.search(r'psram=(\d+)', heap).group(1))
     ctx.metric('psram_kb.bus_map', psram)
     at2 = len(ctx.log.lines())
-    b.cmd('swipe down')                                   # zoom in
+    b.cmd('swipe down')                                   # zoom in: the picture grows 2x at once, as the radar's
+    z = ctx.log.wait(r'slide: zoom \d+ -> \d+: overlays (\d+) px in (\d+) ms, (\d+) frames in (\d+) ms', 10,
+                     'the zoom in drawn by slide.c', start=at2)
+    ctx.metric('bus_map_zoom_fps', round(int(z.group(3)) * 1000 / int(z.group(4)), 1))
     ctx.log.wait(r'ui: bus map: zoom 16 drawn', 40, 'zoom 16 drawn', start=at2)
+    time.sleep(1)
+    at3 = len(ctx.log.lines())
+    b.cmd('swipe up')                                     # zoom out: the wider map, drawn, shrinks into place
+    ctx.log.wait(r'ui: bus map: zoom 15 drawn', 40, 'zoom 15 drawn again', start=at3)
+    ctx.log.wait(r'slide: zoom \d+ -> \d+', 5, 'the zoom out drawn by slide.c', start=at3)
+    ctx.note(f'zoom in: {z.group(3)} frames in {z.group(4)} ms')
     b.cmd('swipe right')
     b.wait_screen('stop', 6)
-    ctx.log.wait(r'ui: bus map: closed, picture freed', 20, 'the map picture freed', start=at2)
+    ctx.log.wait(r'ui: bus map: closed, pictures freed', 20, 'the map picture freed', start=at2)
     check(ctx.log.count(r'slide: \d+ picture\(s\) let go', start=at), 'the picture cache kept every picture while the map was open')
     ctx.note(f'map drawn in {d.group(2)} ms, zoom 16, closed and freed; PSRAM {psram} KB free with the map open')
     b.cmd('swipe right')
