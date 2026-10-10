@@ -1,5 +1,5 @@
 // The settings page's bus routes: the favourite stops (GET/POST /api/favs) and a route's directions (POST /api/route),
-// from esp32-s3-rtcquebec's main.c. Every RTC request goes through departures.c's task (its polling rules).
+// from esp32-s3-rtcquebec's main.c. Every RTC request goes through departures.c (deps_step, its polling rules).
 #include "bus_routes.h"
 #include <string.h>
 #include "esp_log.h"

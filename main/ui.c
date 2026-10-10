@@ -32,7 +32,6 @@
 #include "esp_attr.h"
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/idf_additions.h"   // xTaskCreatePinnedToCoreWithCaps (the bus map task)
 #include "freertos/queue.h"
 #include "freertos/task.h"
 
@@ -3260,10 +3259,11 @@ static void bus_create(void)
 }
 
 /* ---------- The bus map, on top of the buses screen ----------
- * Opened by a tap on a stop's route badge (it carries a small map-pin badge, pin_draw), closed by a tap, a sideways
- * swipe or BUSMAP_IDLE_US untouched; swipe down zooms in, up out (13..17, as the radar's swipes). The map around the
- * stop is drawn from OpenStreetMap's tiles by radar_osm_render() in a task of its own, into a picture allocated when
- * the map opens and freed when it closes: the map and the radar take turns in PSRAM (docs/MERGE-PLAN.md, Memory), and
+ * Opened by a tap on a stop's route badge (it carries a small map-pin badge, pin_draw), closed by a sideways swipe or
+ * BUSMAP_IDLE_US untouched (taps do nothing); swipe down zooms in, up out (13..17, as the radar's swipes). The map
+ * around the stop is drawn from OpenStreetMap's tiles by radar_osm_render() in the radar task's idle time
+ * (bus_side_work), into a picture allocated when the map opens (a second one at the first zoom) and freed when it
+ * closes: the map and the radar take turns in PSRAM (docs/MERGE-PLAN.md, Memory), and
  * the picture cache lets go of the pictures it doesn't need while the map is open. The route's path is drawn on the
  * picture once the tiles are in; the stop and the route's buses (departures.c, every 20 s while the map is open) are
  * small objects on top. */
@@ -3695,14 +3695,16 @@ static void busmap_create(void)
     bm_none = lv_draw_buf_create(1, 1, LV_COLOR_FORMAT_RGB565, 0);
     lv_canvas_set_draw_buf(bm_img, bm_none);
     lv_obj_set_pos(bm_img, 0, 0);
+    // The markers first: children are drawn in creation order, and a bus near the top was drawn over the title pill
+    // (2026-10-10). The pills come after them, so they stay readable.
+    bm_stop = bm_dot(C_TEXT, 14);
+    for (int i = 0; i < BM_BUSES; i++) bm_bus[i] = bm_bus_icon();
     // Where the round screen is wide enough for them (y 76: 344 px; 387: 312; 417: 286), long text cut (bm_text):
     // the title at y 34 and the credit at 430 ran past the edge (the user, 2026-10-10); the credit is never cut
     bm_title = bm_pill(f_small, C_TEXT, 76);
     bm_status = bm_pill(f_tiny, C_TEXT, 362);
     bm_attr = bm_pill(f_micro, C_TEXT, 396);              // OSM asks for it on screen; on a pill to be read
     bm_text(bm_attr, "© OpenStreetMap contributors", 280);
-    bm_stop = bm_dot(C_TEXT, 14);
-    for (int i = 0; i < BM_BUSES; i++) bm_bus[i] = bm_bus_icon();
     passthrough(scr_busmap);
     lv_obj_add_event_cb(scr_busmap, busmap_gesture, LV_EVENT_GESTURE, NULL);
     lv_obj_add_event_cb(scr_busmap, busmap_unloaded, LV_EVENT_SCREEN_UNLOADED, NULL);
