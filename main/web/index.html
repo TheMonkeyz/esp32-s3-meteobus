@@ -725,9 +725,14 @@ $('delPlace').onclick = () => {
 
 /* ---------- Favourite stops: GET /api/favs, POST /api/route (a route's directions), POST /api/favs (the whole list).
  * The display asks the RTC itself (departures.c: one request at a time); the page never calls the RTC. ---------- */
-let favs = [], favMax = 8, found = null;
+let favs = [], favMax = 8, found = null, favsShown = '';
 const favKey = f => f.stop + '/' + f.route + '/' + f.dir;
 function showFavs(){
+  // Rebuilt only when what it shows changed: the reload 4 s after a save (for the names) replaced the rows under a
+  // finger about to tap one, and the tap was lost (Playwright on the Mac runner, 2026-10-10)
+  const sig = LANG + JSON.stringify(favs);
+  if (sig === favsShown) return;
+  favsShown = sig;
   const box = $('favList'); box.innerHTML = '';
   $('favNone').style.display = favs.length ? 'none' : 'block';
   favs.forEach((f, i) => {

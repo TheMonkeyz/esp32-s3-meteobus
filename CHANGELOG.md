@@ -11,6 +11,7 @@ list everything again.
 
 ## v0.2.0-rc.3 - 2026-10-10
 - The bus map needs less memory when it opens: the picture for the next zoom is only made when you first zoom.
+- My stops (phone settings page): the list no longer redraws under your finger a few seconds after a change.
 
 ## v0.2.0-rc.2 - 2026-10-10
 - Going back is a sideways swipe everywhere: from the radar, the bus map and the alert screen, which now slide in
