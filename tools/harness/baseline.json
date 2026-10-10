@@ -220,7 +220,7 @@
  "radar_history_s": {
   "max": 7.0,
   "ref": 5.0,
-  "note": "the 14 past radar frames after opening the radar (radar.c pipe_load). 8.3 s one after the other on a quiet day (590 ms a frame: radar download 164 + decode 142, lightning download 95 + decode 135 ms, October 6); 7.4 s skipping empty lightning images alone; 4.5-5.6 s with downloads and decoding overlapped (v1.14.3). Rain makes the images larger (tens of KB): measure on a rainy day before tightening"
+  "note": "the 14 past radar frames after opening the radar (radar.c pipe_load). 8.3 s one after the other on a quiet day (590 ms a frame: radar download 164 + decode 142, lightning download 95 + decode 135 ms, October 6); 7.4 s skipping empty lightning images alone; 4.5-5.6 s with downloads and decoding overlapped (v1.14.3). Rain makes the images larger (tens of KB): measure on a rainy day before tightening. 7.2-8.2 s on 2026-10-09 (the weather firmware too): Wi-Fi power save, ~100 ms a request; off while the radar is open since MeteoBus v0.2.0-rc.4: 3.1-3.9 s (CLAUDE.md, MeteoBus lesson 5)"
  },
  "radar_zoom_fps": {
   "min": 28,

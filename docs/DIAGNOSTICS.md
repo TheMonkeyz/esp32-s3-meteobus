@@ -178,7 +178,7 @@ callers of internal allocations of 480 B or more (`esp_backtrace_get_start`, an 
 walk), resolved with `xtensa-esp32s3-elf-addr2line`. Console delays (the radar's relocation, or alerts and air,
 held 12 s) separate the two tasks: 43-53 KB each alone, 34-37 overlapped (the probe's own 100 ms lows).
 
-### 6. MeteoBus: the buses' memory and the network (2026-10-09/10, v0.2.0-v0.2.1)
+### 6. MeteoBus: the buses' memory and the network (2026-10-09/10, v0.2.0-rc.1..rc.4)
 
 Reference numbers (harness, `baseline.json`): internal RAM's low point over a place switch ~44 KB
 (`internal_min_kb.place_switch`, floor 36; 29 with a `deps` task overlapping, 35 before the bus code's arrays went
@@ -190,7 +190,7 @@ to PSRAM); since boot floor 25 KB; PSRAM's low point floor 300 KB; free PSRAM wi
 over its 7.0 limit, on v0.2.0 and on the unchanged weather firmware (v0.1.0-rc.2) alike. Timing the same 28 GeoMet
 URLs from the PC gave ~90 ms each (2.4-2.7 s); the board took ~200 ms each. ESP-IDF's default for a station
 (`WIFI_PS_MIN_MODEM`, which forge_net keeps) has the radio sleep between the router's beacons, so each reply waited
-for the next one (~100 ms). Since v0.2.1 `netq_awake()` (`main/netq.c`) turns power save off while the radar or the
+for the next one (~100 ms). Since v0.2.0-rc.4 `netq_awake()` (`main/netq.c`) turns power save off while the radar or the
 bus map is open: 3.1-3.9 s (4.9-6.6 s on rc.3 the same evening); log `netq: Wi-Fi power save off (a map is open)`.
 Downloads and decoding (~2.2 s, overlapped) are now close: the next gain would be in decoding. To check a slow
 request: time the same URL from the PC first.
@@ -206,5 +206,5 @@ request: time the same URL from the PC first.
 | ~~Internal RAM low at a place switch~~ (done, v1.14.2-rc.2) | the map read from flash in 4 KB pieces, air quality's buffer in PSRAM (5 above) | `memlow` 23-28 -> 42-43 KB |
 | Internal RAM low at a place switch again | the radar's switch work after the alerts and air-quality requests (one TLS download at a time) | +3-5 KB; the radar map of a new place 1-3 s later |
 | Internal RAM low again | check `diag: mark` lines to find the stage; stacks from the task table; for a moment, the probe in 5 | — |
-| ~~Radar history slow (7-8 s)~~ (done, MeteoBus v0.2.1) | Wi-Fi power save off while a map is open (6 above) | 3.1-3.9 s |
+| ~~Radar history slow (7-8 s)~~ (done, MeteoBus v0.2.0-rc.4) | Wi-Fi power save off while a map is open (6 above) | 3.1-3.9 s |
 | Radar history still slow | decode faster (`png_rows`' 32 KB dictionary in PSRAM; internal RAM would be faster but is the scarce one) | unmeasured |

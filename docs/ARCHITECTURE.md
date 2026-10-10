@@ -662,7 +662,7 @@ order, and ~11 ms on the bus.
   tap does nothing, as the user asked: back by a swipe, as on the radar; both slide in from the right and leave in
   the swipe's direction); `busmap_unloaded` frees the pictures and the path's points (`bm_free()`), or `bm_draw`
   once a drawing under way ends (display lock); the log says `ui: bus map: closed, pictures freed`. The radar and
-  the bus map take turns in PSRAM this way: only one is open at a time. Since v0.2.1 Wi-Fi power save is off while
+  the bus map take turns in PSRAM this way: only one is open at a time. Since v0.2.0-rc.4 Wi-Fi power save is off while
   it is open (`netq_awake(NETQ_MAP, …)` in `busmap_open` / `busmap_unloaded`, "Network queue" below).
 - **Memory:** the requests' buffers are PSRAM and live for one request (`heap_caps_malloc(…, MALLOC_CAP_SPIRAM)`): a
   board or route reply into `step_buf` (4 KB, `RX_CAP`, allocated once in `deps_start()`), a route's notices 128 KB
@@ -681,7 +681,7 @@ order, and ~11 ms on the bus.
   27), and a place switch (forecast, alerts, air and the radar at once) was already at the harness's floors before the
   buses came. The bus map's tiles need no flag: they are drawn in the radar task's idle time, as `deps_step()` runs,
   so they never overlap. `NETQ_MAP` and `netq_wait_others()` exist but nothing uses them (2026-10-10).
-- **Wi-Fi power save** (v0.2.1, `netq_awake(who, on)`): off (`WIFI_PS_NONE`) while the radar or the bus map is open,
+- **Wi-Fi power save** (v0.2.0-rc.4, `netq_awake(who, on)`): off (`WIFI_PS_NONE`) while the radar or the bus map is open,
   back to ESP-IDF's default for a station (`WIFI_PS_MIN_MODEM`, which forge_net keeps) when neither is. In that mode
   each reply waits for the router's next beacon, ~100 ms a request: the radar's 14 past frames (28 GeoMet requests)
   took 4.9-6.6 s on v0.2.0-rc.3, 3.1-3.9 s with it off (2026-10-10). Found by timing the same GeoMet URLs from the PC
@@ -760,7 +760,7 @@ order, and ~11 ms on the bus.
   downloads D ms, decoding E ms)`; harness `radar_history_s`.
   **MeteoBus, 2026-10-09/10:** `radar_history_s` measured 7.2-8.2 s, over its 7.0 limit, on the unchanged weather
   firmware (v0.1.0-rc.2) as on v0.2.0: not the buses but Wi-Fi power save (each reply waited for a beacon, ~100 ms a
-  request). Since v0.2.1 power save is off while the radar is open (`netq_awake()`, "Network queue"): 3.1-3.9 s
+  request). Since v0.2.0-rc.4 power save is off while the radar is open (`netq_awake()`, "Network queue"): 3.1-3.9 s
   (4.9-6.6 s on rc.3 the same evening). Downloads and decoding (~2.2 s, overlapped) are now close, so the next gain
   would be in decoding.
 - **Animation:** 15 frames. The latest frame, plus 14 history frames on a fixed 12-minute grid (so refreshes reuse

@@ -128,7 +128,7 @@ download at a time). The answer became this repository (dates from `git log`, ti
 - **October 10, v0.2.0-rc.3** (PR #4, 12:21): the bus map's second picture only at the first zoom (both at the
   opening took PSRAM's low point to 112 KB); the settings page's stop list rebuilt only when it changed. Then PR #5
   (graphify-out/ ignored) and PR #6 (a flaky flash helper monitor test on macOS).
-- **v0.2.1** (in review, 2026-10-10): `radar_history_s` was over its 7.0 s limit on the unchanged weather firmware
+- **v0.2.0-rc.4** (2026-10-10): `radar_history_s` was over its 7.0 s limit on the unchanged weather firmware
   too (7.2-8.2 s). Timing the same GeoMet requests from the PC (~90 ms each) against the board (~200 ms) pointed at
   Wi-Fi power save: ESP-IDF's default makes each reply wait for the router's beacon. Power save is now off while the
   radar or the bus map is open (`netq_awake()`): the 14 past frames in 3.1-3.9 s instead of 4.9-6.6.
@@ -204,8 +204,8 @@ change.
 
 MeteoBus (2026-10-10):
 
-- **No stable release yet:** v0.2.0-rc.3 is the newest, on the Beta channel (the flasher site offers Beta while
-  there is no stable one). v0.2.1 (Wi-Fi power save off while a map is open) is in review.
+- **No stable release yet:** v0.2.0-rc.4 is the newest, on the Beta channel (the flasher site offers Beta while
+  there is no stable one).
 - **Inuktitut for the bus texts are drafts** (low confidence, docs/translations/iu.tsv) and no Inuktitut snapshot fit
   check of the bus screens is recorded (docs/translations/README.md has the weather screens'); every new page text needs an Inuktitut line, or the
   page's Inuktitut test fails on English left over (CLAUDE.md, MeteoBus lesson 6).

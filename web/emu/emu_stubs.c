@@ -154,3 +154,4 @@ int deps_stalled_s(void) { return 0; }
 void netq_set(netq_who_t who, bool busy) { (void)who; (void)busy; }
 bool netq_others_busy(netq_who_t self) { (void)self; return false; }
 bool netq_wait_others(int max_ms) { (void)max_ms; return true; }
+void netq_awake(netq_who_t who, bool on) { (void)who; (void)on; }

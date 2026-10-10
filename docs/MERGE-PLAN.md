@@ -23,7 +23,7 @@ downloads (`netq.c`). How it works now: docs/ARCHITECTURE.md, "Screens and gestu
   its floors. There is no `deps` or bus map task: the radar task runs the buses' work in its idle time
   (`radar_set_side_work`: the bus map's picture, else one RTC request, `deps_step()`).
 - **One download at a time, partly:** `netq.c` keeps the RTC's requests out of the weather loop's and the radar's
-  downloads; the weather loop and the radar don't wait for each other (as before the merge). Since v0.2.1 it also
+  downloads; the weather loop and the radar don't wait for each other (as before the merge). Since v0.2.0-rc.4 it also
   turns Wi-Fi power save off while a map is open.
 - **Bus notices:** the pill shows the first notice's title or "N notices" (the plan's "Detour: route 800" wording was
   an example).

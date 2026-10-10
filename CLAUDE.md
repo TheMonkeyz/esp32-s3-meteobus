@@ -37,8 +37,13 @@ before working on the merge. Everything below came with the weather display, and
      and `deps` at rtcquebec's priority 4 kept the test console silent for 15 s after a place switch. There is no
      `deps` task now (lesson 2): the work runs in the radar task's idle time (`radar_set_side_work`, core 0, priority
      3: the console's, below LVGL and the web server), one request at a time, never above the console.
-  5. `radar_history_s` depends on the evening's rain and network: an A/B on 2026-10-09 gave 8.2 s on the unchanged
-     weather firmware (v0.1.0-rc.2) and 7.2-7.8 s on v0.2.0, both over the 7.0 limit. A/B before blaming a change.
+  5. `radar_history_s` was over its 7.0 s limit (2026-10-09: 8.2 s on the unchanged weather firmware, 7.2-7.8 s on
+     v0.2.0) because of **Wi-Fi power save**, not the buses: in ESP-IDF's default (`WIFI_PS_MIN_MODEM`, kept by
+     forge_net) each reply waits for the router's next beacon, ~100 ms a request. Found by timing the same 28 GeoMet
+     requests from the PC (~90 ms each, 2.4-2.7 s) against the board (~200 ms each). Since v0.2.0-rc.4 power save is off
+     while the radar or the bus map is open (`netq_awake()`, log `netq: Wi-Fi power save off`): 14 past frames in
+     3.1-3.9 s (4.9-6.6 s on rc.3 the same evening). Downloads and decoding (~2.2 s, overlapped) are now close: the
+     next gain would be in decoding. Slow requests: compare the board with the PC before blaming the server.
   6. Inuktitut for the bus texts are drafts (low confidence, docs/translations/iu.tsv): the page's Inuktitut test
      fails on English left over, so every new page text needs an Inuktitut line.
 - **Tools that are git-ignored** and had to be copied from weather_amoled for a fresh folder: `tools/esptool.exe` and

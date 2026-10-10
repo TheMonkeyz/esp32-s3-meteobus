@@ -13,3 +13,9 @@ void netq_set(netq_who_t who, bool busy);
 bool netq_wait_others(int max_ms);
 // Whether anyone but `self` is downloading now (no wait)
 bool netq_others_busy(netq_who_t self);
+
+// Wi-Fi power save off while a map screen is open (`on`: NETQ_RADAR or NETQ_MAP), back on when none is. With ESP-IDF's
+// default for a station (WIFI_PS_MIN_MODEM) each reply waited for the router's next beacon, ~100 ms a request: the
+// radar's 14 past frames (28 GeoMet requests) took 4.9-6.6 s, 3.1-3.7 s with it off (2026-10-10; the PC: ~90 ms a
+// request). Left alone while Easy Connect runs (forge_net sets its own). LVGL task (screen open / unloaded).
+void netq_awake(netq_who_t who, bool on);
