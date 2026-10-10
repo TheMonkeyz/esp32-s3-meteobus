@@ -30,11 +30,14 @@ French in the page and the `site:` row here, run `build`, then `python tools/i18
 - **Sources.** *high* = a word taken as-is from the Tusaalanga glossary (Pirurvik Centre) or from Microsoft's
   Inuktitut (Latin) terminology, which was made with Pirurvik. *medium* = built from such words with common
   affixes (-kuluk "a little", -aluk "a lot", -liq- "starting", -runnanngit- "cannot"). *low* = a best guess.
-  Counts at the time of writing: 53 high, 170 medium, 202 low (the flasher's 110 texts: 10, 42, 58).
+  Counts (2026-10-10, counted from `iu.tsv`'s confidence column): 53 high, 174 medium, 273 low, 500 texts; the
+  display's 209 (`fw:`): 29, 80, 100; the settings page's 166 (`web:`): 14, 54, 98; the flasher's 125 (`site:`): 10,
+  40, 75. (The weather display's first count: 53, 170, 202, the flasher's 110 texts 10, 42, 58.) The bus texts
+  (MeteoBus v0.2.0) are almost all *low*.
 - **Dialect and spelling.** Nunavut (Qikiqtaaluk) vocabulary as in Tusaalanga. Syllabics follow the ICI standard
   (qq is written ᖅᑭ, ng/nng are ᖏ/ᙱ, ai is written ᐊᐃ). A Nunavik reviewer may prefer other words.
-- **Kept in Latin:** Wi-Fi, Radar, OK, UV, QR, API, Android, Easy Connect, Beta, unit symbols (s, min, h, km/h, dB,
-  dBm, g), and pollen tree names (shown only in Europe). On the flasher also: USB, USB-C, BOOT, RESET, COM, HTTPS,
+- **Kept in Latin:** MeteoBus (the product's name), RTC (the bus network), Wi-Fi, Radar, OK, UV, QR, API, Android,
+  Easy Connect, Beta, unit symbols (s, min, h, km/h, dB, dBm, g), and pollen tree names (shown only in Europe). On the flasher also: USB, USB-C, BOOT, RESET, COM, HTTPS,
   Chrome, Edge, ESP Web Tools and its English *Erase device* box, the board's name, agency names (Environment
   Canada) and the map credit. In the TSV, text between backticks is kept as written; HTML tags pass through.
 - **Dates:** full weekday names (Tusaalanga: ᓇᒡᒐᔾᔭᐅ Monday … ᓈᑦᓰᖑᔭᖅ Sunday; no usual short forms, so the short
@@ -43,6 +46,13 @@ French in the page and the `site:` row here, run `build`, then `python tools/i18
   release notes (English).
 
 ### Fit checks (done on the board, v1.9.0-iu.0 test build)
+
+These were the weather display's screens (esp32-s3-weather v1.9.0). **The bus pages are not checked yet**
+(MeteoBus, 2026-10-10): their Inuktitut texts are drafts, mostly *low*, and no snapshot of `stop`, `stop2`…,
+`busmap` or the bus notices in Inuktitut is recorded. Every new display or page text needs an Inuktitut line: the
+settings page's Inuktitut test fails on English left over (CLAUDE.md, "MeteoBus so far", lesson 6). To check them:
+`POST /api/units {"lang":"iu"}`, then `tools/snapshot.py` for every stop and the bus map (open), and the *My stops*
+card in the settings page's Inuktitut shot (`tools/webtest/shots/review_iu_page.png`).
 
 Syllabic words are 1.2 to 2.8 times wider than the English. Every screen was captured with `tools/snapshot.py`.
 That includes `settings1..3` (Settings scrolled down), `phone` (settings QR) and `setup0` / `setup1` (Wi-Fi

@@ -1,5 +1,8 @@
 # Project evaluation, October 2-3, 2026 (v1.11.1, commit 28310af)
 
+> History of the weather display (esp32-s3-weather), before MeteoBus began on 2026-10-09: versions, file paths and
+> commit ids here are that repository's (its history was not copied), and the work it lists is done.
+
 Read-only review of the `weather_amoled` firmware, tooling and docs by Claude (Fable 5.1): 15 area reviewers in
 parallel, every medium/high finding checked by two independent verifiers (one re-reads the code and tries to refute
 the claim, one judges the severity for *this* project), a completeness critic, and four extra readers for the gaps

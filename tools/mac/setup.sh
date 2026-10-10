@@ -1,7 +1,7 @@
 #!/bin/bash
-# Sets up a Mac for the weather display project: the tools from Homebrew, ESP-IDF v5.5.4 (the firmware), the
-# settings-page tests (Node + Playwright) and Emscripten (the display in the browser). Safe to run again: it skips
-# what is already there. Ends with tools/mac/doctor.sh. Details and troubleshooting: docs/MACOS.md.
+# Sets up a Mac for the MeteoBus project (the weather and bus display): the tools from Homebrew, ESP-IDF v5.5.4 (the
+# firmware), the settings-page tests (Node + Playwright) and Emscripten (the display in the browser). Safe to run
+# again: it skips what is already there. Ends with tools/mac/doctor.sh. Details and troubleshooting: docs/MACOS.md.
 #
 #   bash tools/mac/setup.sh                 # everything (~30-60 min the first time, ~4 GB)
 #   bash tools/mac/setup.sh --no-emulator   # without Emscripten (~1 GB less)

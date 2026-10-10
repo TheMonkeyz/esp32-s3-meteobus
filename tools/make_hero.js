@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * The README's hero picture, docs/img/hero.png: three round screens from web/flash/img/ (hourly, weather, radar)
+ * The README's hero picture, docs/img/hero.png: three round screens from web/flash/img/ (a bus stop, weather, radar)
  * fanned out, each in a dark bezel with a soft shadow, on a transparent background so it suits GitHub's light
  * and dark themes. Refresh it after new screenshots (tools/round_shots.py):
  *
@@ -23,7 +23,7 @@ const shot = name => 'data:image/png;base64,' +
 
 // x, y = centre, d = screen diameter (466 = the panel's own pixels), a = tilt in degrees. Drawn in this order.
 const DEVICES = [
-  { name: 'hourly', x: 268, y: 326, d: 372, a: -9 },
+  { name: 'stop', x: 268, y: 326, d: 372, a: -9 },
   { name: 'radar', x: 1012, y: 326, d: 372, a: 9 },
   { name: 'weather', x: 640, y: 296, d: 466, a: 0 },
 ];

@@ -1,15 +1,60 @@
 # Architecture
 
+**MeteoBus** is a weather display and a Québec City bus display on one round 466×466 board (Waveshare
+ESP32-S3-Touch-AMOLED-1.75). It began on 2026-10-09 as a copy of the weather display
+([esp32-s3-weather](https://github.com/TheMonkeyz/esp32-s3-weather) v1.15.0, with a fresh history) and took the RTC
+bus departures, stop pages and bus map from [esp32-s3-rtcquebec](https://github.com/TheMonkeyz/esp32-s3-rtcquebec)
+in v0.2.0 (the plan: docs/MERGE-PLAN.md). Most of this file came with the weather display: versions written v1.x
+(v1.10.0, v1.14.2-rc.2...) are esp32-s3-weather's releases, and their commit ids are in that repo, not this one.
+MeteoBus's own releases are v0.x (v0.1.0-rc.1 onwards).
 
-**Where the code lives (v1.14.0).** The infrastructure is espforge's (github.com/TheMonkeyz/espforge), taken at a
-release tag by the component manager (`main/idf_component.yml` → `managed_components/`): forge_core (diag, test
-console, i18n core, NVS helpers, version, png_rows, textfit, http_once, utf8), forge_net (`net.c`, `web.c`, `svc.c`,
-`tlscert.c`), forge_ota, dns_server and, since v1.15.0, forge_presence (screen dimming; the board's microphones,
-motion sensor, touch and brightness come in through its hooks, `main.c`). Their sections below describe how this display uses them; espforge's
-`docs/COMPONENTS.md` and the headers are the reference. This project's glue: `routes.c` (the page's app routes), `audio.c` (I2S and the microphones),
-`console.c` (its console commands, "where", the "diag: display" line), `services.c` (its outside services),
-`i18n.c` (texts, Inuktitut), Kconfig `CONFIG_FORGE_*` in `sdkconfig.defaults` (names, update site). CLAUDE.md,
-"Shared with espforge", says how to change shared code.
+Sections, in order: Screens and gestures · Hardware · Tasks · Display pipeline · Weather screen · Pager · Moves
+(slides, drags, list scrolls, radar zoom, picture cache) · Languages · Settings screen · Updates over Wi-Fi · Extras
+page · Status page · Weather alerts · Rain nowcast · Hourly view · Buses · Network queue (`netq.c`) · Radar · Wi-Fi
+setup / captive portal · Alert sounds · Presence dimming · Settings / web · TLS certificate · Release pipeline · Test
+console · Memory budget · Known issues / TODO.
+
+**Where the code lives (since the weather display's v1.14.0).** The infrastructure is espforge's
+(github.com/TheMonkeyz/espforge), taken at a release tag by the component manager (`main/idf_component.yml` →
+`managed_components/`; v0.3.0 on 2026-10-10): forge_core (diag, test console, i18n core, NVS helpers, version,
+png_rows, textfit, http_once, utf8), forge_net (`net.c`, `web.c`, `svc.c`, `tlscert.c`), forge_ota, dns_server and,
+since v1.15.0, forge_presence (screen dimming; the board's microphones, motion sensor, touch and brightness come in
+through its hooks, `main.c`). Their sections below describe how this display uses them; espforge's
+`docs/COMPONENTS.md` and the headers are the reference. This project's glue: `routes.c` (the page's app routes),
+`audio.c` (I2S and the microphones), `console.c` (its console commands, "where", the "diag: display" line),
+`services.c` (its outside services; the RTC's is registered by `departures.c`), `i18n.c` (texts, Inuktitut), Kconfig
+`CONFIG_FORGE_*` in `sdkconfig.defaults` (names, update site). The buses (MeteoBus): `departures.c`, `rtc_api.c`,
+`favs.c`, `bus_routes.c` (from esp32-s3-rtcquebec) and `netq.c`. CLAUDE.md, "Shared with espforge", says how to
+change shared code.
+
+## Screens and gestures (MeteoBus v0.2.0)
+
+```
+status | extras | WEATHER (↕ places) | BUSES (↕ stops)        <- sideways drags; the ends bounce
+                    icon badge -> radar   route badge -> bus map
+                    bottom pill -> alert screen (or the update)
+```
+
+- **The row:** status, extras, weather, buses (`N_PAGES` 4, page dots at the bottom). Moves between them, between
+  places and between stops follow the finger (`slide.c`, "Moves" below). The weather screen opens first.
+- **Radar** (`scr_radar`): a tap on the weather icon, which carries a small radar badge (`badge_draw`; the tap zone
+  is the icon and the badge plus 12 px, `on_hero_icon()`). It slides in from the right (`radar_open()`). Its taps
+  play the last 3 h, vertical swipes zoom (down = in). It closes with a sideways swipe (out in the swipe's
+  direction) or after 5 min untouched (`radar_idle`, `RADAR_IDLE_US`). The radar left the row in v0.2.0.
+- **Bus map** (`scr_busmap`): a tap on a stop's route badge, which carries a map-pin badge (`pin_draw`; same 12 px
+  margin, `bus_tap`). Zoom 13..17, 15 first (`BM_ZOOM_*`), swipe down = in. Back by a sideways swipe or after 5 min
+  untouched (`BUSMAP_IDLE_US`); a tap does nothing (the user, 2026-10-10: back is a swipe everywhere).
+- **Alert screen** (`scr_alert`): a tap on the bottom pill (y ≥ 396, `PILL_TAP_Y` = `PILL_Y` - 8; the pill is at y
+  404..434). On the weather screen the slot shows the alert first, else the update pill; with both, the alert pill
+  has a blue dot and the alert screen ends with an "Update available >" row (`al_upd`), the only tap it answers (it
+  opens the update screen). On a stop the orange pill holds the route's notices and opens the same screen with them
+  (`bus_alert_show`). Back by a sideways swipe (`alert_gesture`); the update screen closes the same way.
+- **Settings** (`scr_cfg`): a long-press on the weather screen or on a stop page (`open_cfg`; offline: the Wi-Fi
+  setup screen). *Done* or a swipe right closes it back to where it was opened (`cfg_back`).
+- **Hourly view** (`scr_hour`): a tap on a forecast column (y ≥ 296). Days sideways, hours scroll; a tap still
+  closes it (it slides back down).
+- What the plan had that the build doesn't: docs/MERGE-PLAN.md, Status.
+
 ## Hardware (Waveshare ESP32-S3-Touch-AMOLED-1.75)
 
 | Part | Details | Pins |
@@ -33,7 +78,7 @@ The panel's init sequence and pin map come from Waveshare's BSP
 |---|---|---|
 | `main` (app_main) | 0 / 1, 10 KB stack | Boot flow, then weather loop: fetch every 10 min; woken early by a location change. Also draws the alert region map (TLS tile downloads + inflate when the basemap isn't cached): `app: alert map … stack N B spare` |
 | `lvgl` | 1 / 4 | `lv_timer_handler()` loop under a recursive mutex (`display_lock()`) |
-| `radar` | 0 / 3, 10 KB stack | Basemap, latest radar frame, history frames' downloads while the radar screen is visible; otherwise, every second, the buses' work (`radar_set_side_work`, MeteoBus): one RTC request (`deps_step()`) or the bus map's picture |
+| `radar` | 0 / 3, 10 KB stack | Basemap, latest radar frame, history frames' downloads while the radar screen is visible; otherwise, every second, the buses' work (`radar_set_side_work`, MeteoBus; there is no `deps` or bus map task): the bus map's picture (`bm_draw`) or one RTC request (`deps_step()`) |
 | `radar_dec` | 0 / 2, 6 KB stack **in PSRAM** | Decodes the history frames `radar` downloaded (`pipe_load()`, see Radar), below `radar`: while a download waits on the network. The project's only task with its stack in PSRAM (`xTaskCreatePinnedToCoreWithCaps`): it must never write flash (the cache is off meanwhile), and doesn't: it decodes, sets the frame under the display lock and updates a label |
 | `presence` | 0 / 2 | Reads 100 ms of audio, computes the level, runs the dim/off state machine, fades brightness |
 | `diag` | 0 / 1 | Every 60 s logs heap, frame timing, CPU and stack per task |
@@ -100,14 +145,11 @@ LVGL timer and event callbacks already run inside the lock.
   read). `LV_EVENT_GESTURE` (`gesture_cb`) is left with the radar's and the bus map's zoom swipes (up / down). Every
   other screen change (the radar, the bus map, hourly view, Settings, alerts, update) calls `slide_screen()`, which
   takes the same arguments as `lv_screen_load_anim()`.
-- **Since MeteoBus v0.2.0** (docs/MERGE-PLAN.md): the radar opens on top of the weather screen with a tap on the
-  weather icon (`main_tap` → `radar_open()`; the icon's radar badge is drawn by `badge_draw` on `LV_EVENT_DRAW_POST`)
-  and closes with a sideways swipe or after 5 min untouched (`radar_idle`); leaving it however it happens stops it
-  (`radar_unloaded`, `LV_EVENT_SCREEN_UNLOADED`). The weather alert pill is at the bottom (`PILL_Y`, under the
-  forecast), sharing that slot with the update pill (`pills_show()`: the alert first, with a blue dot when an update
-  waits; the alert screen then ends with "Update available >", `al_upd`). The alert screen slides in from the right and
-  closes with a sideways swipe (`alert_gesture`); a tap does nothing but on that row (the user, 2026-10-10: back is a
-  swipe everywhere, as on the radar and the bus map). Pill labels are sized by `pill_text()`
+- **Since MeteoBus v0.2.0** (the gestures: "Screens and gestures" above): `main_tap` checks the bottom pill first
+  (y ≥ `PILL_TAP_Y`), then the icon (`radar_open()`; the badge is drawn by `badge_draw` on `LV_EVENT_DRAW_POST`, the
+  icon's own children change with each forecast), then the forecast row. Leaving the radar however it happens stops
+  it (`radar_unloaded`, `LV_EVENT_SCREEN_UNLOADED`). The alert pill shares the bottom slot with the update pill
+  (`pills_show()`); showing or hiding the dot marks only the pill's rows. Pill labels are sized by `pill_text()`
   (`LV_LABEL_LONG_DOT` needs a fixed width and height).
 - **Places:** the weather widgets live on one page per place (`place_page_t pp[MAX_PLACES]`) in a vertical pager
   (`pager.c`) on `scr_main`; the alert pill, update pill, page dots, place dots and settings overlay are siblings
@@ -349,8 +391,8 @@ order, and ~11 ms on the bus.
   radar, the next 67), places 46 fps (66 with the pictures ready; was 10), days 58 fps (was 11), drag start ~15 ms.
   Lists (rc.4): hourly ~52 fps while moving (was 17.5), Settings ~70 (was 22), status page ~64. v1.11.1: hourly
   ~60 fps (raw scroll), radar zoom 40–43 fps (was ~10), today's hourly view opens at once.
-- Long-press opens the Settings screen (below). Its *More on your phone* row shows the overlay with a QR code
-  (`lv_qrcode`) for `https://<ip>`.
+- Long-press opens the Settings screen (below). Its *Location & more (phone)* row shows the overlay with a QR code
+  (`lv_qrcode`) for `https://<ip>/#k=<key>`.
 
 ## Languages (`i18n.c`, `i18n_strings.h`)
 
@@ -389,7 +431,9 @@ order, and ~11 ms on the bus.
 
 ## Settings screen (`ui.c`, `cfg_*`)
 
-- `scr_cfg`, opened by a long-press on the weather screen (offline: the Wi-Fi setup screen instead). Rows in a
+- `scr_cfg`, opened by a long-press on the weather screen or a stop page (offline: the Wi-Fi setup screen instead;
+  it closes back to where it was opened, `cfg_back`). No "Bus stops" row (the plan had one): stops are chosen on the
+  phone's *My stops* card. Rows in a
   scrolling box (y 70–360) under a fixed *Done* button: Dim when quiet and Wake on pick-up (`lv_switch`, the whole
   row is the button), Timing (cycles Short / Normal / Long; the same presets as the page's `PRESETS`, *Custom* if
   none matches), Temperature / Wind / Clock (cycle), Language (cycles English / Français / Inuktitut (draft)), Alert
@@ -437,14 +481,16 @@ order, and ~11 ms on the bus.
   in that window (Settings → Restart, Save Wi-Fi, Easy Connect) wait for the confirmation (`ota_restart_when_safe()`). (Needs the new bootloader: one USB flash.) `GET /api/update` reports `pending_verify` and
   `uptime_s` (since v1.10.0-rc.3) so tools don't restart a board during those 60 s: the test harness did once and
   tested the rolled-back firmware.
-- **UI**: `ui_ota()` from the OTA task: pill at the bottom of the weather screen (tap region y > 408), `scr_update`
+- **UI**: `ui_ota()` from the OTA task: pill at the bottom of the weather screen (y 404..434, `PILL_Y`; tap region
+  y ≥ 396, `PILL_TAP_Y`; an alert takes the slot first and the update shows as a blue dot on it, `pills_show()`;
+  the weather display's tap region was y > 408), `scr_update`
   with Install button and progress bar; `GET/POST /api/update` (`channel`, `action: check|install`) for the settings
   page's Firmware card.
 
 ## Extras page (`ui.c`, `weather.c`)
 
-- Screens left to right: status, extras, weather, buses (page dots show 4, `N_PAGES`). Moves between them are drags
-  drawn by `slide.c`, started in the touch read (`drag_read`, see Moves).
+- One swipe right of the weather screen in the row (status | extras | weather | buses, "Screens and gestures").
+  Moves between them are drags drawn by `slide.c`, started in the touch read (`drag_read`, see Moves).
 - Data: the weather request adds `current=uv_index` and `daily=sunrise,sunset,uv_index_max`; a second request goes to
   `air-quality-api.open-meteo.com` (`current=us_aqi,pm2_5,alder_pollen,birch_pollen,grass_pollen,ragweed_pollen`), same
   10-minute cycle. Pollen comes from CAMS Europe: `null` elsewhere, and the row is hidden.
@@ -477,8 +523,9 @@ order, and ~11 ms on the bus.
   version the channel offers.
 - Opening the page calls `svc_probe_stale()`: a short-lived task (8 KB stack) sends one small request to each
   service not contacted for 5 min (a 1-line forecast, `limit=1` alerts, GetCapabilities, OSM tile 0/0/0 with the
-  User-Agent the tile policy asks for, `channels.json`) and reports it the same way. NTP isn't probed. The rows
-  refresh every second while the page is shown.
+  User-Agent the tile policy asks for, `channels.json`; MeteoBus: the RTC's route 800 for today, `probe_url()` in
+  `departures.c`, which registers the "RTC" row with `svc_add()` in `deps_start()`) and reports it the same way. NTP
+  isn't probed. The rows refresh every second while the page is shown.
 - Labels are single-line `LV_LABEL_LONG_DOT` with a fixed height. Without the height, LVGL wraps them, and that
   overlapped the next line on the first try.
 
@@ -495,10 +542,13 @@ order, and ~11 ms on the bus.
   worse (`parse_features()`); then sorted red first. Until v1.12.0 the cap ran in the server's order before the sort,
   and a red warning listed fifth (the request asks for 20) was dropped: no pill, no sound.
   Fetched with the weather (every 10 min); a failed request keeps the previous alerts.
-- UI: a pill in the alert colour replaces the city name; a tap in the top half opens `scr_alert` (title fixed; map,
-  when/where and text in one scrolling column). The title wraps within 260 px (the round edge's width at y = 40) and
-  `al_layout()` starts the column under its last line: up to v1.12.1 the column sat at a fixed y = 80, and a two-line
-  title ("Wreckhouse wind warning", October 4) ran into "Until …" or hid its second line behind the map.
+- UI: a pill in the alert colour at the bottom of the weather screen (`PILL_Y`, y 404..434, under the forecast; the
+  place name stays at y 72); a tap on it (y ≥ 396) opens `scr_alert` (title fixed; map, when/where and text in one
+  scrolling column), which closes with a sideways swipe. Until MeteoBus v0.2.0 (and in the weather display) the pill
+  replaced the city name and a tap in the top half opened the screen. The title wraps within 260 px (the round
+  edge's width at y = 40) and `al_layout()` starts the column under its last line: up to v1.12.1 the column sat at a
+  fixed y = 80, and a two-line title ("Wreckhouse wind warning", October 4) ran into "Until …" or hid its second
+  line behind the map.
 - **Region map** (`alerts_map()`): `items/<id>?f=json` gives the shape (≈4 KB for a county, 12.5 KB for Québec's
   frost advisory region). Coordinates are pulled out with a small scanner instead of cJSON (thousands of points would
   mean thousands of small allocations). The zoom is the closest level (4–10) where the region fits around the
@@ -568,14 +618,18 @@ order, and ~11 ms on the bus.
 ## Buses (`departures.c`, `rtc_api.c`, `favs.c`, `bus_routes.c`, `ui.c`; from esp32-s3-rtcquebec)
 
 - **Data:** RTC's website API (undocumented, personal use). No task of its own: `deps_step()` makes at most one
-  request, and the radar task calls it every second while the radar isn't on screen (`radar_set_side_work`; it has
-  the internal stack TLS needs and never downloads at the same time; a request also waits while the weather loop
-  downloads, `netq.c`). rtcquebec's `deps` task cost a 6 KB internal stack, and with it in PSRAM it stopped for good
-  once in the middle of a request (v0.2.0-rc.11). The rules: the stop on view every 30 s while the buses screen (or its map, or its notices) is shown, every other
-  stop at most every 5 min, each favourite route's notices every 10 min, the map's buses every 20 s while it is open,
-  2 s between requests, nothing while offline or before SNTP. Its endpoints and fields: esp32-s3-rtcquebec's
-  docs/ARCHITECTURE.md, "Data sources"; `rtc_api.c` holds all of it (pure C, host-tested: `tests/host/test_rtc_api.c`
-  with the replies in `tests/host/data/`). The service is "RTC" in the health list.
+  request, and the radar task calls it every second while the radar isn't on screen (`radar_set_side_work`, through
+  `ui.c`'s `bus_side_work()`, which draws the bus map first: `bm_draw() || deps_step()`). The radar task has the
+  internal stack TLS needs and never downloads two things at once; a request is also skipped while the weather loop
+  downloads (`netq_others_busy()`, "Network queue" below). rtcquebec's `deps` task cost a 6 KB internal stack, and
+  with it in PSRAM it stopped for good once in the middle of a request (a v0.2.0-rc.11 test build, before rc.1 was
+  published). `deps_stalled_s()` says how long since `deps_step()` last ran; past 60 s (radar not shown) `bus_tick`
+  logs "buses: the RTC fetch task has been stuck for N s" and the harness fails on it. The rules: the stop on view
+  every 30 s while the buses screen (or its map, or its notices) is shown, every other stop at most every 5 min,
+  each favourite route's notices every 10 min, the map's buses every 20 s while it is open, 2 s between requests,
+  nothing while offline or before SNTP. Its endpoints and fields: esp32-s3-rtcquebec's docs/ARCHITECTURE.md, "Data
+  sources"; `rtc_api.c` holds all of it (pure C, host-tested: `tests/host/test_rtc_api.c` with the replies in
+  `tests/host/data/`). The service is "RTC" in the health list.
 - **Favourites:** NVS namespace `favs` (`n`, then `f0`..`f7` = `stop/route/dir`, typed keys), at most 8. The settings
   page's "My stops" card: `GET /api/favs`, `POST /api/route` (a route's two directions), `POST /api/favs` (the whole
   list, a new one checked with RTC first); keyed, also on the setup network (`bus_routes.c`).
@@ -583,18 +637,57 @@ order, and ~11 ms on the bus.
   slots: how fresh (16), clock (38, Québec time: TZ is `EST5EDT`), stop name · number (72), the route badge and the
   next departure (112), → direction (214), real time / scheduled / what's wrong (248), the three after it (306-372),
   the route's notices in the bottom pill (`PILL_Y`, orange; tap: the alert screen with them, `bus_alert_show`, which
-  closes back to the stop). `bus_tick` (1 s): `deps_show()`, the shown stop's countdown, the pages the `deps` task
-  changed (`ui_deps_changed` sets bits, the LVGL task refreshes). `drag_paint` refreshes a stop page before its first
-  strip. Names for the console and snapshots: `stop`, `stop2`..`stop8`.
-- **Bus map** (`scr_busmap`): a tap on the route badge (its map-pin badge: `pin_draw`). Its picture (466×466 RGB565,
-  434 KB, two of them: the one shown and the next zoom's, drawn behind it, then swapped) exist only while the map is
-  open, drawn by the radar task's idle work (`bm_draw`, before the RTC's requests). A zoom moves as the radar's
-  (`bm_zoom_step`, `slide_zoom`): in, the picture shown grows 2x at once and the sharper one replaces it; out, it stays
-  until the wider one is drawn, which then shrinks into place; the stop and buses hide until the motion ends. The map: the tiles from `radar_osm_render()` (OSM, zoom 13..17, 15 first; swipe down = in), the route's path on
-  the picture (`deps_trace`); the stop and the buses are small objects on top. Once it has slid in, the picture cache
-  lets go of the pictures it doesn't need (`slide_cache_release_unneeded()`). Closed by a sideways swipe or 5 min
-  untouched (a tap does nothing, as the user asked: back by a swipe, as on the radar; both slide in from the right
-  and leave in the swipe's direction); `busmap_unloaded` frees the picture, or `bm_draw` once a drawing under way ends (display lock).
+  closes back to the stop with a sideways swipe). `bus_tick` (1 s): `deps_show()`, the shown stop's countdown, the
+  pages `deps_step()` changed (`ui_deps_changed` sets bits from the radar task, the LVGL task refreshes). `drag_paint`
+  refreshes a stop page before its first strip. A long-press opens Settings, which closes back to the stop. Names for
+  the console and snapshots: `stop`, `stop2`..`stop8`.
+- **What a stop page says** (`stop_refresh()`, texts `T_DEP_*` in `i18n_strings.h`): the detail line (y 248) is
+  "Real time" / "Scheduled" / "Cancelled" for the next bus, else what's wrong: "Route N doesn't stop here in this
+  direction" (a 404, `DEP_NOT_FOUND`), "Stop not served for now" (the reply's `not_served`), "No more departures
+  today", "Drop-off only" (`drop_off_only`), "Loading..." or "Can't reach the RTC" before the first reply. The status
+  line (y 16) is "Updated at HH:MM", or "Can't reach the RTC" once the last good reply is over 2 min old and the
+  requests fail. The pill: one notice's title, or "N notices". No favourites: page 1 says "No stops yet" and how to
+  add them from the phone (long-press, then *Location & more*).
+- **Bus map** (`scr_busmap`): a tap on the route badge (its map-pin badge: `pin_draw`). Its pictures (466×466
+  RGB565, 434 KB each) exist only while the map is open: the one shown is allocated at the opening (`busmap_open`),
+  the second (the next zoom's, drawn behind the one shown, then swapped) at the first zoom, once the picture cache
+  has let go of what the map doesn't need (`bm_zoom_step`; both at the opening took PSRAM's low point to 112 KB,
+  floor 300, v0.2.0-rc.2; lazy since rc.3). Without room for the second the zoom draws in place. Drawn by the radar
+  task's idle work (`bm_draw`, before the RTC's requests). A zoom moves as the radar's (`bm_zoom_step`,
+  `slide_zoom`): in, the picture shown grows 2x at once and the sharper one replaces it; out, it stays until the
+  wider one is drawn, which then shrinks into place; the stop and buses hide until the motion ends. The map: the
+  tiles from `radar_osm_render()` (OSM, zoom 13..17, 15 first; swipe down = in), the route's path on the picture
+  (`deps_trace`); the stop and the buses are small objects on top. Once it has slid in, the picture cache lets go of
+  the pictures it doesn't need (`slide_cache_release_unneeded()`). Closed by a sideways swipe or 5 min untouched (a
+  tap does nothing, as the user asked: back by a swipe, as on the radar; both slide in from the right and leave in
+  the swipe's direction); `busmap_unloaded` frees the pictures and the path's points (`bm_free()`), or `bm_draw`
+  once a drawing under way ends (display lock); the log says `ui: bus map: closed, pictures freed`. The radar and
+  the bus map take turns in PSRAM this way: only one is open at a time. Since v0.2.0-rc.4 Wi-Fi power save is off while
+  it is open (`netq_awake(NETQ_MAP, …)` in `busmap_open` / `busmap_unloaded`, "Network queue" below).
+- **Memory:** the requests' buffers are PSRAM and live for one request (`heap_caps_malloc(…, MALLOC_CAP_SPIRAM)`): a
+  board or route reply into `step_buf` (4 KB, `RX_CAP`, allocated once in `deps_start()`), a route's notices 128 KB
+  (`NOTICES_CAP`, ~13 KB for one notice naming 15 routes), the route's path 64 KB (`TRACE_CAP`; route 800: 2.4 KB)
+  plus 24 KB of points. The kept state is `EXT_RAM_BSS_ATTR` (PSRAM): `ent[]`, the notices `ra[]`, the buses, the
+  path's points (3,000), and `ui.c`'s `sp[]` and `static dep_entry_t` copies (MeteoBus lesson 4 in CLAUDE.md: they
+  were internal `.bss` at first). Still internal: the notices' URL (2 KB, `malloc`, per request) and `deps_step()`'s
+  copy of the buses' reply (`static rtc_bus_t got[]`, 12 entries).
+
+## Network queue (`netq.c`, MeteoBus)
+
+- **Download flags** (`netq_set(who, busy)`): the weather loop (`main.c`, `NETQ_MAIN`, around its forecast, alerts
+  and air requests) and the radar task (`NETQ_RADAR`, set at the top of each loop and cleared while it is idle) say
+  when they download. `deps_step()` asks nothing while anyone else's flag is set (`netq_others_busy(NETQ_RADAR)`) and
+  tries again a second later. Why: each TLS download holds 10-15 KB of internal RAM while it runs (CLAUDE.md lesson
+  27), and a place switch (forecast, alerts, air and the radar at once) was already at the harness's floors before the
+  buses came. The bus map's tiles need no flag: they are drawn in the radar task's idle time, as `deps_step()` runs,
+  so they never overlap. `NETQ_MAP` and `netq_wait_others()` exist but nothing uses them (2026-10-10).
+- **Wi-Fi power save** (v0.2.0-rc.4, `netq_awake(who, on)`): off (`WIFI_PS_NONE`) while the radar or the bus map is open,
+  back to ESP-IDF's default for a station (`WIFI_PS_MIN_MODEM`, which forge_net keeps) when neither is. In that mode
+  each reply waits for the router's next beacon, ~100 ms a request: the radar's 14 past frames (28 GeoMet requests)
+  took 4.9-6.6 s on v0.2.0-rc.3, 3.1-3.9 s with it off (2026-10-10). Found by timing the same GeoMet URLs from the PC
+  (~90 ms each) against the board (~200 ms each). Called from the LVGL task (`radar_set_visible()`, `busmap_open` /
+  `busmap_unloaded`); left alone while Easy Connect runs (`net_dpp_active()`: forge_net sets its own). Log:
+  `netq: Wi-Fi power save off (a map is open)` / `on`.
 
 ## Radar (`radar.c`)
 
@@ -665,6 +758,11 @@ order, and ~11 ms on the bus.
   PSRAM and the cache in front of it, which the TLS buffers share). More connections in parallel would not beat this
   (decoding stays one image at a time) and each costs internal RAM. Log: `radar: Past frames: N loaded in X ms (...;
   downloads D ms, decoding E ms)`; harness `radar_history_s`.
+  **MeteoBus, 2026-10-09/10:** `radar_history_s` measured 7.2-8.2 s, over its 7.0 limit, on the unchanged weather
+  firmware (v0.1.0-rc.2) as on v0.2.0: not the buses but Wi-Fi power save (each reply waited for a beacon, ~100 ms a
+  request). Since v0.2.0-rc.4 power save is off while the radar is open (`netq_awake()`, "Network queue"): 3.1-3.9 s
+  (4.9-6.6 s on rc.3 the same evening). Downloads and decoding (~2.2 s, overlapped) are now close, so the next gain
+  would be in decoding.
 - **Animation:** 15 frames. The latest frame, plus 14 history frames on a fixed 12-minute grid (so refreshes reuse
   most of them). They download newest first while the radar screen is visible. A tap plays at 3 fps via an LVGL timer,
   holds the last frame about 1 s and loops for `PLAY_LOOP_MS` (60 s), then returns to live. A tap while playing
@@ -877,12 +975,26 @@ screen is swallowed. `presence_start(&hooks)` loads the settings, registers the 
     confirmation if one is pending).
   - `GET|POST /api/presence`, `POST /api/calibrate {seconds}`, `GET|POST /api/sound`, `GET|POST /api/update
     {channel, action: check|install}` (`pending_verify`, `uptime_s`, `rolled_back`, `notes`).
+  - MeteoBus, `bus_routes.c`: `GET /api/favs` → `{max: 8, favs: [{stop, route, dir, stop_name, direction}]}` (the
+    names once fetched); `POST /api/favs {favs: [{stop, route, dir}]}` (the whole list in page order; a stop not in
+    the current list is checked with the RTC first, through `deps_step()`'s job): `{ok: true}` or `{ok: false, bad:
+    i, why: invalid|not_served|rtc|save}`; `POST /api/route {route}` → its two directions (`dirs: [{code, name}]`)
+    or `{ok: false, why: no_route|rtc}`. Refusals are 200s. Keyed, and like every POST also taken on the setup
+    network without the key.
+  - `GET /api/info` (forge_net: app, version, network).
   - A setting that NVS refused answers 500 "not saved" (`nvs_check()`); the page shows *Not saved (500)*.
-  - Routes: 14 on each server (`API_N`), plus `/` (and the port-80 wildcard); `max_uri_handlers` = `API_N + 2`.
-  - `GET /api/snapshot?screen=weather|extras|status|radar|update|alert|hourly0..hourly6|current` (HTTPS only): the
-    screen rendered
-    off-display (`ui_snapshot()` → `lv_snapshot_take`, RGB565 in PSRAM, needs `CONFIG_LV_USE_SNAPSHOT`), streamed as
-    a top-down 24-bit BMP in 16-row chunks. Used by `tools/snapshot.py` (docs/TESTING.md).
+  - Routes (2026-10-10): 18 on each server, added with `web_add_routes()` before `web_start()`: forge_net's 4
+    (`/api/info`, `/api/scan`, `/api/wifi`, `/api/snapshot`), forge_ota's 2 (`/api/update` GET and POST),
+    forge_presence's 3, `routes.c`'s 6 (`/api/config`, `/api/sound` GET and POST, `/api/location`, `/api/units`,
+    `/api/places`), `bus_routes.c`'s 3; plus `/` (and the port-80 wildcard): `max_uri_handlers` = routes + 2
+    (forge_net's `MAX_ROUTES` is 32). The weather display had 14 (`API_N`).
+  - `GET /api/snapshot?screen=<name>` (HTTPS only): the screen rendered off-display (`ui_snapshot()` →
+    `lv_snapshot_take`, RGB565 in PSRAM, needs `CONFIG_LV_USE_SNAPSHOT`), streamed as a top-down 24-bit BMP in
+    16-row chunks. Used by `tools/snapshot.py` (docs/TESTING.md). Names: `weather`, `extras`, `status`, `radar`,
+    `update`, `alert`, `settings`, `settings1`..`settings3` (the list scrolled down a screen each), `phone` (the QR
+    overlay), `setup0` / `setup1` / `setup1fail` (the Wi-Fi setup pages, texts only), `hourly0`..`hourly6`, `stop`,
+    `stop2`..`stop8` (a stop's page, shown or not), `busmap`, `picture` (slide.c's picture of the screen shown),
+    `current` (anything else: the screen shown).
 - The page runs the phone's geolocation, reverse geocoding (Nominatim) and city search (Open-Meteo geocoding) in the
   **browser**; the device only stores the result.
 - **Places card:** a list (tap a place to edit it; *Show* puts it on the display) and an editor that replaces the
@@ -947,6 +1059,9 @@ by `GET /api/config` as `version`.
   own task: `diag_bench_request()`).
 - Simulated finger: `touch_inject()` / `touch_inject_end()` in `touch.c` replace the controller's report, upstream
   of the wake-swallow and gesture logic. Drags drawn by `slide.c` read the same injected finger (`touch_get()`).
+- `screen` answers the screen's name (the snapshot names: `weather`, `stop`, `stop2`, `busmap`, `phone`, `setup0`…;
+  `ui_screen_name()`). `page` answers `page place=N places=N day=N days=N icon=X,Y badge=X,Y`: the weather icon's and
+  the shown stop's route badge's centres, where a test taps to open the radar or the bus map (MeteoBus).
 - `screen` and `page` take the display lock for at most 2 s and answer `error … display busy`; `where` takes no lock
   and prints the display breadcrumbs, so it answers even when the display is stuck. `fps` uses its own counters
   (`display_get_test_stats()`), so a `diag` report in the middle of a measurement doesn't reset it.
@@ -973,6 +1088,9 @@ by `GET /api/config` as `version`.
 | Hourly temperature graphs (7 canvases) | PSRAM (LVGL heap) | 7 × 76 KB |
 | 15 radar frames | PSRAM | 3.3 MB |
 | Drag and slide pictures (`slide.c` cache) | PSRAM (LVGL heap) | up to 5 × 434 KB |
+| Bus map pictures (MeteoBus) | PSRAM (LVGL draw buffers), only while the map is open | 434 KB shown + 434 KB more allocated at the first zoom; the picture cache lets go of what it doesn't need meanwhile |
+| Bus map path points | PSRAM, while the map is open (`bm_ll`) + kept in `departures.c` (`trace_pts`) | 2 × 24 KB |
+| RTC replies (MeteoBus, `departures.c`) | PSRAM | 4 KB kept (`step_buf`); per request 128 KB (notices) or 64 + 24 KB (route path), freed after it |
 | PNG decode (`png_rows.c`) | PSRAM (transient) | ~50 KB |
 | TLS (client and server) | PSRAM (`MBEDTLS_EXTERNAL_MEM_ALLOC`) | ~40–60 KB per session |
 | A TLS client's own part: `esp_tls_t`, the HTTP client's buffers (radar 4 + 0.5 KB, alerts 2 + 0.5, air and forecast 0.5 + 1), lwIP's control block and unsent segments, queued Wi-Fi frames (1.75 KB each) | internal (`malloc` under 16 KB; PSRAM when internal is full) | ~10–15 KB per download while it runs |
@@ -992,6 +1110,14 @@ Measured (v1.12.0, harness `perf` and `wifi_setup`): internal RAM ~84 KB free st
 boot, 38–43 KB min after the reconnect path (rc.2 had 96 / 50 / 76 KB, before the task stacks grew by ~12.7 KB); PSRAM ~450 KB min ever with the picture cache. (v1.11.1: 48 KB steady,
 8–10 KB min, 4–5 KB after a reconnect: the 46 radar frame structs were in internal RAM.) App image ~2.06 MB of the
 3 MB slot (~23 KB more per release lately; the two TTF fonts are 318 KB of it).
+
+MeteoBus (v0.2.0, `tools/harness/baseline.json`): the floors are the weather display's: `psram_min_kb` ≥ 300,
+`internal_min_kb` ≥ 25, `internal_min_kb.place_switch` ≥ 36 (ref 44), plus `psram_kb.bus_map` ≥ 600 (free PSRAM
+read by `navigation.bus_map` with the map open, before its first zoom: 1,411 KB on 2026-10-10). What the merge cost and how it was won back (CLAUDE.md,
+"MeteoBus so far"): a screen opened on top took a new 434 KB picture (PSRAM low point 268 KB until `slide.c` reused
+one); a `deps` task's stack and its TLS overlapping the place switch's (internal low point 17 KB, place switch 29);
+the bus code's static arrays in internal `.bss` (place switch 35 -> 44 KB once moved to PSRAM); both bus map pictures
+at the opening (PSRAM 112 KB, rc.2).
 
 `EXT_RAM_BSS_ATTR` data and anything in PSRAM is unreachable while the flash cache is off (a flash erase or write):
 only tasks may touch it, never an interrupt handler. See `docs/DIAGNOSTICS.md` for

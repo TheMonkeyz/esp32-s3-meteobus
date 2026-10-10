@@ -1,7 +1,34 @@
 # Merging weather_amoled and esp32-s3-rtcquebec: UI flow and memory
 
-**Status (2026-10-09):** steps done in v0.2.0 (radar from the icon and the bottom pill; the buses; the bus map with
-memory taking turns and one download at a time). How it differs from this plan: CLAUDE.md, "MeteoBus so far".
+**Status (2026-10-10, v0.2.0-rc.3):** this file is the plan as agreed on 2026-10-09; it is kept as written below.
+Built in v0.2.0: the row status | extras | weather | buses, the radar from the weather icon's badge, alerts in the
+bottom pill (alert first, a blue dot when an update waits), the stop pages on the weather page's slots, the bus map
+from the route badge, the radar and the bus map taking turns in PSRAM, the RTC's requests waiting for the other
+downloads (`netq.c`). How it works now: docs/ARCHITECTURE.md, "Screens and gestures", "Buses", "Network queue".
+
+**Where the build differs from this plan:**
+
+- **Closing the maps:** the radar and the bus map close with a sideways swipe (in either direction; they slide in
+  from the right) or after 5 min untouched, not with a tap or a swipe right. A tap on the radar plays the last 3 h; a
+  tap on the bus map does nothing. The alert screen also closes with a sideways swipe and ignores taps but its
+  "Update available >" row (the owner, 2026-10-10: back is a swipe everywhere).
+- **No "Bus stops" row in Settings:** the stops are chosen on the phone's *My stops* card (`/api/favs`, `/api/route`).
+  A long-press opens Settings on the weather screen and on the stop pages; it closes back to where it was opened.
+- **The bus map's memory:** not 4 tiles plus a canvas (2.2 MB) but up to two 466×466 pictures of 434 KB, drawn from
+  OSM tiles by the radar's `radar_osm_render()`: the one shown, allocated at the opening, and the next zoom's,
+  allocated at the first zoom (both at the opening took PSRAM's low point to 112 KB, rc.2). Freed when the map closes.
+  forge_map (espforge v0.5.0) was not taken: it keeps its pictures for good, and the plan wants them freed.
+- **No `deps` task:** item 4 below put its 6 KB stack in PSRAM; a test build that did so (v0.2.0-rc.11, before rc.1
+  was published) saw the task stop for good in the middle of a request, and on an internal stack internal RAM failed
+  its floors. There is no `deps` or bus map task: the radar task runs the buses' work in its idle time
+  (`radar_set_side_work`: the bus map's picture, else one RTC request, `deps_step()`).
+- **One download at a time, partly:** `netq.c` keeps the RTC's requests out of the weather loop's and the radar's
+  downloads; the weather loop and the radar don't wait for each other (as before the merge). Since v0.2.0-rc.4 it also
+  turns Wi-Fi power save off while a map is open.
+- **Bus notices:** the pill shows the first notice's title or "N notices" (the plan's "Detour: route 800" wording was
+  an example).
+- **espforge versions** (item "Foundation choice"): written 2026-10-09; on 2026-10-10 `main/idf_component.yml` pins
+  espforge v0.3.0 for all five components.
 
 ## Context
 The user asked how the UI would work if the two apps for the Waveshare ESP32-S3-Touch-AMOLED-1.75 were merged, and whether
