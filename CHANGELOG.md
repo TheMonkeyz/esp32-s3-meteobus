@@ -9,6 +9,10 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 their own `## vX.Y.Z-rc.N` section. Those are shown only to Beta users, while the final release's section should
 list everything again.
 
+## v0.2.0-rc.4 - 2026-10-10
+- The radar's last 3 hours load faster after it opens or zooms (3-4 s instead of 5-7): while the radar
+  or the bus map is open, the Wi-Fi no longer naps between replies.
+
 ## v0.2.0-rc.3 - 2026-10-10
 - The bus map needs less memory when it opens: the picture for the next zoom is only made when you first zoom.
 - My stops (phone settings page): the list no longer redraws under your finger a few seconds after a change.
