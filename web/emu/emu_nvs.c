@@ -10,7 +10,7 @@ typedef struct { char ns[16], key[16]; uint32_t len; uint8_t data[160]; } entry_
 static entry_t tab[MAX_ENTRIES];
 static int n;
 static bool loaded;
-static char ns_of[8][16];                        // handle -> namespace
+static char ns_of[12][16];                        // handle -> namespace
 static int handles;
 
 EM_JS(int, js_load, (void *dst, int max), {
@@ -77,7 +77,7 @@ esp_err_t nvs_open(const char *ns, nvs_open_mode_t mode, nvs_handle_t *h)
     (void)mode;
     load();
     for (int i = 0; i < handles; i++) if (!strcmp(ns_of[i], ns)) { *h = i; return ESP_OK; }
-    if (handles == 8) return ESP_ERR_NO_MEM;
+    if (handles == 12) return ESP_ERR_NO_MEM;
     strncpy(ns_of[handles], ns, sizeof(ns_of[0]) - 1);
     *h = handles++;
     return ESP_OK;

@@ -1,6 +1,7 @@
 // The display in the browser: LVGL and the firmware's own screens (ui.c, slide.c, pager.c), its forecast, air-quality
 // and alerts code (weather.c, alerts.c), its settings (config.c, i18n.c), dimming and wake on pick-up (espforge's
-// forge_presence, with the board's hooks below)
+// forge_presence, with the board's hooks below), the buses (departures.c, rtc_api.c, favs.c, bus_routes.c; two stops
+// for a new visitor, default_stops)
 // and the settings page's routes (routes.c, served by emu_web.c), with the hardware replaced by the page
 // (emu_display.c, emu_touch.c, emu_http.c, emu_nvs.c, emu_audio.c, emu_imu.c, emu_stubs.c). This loop does what
 // main.c does once Wi-Fi is up.
@@ -27,6 +28,8 @@
 #include "touch.h"
 #include "routes.h"
 #include "ota.h"
+#include "favs.h"
+#include "bus_routes.h"
 
 #define REFRESH_US (10 * 60 * 1000000LL)          // as the display: every 10 min
 #define ALERT_MAP_W 300                            // the region map on the alert screen (as main.c)
@@ -57,6 +60,26 @@ static void default_places(void)
     if (!done && config_place_count() == 1)
         for (int i = 0; i < (int)(sizeof(more) / sizeof(more[0])); i++) config_set_place(config_place_count(), &more[i]);
     if (!done) { nvs_set_u8(h, "places", 1); nvs_commit(h); }
+    nvs_close(h);
+}
+
+// Two bus stops, so the buses screen shows real departures (and the bus map) from the start instead of how to add
+// stops: Métrobus 801 at Parliament Hill (C. Parlementaire, 1560) toward Terminus de la Faune, and Métrobus 800 at the
+// Gare du Palais (train station, 2562) toward Terminus Chute-Montmorency; public, central and served every ~10-15 min.
+// Added once (NVS "emu"/"stops"), to a visitor with no stops: stops deleted later on the settings page stay deleted.
+static void default_stops(void)
+{
+    static const rtc_fav_t two[] = {
+        { .stop = "1560", .route = "801", .dir = "1" },
+        { .stop = "2562", .route = "800", .dir = "1" },
+    };
+    nvs_handle_t h;
+    uint8_t done = 0;
+    rtc_fav_t f[FAVS_MAX];
+    if (nvs_open("emu", NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_get_u8(h, "stops", &done);
+    if (!done && favs_load(f) == 0) favs_save(two, (int)(sizeof(two) / sizeof(two[0])));
+    if (!done) { nvs_set_u8(h, "stops", 1); nvs_commit(h); }
     nvs_close(h);
 }
 
@@ -172,8 +195,11 @@ int main(void)
     lv_tick_set_cb(tick);
     display_init();
     default_places();
+    default_stops();
     place_from_address();
+    bus_start();                                  // the saved stops; their requests run in the radar task's idle time
     ui_init();
+    ui_favs_changed();                             // the stop pages (main.c: right after ui_init)
     config_get_location(&shown);                   // the radar starts on the place shown
     audio_init();                                  // main/audio.c (nothing to open in the browser: emu_audio.c)
     presence_start(&presence_hooks);               // forge_presence: brightness, dimming, wake on pick-up and touch
@@ -181,6 +207,7 @@ int main(void)
     sound_start();                                 // sound.c: alert sounds through Web Audio (emu_audio.c)
     presence_web_routes();                         // /api/presence, /api/calibrate (forge_presence's presence_web.c)
     routes_init(on_location_changed);              // the settings page's routes (emu_web.c serves them)
+    bus_routes_init();                             // /api/favs, /api/route (the stops: bus_routes.c)
     ota_web_routes();
     ui_message(tr(T_WEATHER), tr(T_FETCHING));
     ui_on_place_select(place_select);

@@ -22,7 +22,8 @@ MAIN := ../../main
 OUT := build
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
-FIRMWARE := ui.c slide.c pager.c config.c i18n.c weather.c alerts.c radar.c sound.c services.c audio.c routes.c
+FIRMWARE := ui.c slide.c pager.c config.c i18n.c weather.c alerts.c radar.c sound.c services.c audio.c routes.c \
+            departures.c rtc_api.c favs.c bus_routes.c
 FORGE_SRC := i18n.c png_rows.c textfit.c
 FORGE_OTA_SRC := ota_web.c
 # Screen dimming: espforge's forge_presence as the firmware builds it (its task, NVS settings, console commands, web
