@@ -1324,6 +1324,7 @@ void radar_side_wake(void)
 void radar_set_visible(bool v)
 {
     visible = v;
+    netq_awake(NETQ_RADAR, v);                  // replies without waiting for a beacon while it is open
     if (!v) {
         display_lock(-1);
         play_pending = false;
