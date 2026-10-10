@@ -9,6 +9,9 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 their own `## vX.Y.Z-rc.N` section. Those are shown only to Beta users, while the final release's section should
 list everything again.
 
+## v0.2.0-rc.5 - 2026-10-10
+- Bus map: the buses no longer cover the route's name, the next bus or the map credit at the top and bottom.
+
 ## v0.2.0-rc.4 - 2026-10-10
 - The radar's last 3 hours load faster after it opens or zooms (3-4 s instead of 5-7): while the radar
   or the bus map is open, the Wi-Fi no longer naps between replies.
