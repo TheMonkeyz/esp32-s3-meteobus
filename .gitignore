@@ -44,3 +44,5 @@ tools/harness/.setup_profile.xml
 tools/harness/baseline.proposed.json
 tools/harness/.display_ip
 .espforge/
+# graphify knowledge graph (graph.html, graph.json, GRAPH_REPORT.md, cache): rebuilt locally with /graphify
+graphify-out/
