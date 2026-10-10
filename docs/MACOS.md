@@ -98,7 +98,9 @@ make -C web/emu -j8                                           # again after each
 python3 -m http.server 8765 -d web/emu/build                  # then open http://localhost:8765
 ```
 
-Drag with the mouse to swipe; click a day for the hourly view; long-press for Settings. `?place=47.57,-59.13,Port%20aux%20Basques`
+Drag with the mouse to swipe; click a day for the hourly view; click the weather icon (its radar badge) for the
+radar, swipe sideways to close it; long-press for Settings. For the buses (the screen right of the weather), see
+web/emu/README.md: the browser can't ask the RTC, so what the emulator shows there is what that file says. `?place=47.57,-59.13,Port%20aux%20Basques`
 at the end of the address opens a place (see web/emu/README.md). Limits: the emulator's speed says nothing about the
 display's (60 fps on the display is a separate check), and the phone's settings page isn't in it (see B).
 
@@ -137,7 +139,7 @@ cd tools/webtest && npm test
 5. **Screenshots from the display.** It renders the screen itself, so no photo is needed. The display's address is
    in the log (`net: Connected, IP …`):
    ```bash
-   python tools/snapshot.py 192.168.x.y weather      # also: extras, status, radar, settings, hourly0 … (docs/TESTING.md §3)
+   python tools/snapshot.py 192.168.x.y weather      # also: extras, status, radar, settings, hourly0 …, stop, busmap (docs/TESTING.md §3)
    ```
 6. **The full check, the harness.** It drives the display by itself (swipes, taps, screenshots, speed) for ~12 minutes
    and writes `tools/harness/reports/<date>/report.md`. Helper running in window 1:

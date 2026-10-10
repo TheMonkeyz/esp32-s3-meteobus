@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MeteoBus – Web Flasher</title>
-<meta name="description" content="Install the weather display firmware on a Waveshare ESP32-S3-Touch-AMOLED-1.75 from your browser.">
+<meta name="description" content="Install MeteoBus on a Waveshare ESP32-S3-Touch-AMOLED-1.75 from your browser: weather, rain radar and Québec City RTC bus departures on a round screen.">
 <meta name="theme-color" content="#000000">
 <meta property="og:title" content="MeteoBus – Web Flasher">
-<meta property="og:description" content="Weather, forecast and rain radar on a round AMOLED screen. Install it from your browser.">
+<meta property="og:description" content="Weather, forecast, rain radar and Québec City RTC bus departures on a round AMOLED screen. Install it from your browser.">
 <meta property="og:image" content="https://themonkeyz.github.io/esp32-s3-meteobus/img/weather.png">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14.5' fill='%23000' stroke='%23384452' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%23ffc83d'/%3E%3C/svg%3E">
 <link rel="preload" href="fonts/montserrat.ttf" as="font" type="font/ttf" crossorigin>
@@ -333,8 +333,8 @@ footer p{max-width:62em}
     <div class="hero-text">
       <span class="eyebrow" data-i18n-html="eyebrow">For the Waveshare <span class="nw">ESP32-S3-Touch-AMOLED-1.75</span></span>
       <h1 data-i18n="brand">MeteoBus</h1>
-      <p class="lead" data-i18n="lead">Current weather, a 3-day and hourly forecast, and an animated rain radar on a round AMOLED screen.
-        Install it straight from this page.</p>
+      <p class="lead" data-i18n="lead">Current weather, a 3-day and hourly forecast, an animated rain radar and the next departures at
+        your RTC bus stops (Québec City) on a round AMOLED screen. Install it straight from this page.</p>
       <ul class="chips">
         <li data-i18n="chipKeys">No API keys</li>
         <li data-i18n="chipOta">Updates over Wi-Fi</li>
@@ -362,12 +362,14 @@ footer p{max-width:62em}
     </div>
 
     <div class="device-wrap">
-      <div class="device" id="device" role="img" aria-label="The round display, showing its weather, hourly, radar and extras screens in turn" data-i18n-aria="deviceAria">
+      <div class="device" id="device" role="img" aria-label="The round display, showing its weather, hourly, radar, extras, bus stop and bus map screens in turn" data-i18n-aria="deviceAria">
         <div class="bezel"><div class="screen">
           <img class="on" src="img/weather.png" width="466" height="466" alt="" data-shot="weather" data-key="scrWeather" data-glow="rgba(255,200,61,.30)">
           <img src="img/hourly.png" width="466" height="466" alt="" decoding="async" data-shot="hourly" data-key="scrHourly" data-glow="rgba(90,176,255,.32)">
           <img src="img/radar.png" width="466" height="466" alt="" decoding="async" data-shot="radar" data-key="scrRadar" data-glow="rgba(90,200,140,.26)">
           <img src="img/extras.png" width="466" height="466" alt="" decoding="async" data-shot="extras" data-key="scrExtras" data-glow="rgba(255,170,60,.28)">
+          <img src="img/stop.png" width="466" height="466" alt="" decoding="async" data-shot="stop" data-key="scrStop" data-glow="rgba(90,176,255,.32)">
+          <img src="img/busmap.png" width="466" height="466" alt="" decoding="async" data-shot="busmap" data-key="scrBusmap" data-glow="rgba(255,150,60,.28)">
         </div></div>
       </div>
       <div class="device-nav">
@@ -377,6 +379,8 @@ footer p{max-width:62em}
           <button type="button" aria-pressed="false" aria-label="Hourly view" data-i18n-aria="dotHourly"></button>
           <button type="button" aria-pressed="false" aria-label="Radar screen" data-i18n-aria="dotRadar"></button>
           <button type="button" aria-pressed="false" aria-label="Extras screen" data-i18n-aria="dotExtras"></button>
+          <button type="button" aria-pressed="false" aria-label="Bus stop screen" data-i18n-aria="dotStop"></button>
+          <button type="button" aria-pressed="false" aria-label="Bus map screen" data-i18n-aria="dotBusmap"></button>
         </div>
       </div>
       <a class="try" id="tryLink" href="try/" hidden><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
@@ -417,8 +421,9 @@ footer p{max-width:62em}
             <p data-i18n-html="step4b"><b class="nw">Android 10+:</b> nothing to type. Swipe the setup screen left to its <b class="nw">Easy Connect</b> code
               and scan it with the phone (the camera or any QR scanner) while the phone is on your <span class="nw">Wi-Fi.</span> The phone sends
               the network and its password.</p></li>
-          <li><h3 data-i18n="step5T">Set your location</h3>
-            <p data-i18n-html="step5">Later, long-press the weather screen, tap <b>More on your phone</b> and scan the settings QR code.</p></li>
+          <li><h3 data-i18n="step5T">Set your places and stops</h3>
+            <p data-i18n-html="step5">Later, long-press the weather screen, tap <b>Location &amp; more (phone)</b> and scan the settings QR code.
+              Set your places there, and add your bus stops in the <b>My stops</b> card (stop number, route, direction).</p></li>
         </ol>
         <aside class="card trouble" aria-labelledby="troubleTitle">
           <h3 id="troubleTitle"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2 20h20L12 3zM12 10v4M12 17.2v.1"/></svg>
@@ -446,7 +451,8 @@ footer p{max-width:62em}
             alt="Weather screen: 18:13 in Quebec, 15 degrees and clear sky, with the forecast for today, Saturday and Sunday">
           <div><span class="tag" data-i18n="tagWeather">Main screen</span><h3 data-i18n="h3Weather">Forecast and places</h3>
             <p data-i18n="pWeather">Time, temperature and conditions, rain or snow starting or stopping within 2 hours, and 3 days ahead.
-              Up to 4 places: drag up or down to switch. Environment Canada alerts show in place of the city.</p></div>
+              Up to 4 places: drag up or down to switch. Environment Canada alerts show in a pill at the bottom: tap it for details.
+              Tap the weather icon for the radar.</p></div>
         </li>
         <li class="shot">
           <img src="img/hourly.png" width="466" height="466" loading="lazy" decoding="async" data-shot="hourly" data-i18n-alt="altHourly"
@@ -458,7 +464,7 @@ footer p{max-width:62em}
         <li class="shot">
           <img src="img/radar.png" width="466" height="466" loading="lazy" decoding="async" data-shot="radar" data-i18n-alt="altRadar"
             alt="Radar screen: rain over a map of the Quebec City area, with a 100 km ring and the radar time">
-          <div><span class="tag" data-i18n="tagRadar">Swipe left</span><h3 data-i18n="h3Radar">Rain radar with lightning</h3>
+          <div><span class="tag" data-i18n="tagRadar">Tap the weather icon</span><h3 data-i18n="h3Radar">Rain radar with lightning</h3>
             <p data-i18n="pRadar">Environment Canada radar on an OpenStreetMap map, with lightning from the last 10 minutes. Tap to play the
               last 3 hours; swipe down or up to zoom.</p></div>
         </li>
@@ -480,12 +486,27 @@ footer p{max-width:62em}
           <img src="img/settings.png" width="466" height="466" loading="lazy" decoding="async" data-shot="settings" data-i18n-alt="altSettings"
             alt="Settings screen: dim when quiet and wake on pick-up switched on, timing Short, temperature in °C, brightness 83%">
           <div><span class="tag" data-i18n="tagSettings">Long-press</span><h3 data-i18n="h3Settings">Settings on the display</h3>
-            <p data-i18n="pSettings">Dimming, wake on pick-up, brightness, units and language. Location and places are set on your phone,
-              from a QR code.</p></div>
+            <p data-i18n="pSettings">Dimming, wake on pick-up, brightness, units and language. Location, places and bus stops are set on your
+              phone, from a QR code.</p></div>
+        </li>
+        <li class="shot">
+          <img src="img/stop.png" width="466" height="466" loading="lazy" decoding="async" data-shot="stop" data-i18n-alt="altStop"
+            alt="Bus stop page: the route number and the next departures in minutes, real time or scheduled">
+          <div><span class="tag" data-i18n="tagStop">Swipe left</span><h3 data-i18n="h3Stop">Your bus stops</h3>
+            <p data-i18n="pStop">Next departures for your RTC stops, real time when available. One page per stop (up to 8): drag up or
+              down between them. Route notices show in an orange pill at the bottom.</p></div>
+        </li>
+        <li class="shot">
+          <img src="img/busmap.png" width="466" height="466" loading="lazy" decoding="async" data-shot="busmap" data-i18n-alt="altBusmap"
+            alt="Bus map: the route's path on a map, with the stop and the buses on the way">
+          <div><span class="tag" data-i18n="tagBusmap">Tap the route badge</span><h3 data-i18n="h3Busmap">Bus map</h3>
+            <p data-i18n="pBusmap">The stop, the route's path and its buses on the way. Swipe down or up to zoom, sideways to go
+              back.</p></div>
         </li>
       </ul>
       <p class="note" id="radarNote"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><path d="M12 12l6.4-6.4"/></svg>
-        <span data-i18n="radarNote">The rain radar uses Environment Canada data, so it covers Canada and the northern US border region.</span></p>
+        <span><span data-i18n="radarNote">The rain radar uses Environment Canada data, so it covers Canada and the northern US border region.</span>
+          <span data-i18n="busNote">Buses: Québec City's RTC only.</span></span></p>
     </section>
 
     <section class="section" id="languages" aria-labelledby="langTitle">
@@ -530,11 +551,15 @@ footer p{max-width:62em}
         <li><span class="ic"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2.5"/><circle cx="12" cy="12" r="7" opacity=".5"/></svg></span>
           <p data-i18n="use1">Tap a forecast day for its hourly view; drag sideways for other days.</p></li>
         <li><span class="ic"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12H5M10 7l-5 5 5 5"/><circle cx="20" cy="12" r="1.2"/></svg></span>
-          <p data-i18n="use2">Swipe left for the radar; tap to animate the last 3 hours, swipe down or up to zoom.</p></li>
+          <p data-i18n="use2">Tap the weather icon for the radar; tap to animate the last 3 hours, swipe down or up to zoom, sideways to
+            go back.</p></li>
         <li><span class="ic"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2"/><circle cx="12" cy="12" r="5.5"/><circle cx="12" cy="12" r="9.5" stroke-dasharray="2.5 3"/></svg></span>
-          <p data-i18n-html="use3">Long-press for Settings: screen dimming, units, <span class="nw">Wi-Fi,</span> and the QR code for the phone page (location).</p></li>
+          <p data-i18n-html="use3">Long-press for Settings: screen dimming, units, <span class="nw">Wi-Fi,</span> and the QR code for the phone page (location and bus stops).</p></li>
         <li><span class="ic"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></span>
           <p data-i18n="use4">The microphones dim the screen when the room is quiet and wake it on sustained sound.</p></li>
+        <li><span class="ic"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="15" rx="3"/><path d="M5 11h14M8 21v-3M16 21v-3"/><circle cx="8.5" cy="14.5" r=".6"/><circle cx="15.5" cy="14.5" r=".6"/></svg></span>
+          <p data-i18n="use5">Swipe left from the weather for your bus stops; drag up or down between stops, and tap the route badge for
+            the bus map.</p></li>
       </ul>
     </section>
   </div>
@@ -544,8 +569,8 @@ footer p{max-width:62em}
   <p data-i18n-html="foot1">Source code, releases and documentation:
     <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus">github.com/TheMonkeyz/esp32-s3-meteobus</a>.
     Downloads for other tools: <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/releases">releases</a>.</p>
-  <p data-i18n="foot2">Weather: Open-Meteo. Radar: Environment and Climate Change Canada (GeoMet). Map © OpenStreetMap contributors.
-    Flashing by ESP Web Tools.</p>
+  <p data-i18n="foot2">Weather: Open-Meteo. Radar: Environment and Climate Change Canada (GeoMet). Buses: Réseau de transport de la
+    Capitale (RTC), from rtcquebec.ca, for personal use. Map © OpenStreetMap contributors. Flashing by ESP Web Tools.</p>
   <p data-i18n-html="foot3">Firmware © 2026 Laurent Mathieu, <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/blob/main/LICENSE">MIT license</a>
     (<a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/blob/main/THIRD_PARTY_NOTICES.md">third-party notices</a>).
     Set in Montserrat, the display's font (<a href="fonts/montserrat-OFL.txt">SIL Open Font License</a>).</p>
@@ -563,11 +588,11 @@ const $ = id => document.getElementById(id);
 const I18N = {
  en: {
   pageTitle: 'MeteoBus – Web Flasher',
-  pageDesc: 'Install the weather display firmware on a Waveshare ESP32-S3-Touch-AMOLED-1.75 from your browser.',
+  pageDesc: 'Install MeteoBus on a Waveshare ESP32-S3-Touch-AMOLED-1.75 from your browser: weather, rain radar and Québec City RTC bus departures on a round screen.',
   brand: 'MeteoBus', langLabel: 'Language', ghLink: '<span class="long">Source on </span>GitHub', draft: 'Draft',
   iuNote: 'The Inuktitut text is a first draft that a fluent speaker hasn\'t reviewed yet. <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/tree/main/docs/translations">Help review it</a>.',
   eyebrow: 'For the Waveshare <span class="nw">ESP32-S3-Touch-AMOLED-1.75</span>',
-  lead: 'Current weather, a 3-day and hourly forecast, and an animated rain radar on a round AMOLED screen. Install it straight from this page.',
+  lead: 'Current weather, a 3-day and hourly forecast, an animated rain radar and the next departures at your RTC bus stops (Québec City) on a round AMOLED screen. Install it straight from this page.',
   chipKeys: 'No API keys', chipOta: 'Updates over Wi-Fi', chipLangs: 'English, French, Inuktitut',
   installTitle: 'Install the firmware', chLabel: 'Firmware channel', chStable: 'Stable', chBeta: 'Beta',
   verNone: 'none right now', verLoading: 'Loading version…', verFw: 'Firmware {0}', verBuilt: 'built {0}',
@@ -577,10 +602,11 @@ const I18N = {
   unsupported: "Your browser can't talk to USB devices. Use <b>Chrome</b> or <b>Edge</b> on a computer.",
   notAllowed: 'This page must be opened over HTTPS (or on localhost) to flash.',
   reqBrowser: 'Chrome or Edge on a computer', reqCable: 'USB-C data cable', reqSteps: 'See the steps',
-  deviceAria: 'The round display, showing its weather, hourly, radar and extras screens in turn',
+  deviceAria: 'The round display, showing its weather, hourly, radar, extras, bus stop and bus map screens in turn',
   dotsLabel: 'Show a screen', scrWeather: 'Weather', scrHourly: 'Hourly', scrRadar: 'Radar', scrExtras: 'Extras',
+  scrStop: 'Bus stop', scrBusmap: 'Bus map',
   scrSettings: 'Settings', dotWeather: 'Weather screen', dotHourly: 'Hourly view', dotRadar: 'Radar screen',
-  dotExtras: 'Extras screen',
+  dotExtras: 'Extras screen', dotStop: 'Bus stop screen', dotBusmap: 'Bus map screen',
   notesIn: "What's new in", notesLang: 'Release notes are in English only.',
   months: 'January February March April May June July August September October November December', dateFmt: '{1} {0}, {2}',
   stepsTitle: 'Install in five steps',
@@ -593,8 +619,8 @@ const I18N = {
   step4T: 'Join your Wi-Fi',
   step4: 'When it\'s done the display restarts and shows a <b class="nw">Wi-Fi setup</b> QR code. Scan it with your phone: it joins the display\'s <i class="nw">MeteoBus-Setup</i> network and the setup page opens by itself. Pick your home <span class="nw">Wi-Fi.</span>',
   step4b: '<b class="nw">Android 10+:</b> nothing to type. Swipe the setup screen left to its <b class="nw">Easy Connect</b> code and scan it with the phone (the camera or any QR scanner) while the phone is on your <span class="nw">Wi-Fi.</span> The phone sends the network and its password.',
-  step5T: 'Set your location',
-  step5: 'Later, long-press the weather screen, tap <b>More on your phone</b> and scan the settings QR code.',
+  step5T: 'Set your places and stops',
+  step5: 'Later, long-press the weather screen, tap <b>Location &amp; more (phone)</b> and scan the settings QR code. Set your places there, and add your bus stops in the <b>My stops</b> card (stop number, route, direction).',
   troubleTitle: "If it doesn't connect",
   trouble1: 'No port listed: try another cable or USB port; some cables only charge.',
   trouble2: 'Still nothing: hold <kbd>BOOT</kbd>, tap <kbd>RESET</kbd>, release <kbd>BOOT</kbd>, then try again.',
@@ -603,12 +629,12 @@ const I18N = {
   screensTitle: 'What it shows', screensSub: 'Screenshots from the display itself.',
   altWeather: 'Weather screen: 18:13 in Quebec, 15 degrees and clear sky, with the forecast for today, Saturday and Sunday',
   tagWeather: 'Main screen', h3Weather: 'Forecast and places',
-  pWeather: 'Time, temperature and conditions, rain or snow starting or stopping within 2 hours, and 3 days ahead. Up to 4 places: drag up or down to switch. Environment Canada alerts show in place of the city.',
+  pWeather: 'Time, temperature and conditions, rain or snow starting or stopping within 2 hours, and 3 days ahead. Up to 4 places: drag up or down to switch. Environment Canada alerts show in a pill at the bottom: tap it for details. Tap the weather icon for the radar.',
   altHourly: 'Hourly view for Friday: a temperature graph from 0 to 24 h, then one row per hour with temperature, chance of rain and wind',
   tagHourly: 'Tap a day', h3Hourly: 'Hourly view',
   pHourly: '7 days, each with a temperature graph and one row per hour: temperature, chance of rain and wind. Drag sideways to change day.',
   altRadar: 'Radar screen: rain over a map of the Quebec City area, with a 100 km ring and the radar time',
-  tagRadar: 'Swipe left', h3Radar: 'Rain radar with lightning',
+  tagRadar: 'Tap the weather icon', h3Radar: 'Rain radar with lightning',
   pRadar: 'Environment Canada radar on an OpenStreetMap map, with lightning from the last 10 minutes. Tap to play the last 3 hours; swipe down or up to zoom.',
   altExtras: "Extras screen: the sun's arc from 06:45 to 18:22, UV index low, moon in last quarter 61% lit, air quality good",
   tagExtras: 'Swipe right', h3Extras: 'Sun, UV, moon and air',
@@ -618,8 +644,15 @@ const I18N = {
   pStatus: 'Firmware version, <span class="nw">Wi-Fi</span> signal, and every online service the display uses: when it last answered, and how fast.',
   altSettings: 'Settings screen: dim when quiet and wake on pick-up switched on, timing Short, temperature in °C, brightness 83%',
   tagSettings: 'Long-press', h3Settings: 'Settings on the display',
-  pSettings: 'Dimming, wake on pick-up, brightness, units and language. Location and places are set on your phone, from a QR code.',
+  pSettings: 'Dimming, wake on pick-up, brightness, units and language. Location, places and bus stops are set on your phone, from a QR code.',
+  altStop: 'Bus stop page: the route number and the next departures in minutes, real time or scheduled',
+  tagStop: 'Swipe left', h3Stop: 'Your bus stops',
+  pStop: 'Next departures for your RTC stops, real time when available. One page per stop (up to 8): drag up or down between them. Route notices show in an orange pill at the bottom.',
+  altBusmap: "Bus map: the route's path on a map, with the stop and the buses on the way",
+  tagBusmap: 'Tap the route badge', h3Busmap: 'Bus map',
+  pBusmap: "The stop, the route's path and its buses on the way. Swipe down or up to zoom, sideways to go back.",
   radarNote: 'The rain radar uses Environment Canada data, so it covers Canada and the northern US border region.',
+  busNote: "Buses: Québec City's RTC only.",
   langTitle: 'In three languages',
   langSub: 'The display and its phone settings page speak English, French or Inuktitut.',
   langPickLabel: 'Screen to compare', capFr: 'French (Canada)', capIu: 'Inuktitut', picMissing: 'Picture not available',
@@ -628,20 +661,21 @@ const I18N = {
   langNote: 'Switch the language in the <b>Language</b> row of the display\'s Settings screen (long-press the weather screen), or in the Units card of the phone settings page. The Inuktitut text is a first draft that a fluent speaker hasn\'t reviewed yet: <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/tree/main/docs/translations">corrections are welcome</a>.',
   usingTitle: 'Using it',
   use1: 'Tap a forecast day for its hourly view; drag sideways for other days.',
-  use2: 'Swipe left for the radar; tap to animate the last 3 hours, swipe down or up to zoom.',
-  use3: 'Long-press for Settings: screen dimming, units, <span class="nw">Wi-Fi,</span> and the QR code for the phone page (location).',
+  use2: 'Tap the weather icon for the radar; tap to animate the last 3 hours, swipe down or up to zoom, sideways to go back.',
+  use3: 'Long-press for Settings: screen dimming, units, <span class="nw">Wi-Fi,</span> and the QR code for the phone page (location and bus stops).',
   use4: 'The microphones dim the screen when the room is quiet and wake it on sustained sound.',
+  use5: 'Swipe left from the weather for your bus stops; drag up or down between stops, and tap the route badge for the bus map.',
   foot1: 'Source code, releases and documentation: <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus">github.com/TheMonkeyz/esp32-s3-meteobus</a>. Downloads for other tools: <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/releases">releases</a>.',
-  foot2: 'Weather: Open-Meteo. Radar: Environment and Climate Change Canada (GeoMet). Map © OpenStreetMap contributors. Flashing by ESP Web Tools.',
+  foot2: 'Weather: Open-Meteo. Radar: Environment and Climate Change Canada (GeoMet). Buses: Réseau de transport de la Capitale (RTC), from rtcquebec.ca, for personal use. Map © OpenStreetMap contributors. Flashing by ESP Web Tools.',
   foot3: 'Firmware © 2026 Laurent Mathieu, <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/blob/main/LICENSE">MIT license</a> (<a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/blob/main/THIRD_PARTY_NOTICES.md">third-party notices</a>). Set in Montserrat, the display\'s font (<a href="fonts/montserrat-OFL.txt">SIL Open Font License</a>).',
  },
  fr: {
   pageTitle: "MeteoBus – Outil d'installation Web",
-  pageDesc: "Installez le micrologiciel de l'afficheur météo sur un afficheur Waveshare ESP32-S3-Touch-AMOLED-1.75 à partir de votre navigateur.",
+  pageDesc: "Installez MeteoBus sur un afficheur Waveshare ESP32-S3-Touch-AMOLED-1.75 à partir de votre navigateur : météo, radar et départs des autobus du RTC (Québec) sur un écran rond.",
   brand: 'MeteoBus', langLabel: 'Langue', ghLink: '<span class="long">Code source sur </span>GitHub', draft: 'Ébauche',
   iuNote: 'Le texte en inuktitut est une première ébauche, pas encore révisée par une personne qui parle couramment la langue. <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/tree/main/docs/translations">Aidez-nous à la réviser</a>.',
   eyebrow: 'Pour l\'afficheur Waveshare <span class="nw">ESP32-S3-Touch-AMOLED-1.75</span>',
-  lead: "La météo actuelle, les prévisions sur 3 jours et heure par heure, et un radar météo animé, sur un écran AMOLED rond. Le tout s'installe directement à partir de cette page.",
+  lead: "La météo actuelle, les prévisions sur 3 jours et heure par heure, un radar météo animé et les prochains départs à vos arrêts d'autobus du RTC (Québec), sur un écran AMOLED rond. Le tout s'installe directement à partir de cette page.",
   chipKeys: "Aucune clé d'API", chipOta: 'Mises à jour par Wi-Fi', chipLangs: 'Anglais, français, inuktitut',
   installTitle: 'Installer le micrologiciel', chLabel: 'Version à installer', chStable: 'Stable', chBeta: 'Bêta',
   verNone: "aucune pour l'instant", verLoading: 'Chargement de la version…', verFw: 'Micrologiciel {0}', verBuilt: 'compilé le {0}',
@@ -651,10 +685,11 @@ const I18N = {
   unsupported: 'Votre navigateur ne peut pas communiquer avec les appareils USB. Utilisez <b>Chrome</b> ou <b>Edge</b> sur un ordinateur.',
   notAllowed: 'Pour installer, cette page doit être ouverte en HTTPS (ou sur localhost).',
   reqBrowser: 'Chrome ou Edge sur un ordinateur', reqCable: 'Câble de données USB-C', reqSteps: 'Voir les étapes',
-  deviceAria: "L'afficheur rond, qui montre tour à tour ses écrans Météo, Vue horaire, Radar et Extras",
+  deviceAria: "L'afficheur rond, qui montre tour à tour ses écrans Météo, Vue horaire, Radar, Extras, Arrêt d'autobus et Carte du parcours",
   dotsLabel: 'Afficher un écran', scrWeather: 'Météo', scrHourly: 'Vue horaire', scrRadar: 'Radar',
-  scrExtras: 'Extras', scrSettings: 'Réglages', dotWeather: 'Écran météo', dotHourly: 'Vue horaire',
-  dotRadar: 'Écran radar', dotExtras: 'Écran Extras',
+  scrExtras: 'Extras', scrStop: "Arrêt d'autobus", scrBusmap: 'Carte du parcours',
+  scrSettings: 'Réglages', dotWeather: 'Écran météo', dotHourly: 'Vue horaire',
+  dotRadar: 'Écran radar', dotExtras: 'Écran Extras', dotStop: "Écran de l'arrêt d'autobus", dotBusmap: 'Carte du parcours',
   notesIn: 'Nouveautés de la version', notesLang: 'Notes de version en anglais seulement.',
   months: 'janvier février mars avril mai juin juillet août septembre octobre novembre décembre', dateFmt: '{0} {1} {2}',
   stepsTitle: 'Installation en cinq étapes',
@@ -667,8 +702,8 @@ const I18N = {
   step4T: "Reliez l'afficheur au Wi-Fi",
   step4: 'Une fois l\'installation terminée, l\'afficheur redémarre et montre l\'écran <b class="nw">Configuration Wi-Fi</b> et son code QR. Balayez le code avec votre téléphone : il se connecte au réseau <i class="nw">MeteoBus-Setup</i> de l\'afficheur et la page de configuration s\'ouvre automatiquement. Choisissez le <span class="nw">Wi-Fi</span> de la maison.',
   step4b: '<b class="nw">Android 10+ :</b> rien à taper. Glissez l\'écran de configuration vers la gauche jusqu\'au code <b class="nw">Easy Connect</b> et balayez-le avec le téléphone (la caméra ou un lecteur QR) pendant qu\'il est connecté à votre <span class="nw">Wi-Fi</span>. Le téléphone envoie le réseau et son mot de passe.',
-  step5T: 'Indiquez votre endroit',
-  step5: "Ensuite, appuyez longuement sur l'écran météo, touchez <b>Réglages sur téléphone</b> et balayez le code QR des réglages.",
+  step5T: 'Indiquez vos endroits et vos arrêts',
+  step5: "Ensuite, appuyez longuement sur l'écran météo, touchez <b>Endroit et plus (tél.)</b> et balayez le code QR des réglages. Indiquez-y vos endroits et ajoutez vos arrêts d'autobus dans la section <b>Mes arrêts</b> (numéro d'arrêt, parcours, direction).",
   troubleTitle: 'Si la connexion échoue',
   trouble1: 'Aucun port dans la liste : essayez un autre câble ou un autre port USB; certains câbles servent seulement à la recharge.',
   trouble2: 'Toujours rien : maintenez <kbd>BOOT</kbd> enfoncé, appuyez sur <kbd>RESET</kbd>, relâchez <kbd>BOOT</kbd>, puis réessayez.',
@@ -677,12 +712,12 @@ const I18N = {
   screensTitle: "Ce que montre l'afficheur", screensSub: "Captures d'écran de l'afficheur lui-même.",
   altWeather: "Écran météo : 19 h 12 à Québec, 13 degrés et ciel dégagé, avec les prévisions pour aujourd'hui, samedi et dimanche",
   tagWeather: 'Écran principal', h3Weather: 'Prévisions et endroits',
-  pWeather: "L'heure, la température et les conditions actuelles, la pluie ou la neige qui commence ou cesse dans les 2 prochaines heures, et les 3 prochains jours. Jusqu'à 4 endroits : glissez vers le haut ou le bas pour changer d'endroit. Les alertes d'Environnement Canada s'affichent à la place du nom de la ville.",
+  pWeather: "L'heure, la température et les conditions actuelles, la pluie ou la neige qui commence ou cesse dans les 2 prochaines heures, et les 3 prochains jours. Jusqu'à 4 endroits : glissez vers le haut ou le bas pour changer d'endroit. Les alertes d'Environnement Canada s'affichent dans une pastille au bas de l'écran : touchez-la pour les détails. Touchez l'icône météo pour le radar.",
   altHourly: 'Vue horaire du vendredi : un graphique de la température de 0 h à 24 h, puis une ligne par heure avec la température, la probabilité de pluie et le vent',
   tagHourly: 'Touchez un jour', h3Hourly: 'Vue horaire',
   pHourly: '7 jours, chacun avec un graphique de la température et une ligne par heure : température, probabilité de pluie et vent. Glissez de côté pour changer de jour.',
   altRadar: "Écran radar : de la pluie sur une carte de la région de Québec, avec un cercle de 100 km et l'heure du radar",
-  tagRadar: 'Glissez à gauche', h3Radar: 'Radar météo et foudre',
+  tagRadar: "Touchez l'icône météo", h3Radar: 'Radar météo et foudre',
   pRadar: "Le radar d'Environnement Canada sur une carte OpenStreetMap, avec la foudre des 10 dernières minutes. Touchez pour animer les 3 dernières heures; glissez vers le bas ou le haut pour zoomer.",
   altExtras: "Écran Extras : la course du soleil de 6 h 45 à 18 h 22, indice UV faible, lune au dernier quartier éclairée à 61 %, qualité de l'air bonne",
   tagExtras: 'Glissez à droite', h3Extras: 'Soleil, UV, lune et air',
@@ -692,8 +727,15 @@ const I18N = {
   pStatus: 'La version du micrologiciel, le signal <span class="nw">Wi-Fi</span> et chaque service en ligne qu\'utilise l\'afficheur : sa dernière réponse et sa rapidité.',
   altSettings: 'Écran Réglages : « Tamiser si calme » et « Réveil si soulevé » activés, délais courts, température en °C, luminosité 83 %',
   tagSettings: 'Appuyez longuement', h3Settings: "Réglages sur l'afficheur",
-  pSettings: 'Tamisage, réveil si soulevé, luminosité, unités et langue. La position et les endroits se règlent sur votre téléphone, à partir d\'un code QR.',
+  pSettings: "Tamisage, réveil si soulevé, luminosité, unités et langue. La position, les endroits et les arrêts d'autobus se règlent sur votre téléphone, à partir d'un code QR.",
+  altStop: "Page d'un arrêt : le numéro du parcours et les prochains départs en minutes, en temps réel ou selon l'horaire prévu",
+  tagStop: 'Glissez à gauche', h3Stop: "Vos arrêts d'autobus",
+  pStop: "Les prochains départs à vos arrêts du RTC, en temps réel quand l'information est disponible. Une page par arrêt (jusqu'à 8) : glissez vers le haut ou le bas pour passer de l'un à l'autre. Les avis du parcours s'affichent dans une pastille orange au bas de l'écran.",
+  altBusmap: "Carte du parcours : le tracé du parcours sur une carte, avec l'arrêt et les autobus en route",
+  tagBusmap: 'Touchez le numéro du parcours', h3Busmap: 'Carte du parcours',
+  pBusmap: "L'arrêt, le tracé du parcours et ses autobus en route. Glissez vers le bas ou le haut pour zoomer, de côté pour revenir.",
   radarNote: "Le radar utilise les données d'Environnement Canada : il couvre donc le Canada et la région frontalière du nord des États-Unis.",
+  busNote: 'Autobus : RTC de Québec seulement.',
   langTitle: 'En trois langues',
   langSub: "L'afficheur et sa page de réglages sur téléphone sont offerts en anglais, en français ou en inuktitut.",
   langPickLabel: 'Écran à comparer', capFr: 'Canada', capIu: 'Inuktitut', picMissing: 'Image non disponible',
@@ -702,23 +744,24 @@ const I18N = {
   langNote: 'Changez de langue à la ligne <b>Langue</b> de l\'écran Réglages de l\'afficheur (appuyez longuement sur l\'écran météo) ou dans la section <b>Unités</b> de la page de réglages sur téléphone. Le texte en inuktitut est une première ébauche, pas encore révisée par une personne qui parle couramment la langue : <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/tree/main/docs/translations">les corrections sont les bienvenues</a>.',
   usingTitle: 'Utilisation',
   use1: 'Touchez un jour des prévisions pour ouvrir sa vue horaire; glissez de côté pour voir les autres jours.',
-  use2: 'Glissez à gauche pour le radar; touchez pour animer les 3 dernières heures, glissez vers le bas ou le haut pour zoomer.',
-  use3: 'Appuyez longuement pour les réglages : tamisage de l\'écran, unités, <span class="nw">Wi-Fi</span> et le code QR de la page sur téléphone (position).',
+  use2: "Touchez l'icône météo pour le radar; touchez pour animer les 3 dernières heures, glissez vers le bas ou le haut pour zoomer, de côté pour revenir.",
+  use3: 'Appuyez longuement pour les réglages : tamisage de l\'écran, unités, <span class="nw">Wi-Fi</span> et le code QR de la page sur téléphone (position et arrêts d\'autobus).',
   use4: 'Les micros tamisent l\'écran quand la pièce est calme et le rallument quand le bruit se prolonge.',
+  use5: "Glissez à gauche depuis la météo pour vos arrêts d'autobus; glissez vers le haut ou le bas pour changer d'arrêt, et touchez le numéro du parcours pour sa carte.",
   foot1: 'Code source, versions et documentation : <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus">github.com/TheMonkeyz/esp32-s3-meteobus</a>. Fichiers pour d\'autres outils : <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/releases">versions publiées</a>.',
-  foot2: "Météo : Open-Meteo. Radar : Environnement et Changement climatique Canada (GeoMet). Carte © les contributeurs d'OpenStreetMap. Installation par ESP Web Tools.",
+  foot2: "Météo : Open-Meteo. Radar : Environnement et Changement climatique Canada (GeoMet). Autobus : Réseau de transport de la Capitale (RTC), à partir de rtcquebec.ca, pour un usage personnel. Carte © les contributeurs d'OpenStreetMap. Installation par ESP Web Tools.",
   foot3: 'Micrologiciel © 2026 Laurent Mathieu, <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/blob/main/LICENSE">licence MIT</a> (<a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/blob/main/THIRD_PARTY_NOTICES.md">licences des composants tiers</a>). Texte en Montserrat, la police de l\'afficheur (<a href="fonts/montserrat-OFL.txt">SIL Open Font License</a>).',
  },
  iu: {
   pageTitle: 'MeteoBus – ᐃᓕᓕ',
-  pageDesc: 'ᓯᓚᒧᑦ ᓴᖅᑭᔭᐅᑦ: Waveshare ESP32-S3-Touch-AMOLED-1.75-ᒧᑦ ᐃᓕᓕ ᒫᓂ.',
+  pageDesc: 'MeteoBus: ᓯᓚ, Radar ᐊᒻᒪᓗ RTC ᓄᖅᑲᕐᕖᑦ. Waveshare ESP32-S3-Touch-AMOLED-1.75-ᒧᑦ ᐃᓕᓕ ᒫᓂ.',
   brand: 'MeteoBus',
   langLabel: 'ᐅᖃᐅᓯᖅ',
   ghLink: '<span class="long">ᐱᓕᕆᔾᔪᑎᑦ </span>GitHub',
   draft: 'ᐃᓱᓕᙱᑦᑐᖅ',
   iuNote: 'ᐃᓄᒃᑎᑐᑦ ᓱᓕ ᖃᐅᔨᒋᐊᖅᑕᐅᙱᑦᑐᖅ. <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/tree/main/docs/translations">ᐃᑲᔪᕐᓕ</a>.',
   eyebrow: 'Waveshare <span class="nw">ESP32-S3-Touch-AMOLED-1.75-ᒧᑦ</span>',
-  lead: 'ᓯᓚ ᒫᓐᓇ, 3 ᐅᓪᓗᐃᑦ ᐃᑲᕐᕌᓪᓗ, Radar-ᓗ. ᐃᒐᓚᐅᔭᖅ ᐊᖕᒪᓗᖅᑐᖅ. ᒫᓂ ᐃᓕᓕ.',
+  lead: 'ᓯᓚ ᒫᓐᓇ, 3 ᐅᓪᓗᐃᑦ ᐃᑲᕐᕌᓪᓗ, Radar-ᓗ, RTC ᓄᖅᑲᕐᕖᓪᓗ (Québec). ᐃᒐᓚᐅᔭᖅ ᐊᖕᒪᓗᖅᑐᖅ. ᒫᓂ ᐃᓕᓕ.',
   chipKeys: 'API ᐃᓯᕈᑦ ᐱᔭᕆᐊᖃᙱᑦᑐᖅ',
   chipOta: 'ᓄᑖᕈᕆᐊᕐᓃᑦ Wi-Fi-ᒃᑯᑦ',
   chipLangs: 'ᖃᓪᓗᓈᑎᑐᑦ, ᐅᐃᕕᑎᑐᑦ, ᐃᓄᒃᑎᑐᑦ',
@@ -739,17 +782,21 @@ const I18N = {
   reqBrowser: 'Chrome ᐅᕝᕙᓘᓐᓃᑦ Edge, ᖃᕋᓴᐅᔭᒥ',
   reqCable: 'USB-C ᐊᒃᓗᓈᖅ',
   reqSteps: 'ᒪᓕᒃᑕᒃᓴᑦ',
-  deviceAria: 'ᓴᖅᑭᔭᐅᑦ: ᓯᓚ, ᐃᑲᕐᕌᑦ, Radar, ᓯᕿᓂᖅ ᑕᖅᑭᕐᓗ',
+  deviceAria: 'ᓴᖅᑭᔭᐅᑦ: ᓯᓚ, ᐃᑲᕐᕌᑦ, Radar, ᓯᕿᓂᖅ ᑕᖅᑭᕐᓗ, ᓄᖅᑲᕐᕕᒃ, ᐊᖅᑯᑎᐅᑉ ᓄᓇᙳᐊᖓ',
   dotsLabel: 'ᐃᒐᓚᐅᔭᖅ ᓴᖅᑭᓪᓕ',
   scrWeather: 'ᓯᓚ',
   scrHourly: 'ᐃᑲᕐᕌᑦ',
   scrRadar: 'Radar',
   scrExtras: 'ᓯᕿᓂᖅ ᑕᖅᑭᕐᓗ',
+  scrStop: 'ᓄᖅᑲᕐᕕᒃ',
+  scrBusmap: 'ᐊᖅᑯᑎᐅᑉ ᓄᓇᙳᐊᖓ',
   scrSettings: 'ᐋᖅᑭᔅᓯᒪᐅᑎᑦ',
   dotWeather: 'ᓯᓚᐅᑉ ᐃᒐᓚᐅᔮ',
   dotHourly: 'ᐃᑲᕐᕌᑦ',
   dotRadar: 'Radar',
   dotExtras: 'ᓯᕿᓂᖅ ᑕᖅᑭᕐᓗ',
+  dotStop: 'ᓄᖅᑲᕐᕕᒃ',
+  dotBusmap: 'ᐊᖅᑯᑎᐅᑉ ᓄᓇᙳᐊᖓ',
   notesIn: 'ᓄᑖᑦ',
   notesLang: 'ᖃᓪᓗᓈᑎᑐᑦ ᑭᓯᐊᓂ.',
   months: 'ᔮᓐᓄᐊᕆ ᕖᕝᕗᐊᕆ ᒫᑦᓯ ᐄᐳᕆ ᒪᐃ ᔫᓂ ᔪᓚᐃ ᐋᒡᒌᓯ ᓯᑎᐱᕆ ᐅᑐᐱᕆ ᓄᕕᐱᕆ ᑎᓯᐱᕆ',
@@ -766,8 +813,8 @@ const I18N = {
   step4T: 'Wi-Fi-ᒧᑦ ᑲᓱᕐᓕ',
   step4: 'ᐃᓕᑕᐅᔪᖅ: ᓴᖅᑭᔭᐅᑦ ᐃᑭᑎᒃᑲᓐᓂᕐᑐᖅ. <b class="nw">Wi-Fi ᐋᖅᑭᔅᓯᒪᐅᑎᑦ</b>: QR. ᐊᔾᔨᓕᐅᕐᓕ ᐅᖄᓚᐅᑎᕋᓛᕐᒧᑦ. ᐅᖄᓚᐅᑎᕋᓛᖅ <i class="nw">MeteoBus-Setup-ᒧᑦ</i> ᑲᓱᖅᑐᖅ. ᐊᖏᕐᕋᒥ Wi-Fi ᓂᕈᐊᕐᓕ.',
   step4b: '<b class="nw">Android 10+:</b> ᐃᓯᕈᑦ ᐱᔭᕆᐊᖃᙱᑦᑐᖅ. ᓂᕈᓗᓪᓕ ᓴᐅᒥᒧᑦ: <b class="nw">Easy Connect</b>. ᐊᔾᔨᓕᐅᕐᓕ ᐅᖄᓚᐅᑎᕋᓛᕐᒧᑦ Wi-Fi-ᒦᑦᑐᒧᑦ. ᐅᖄᓚᐅᑎᕋᓛᖅ ᑲᓱᖃᑎᒌᓐᓂᒃ ᑐᓃᔪᖅ.',
-  step5T: 'ᐃᓂ ᐃᓚᓕ',
-  step5: 'ᓯᓚᐅᑉ ᐃᒐᓚᐅᔮ ᓇᕿᓪᓗᒍ ᓇᕿᒻᒥᓕ. <b>ᓱᓕ ᐅᖄᓚᐅᑎᕋᓛᕐᒥ</b> ᓇᕿᓪᓕ. QR ᐊᔾᔨᓕᐅᕐᓕ.',
+  step5T: 'ᐃᓃᑦ ᓄᖅᑲᕐᕖᓪᓗ ᐃᓚᓕ',
+  step5: 'ᓯᓚᐅᑉ ᐃᒐᓚᐅᔮ ᓇᕿᓪᓗᒍ ᓇᕿᒻᒥᓕ. <b>ᓱᓕ ᐅᖄᓚᐅᑎᕋᓛᕐᒥ</b> ᓇᕿᓪᓕ. QR ᐊᔾᔨᓕᐅᕐᓕ. ᐃᓃᑦ ᐃᓚᓕ; <b>ᓄᖅᑲᕐᕖᑦᑲ</b>: ᓄᖅᑲᕐᕖᑦ ᐃᓚᓗᒋᑦ.',
   troubleTitle: 'ᑲᓱᕈᓐᓇᙱᑉᐸᑦ',
   trouble1: 'ᐱᖃᙱᑉᐸᑦ: ᐊᓯᐊᒥᒃ ᐊᒃᓗᓈᕐᒥᒃ ᐅᕝᕙᓘᓐᓃᑦ USB-ᒥᒃ ᐆᒃᑐᕐᓕ. ᐃᓚᖏᑦ ᐊᒃᓗᓈᑦ ᐊᑐᖅᑕᐅᔪᓐᓇᙱᑦᑐᑦ.',
   trouble2: 'ᓱᓕ ᐱᖃᙱᑉᐸᑦ: <kbd>BOOT</kbd> ᓇᕿᓪᓗᒍ ᓇᕿᒻᒥᓕ, <kbd>RESET</kbd> ᓇᕿᓪᓕ, <kbd>BOOT</kbd> ᓇᕿᓐᓇᒍ. ᐆᒃᑐᒃᑲᓐᓂᕐᓕ.',
@@ -778,13 +825,13 @@ const I18N = {
   altWeather: 'ᓯᓚᐅᑉ ᐃᒐᓚᐅᔮ: 13°, ᓯᓚᖅᑭᖅᑐᖅ. ᐅᓪᓗᒥ, ᓯᕙᑖᕐᕕᒃ, ᓈᑦᓰᖑᔭᖅ.',
   tagWeather: 'ᓯᕗᓪᓕᖅ ᐃᒐᓚᐅᔭᖅ',
   h3Weather: 'ᓯᓚ ᐊᒻᒪᓗ ᐃᓃᑦ',
-  pWeather: 'ᐃᑲᕐᕌᑦ, ᐆᓇᕐᓂᖅ ᐊᒻᒪᓗ ᓯᓚ. ᓯᓚᓗᑦᑐᖅ ᐅᕝᕙᓘᓐᓃᑦ ᖃᓐᓂᖅᑐᖅ: 2 ᐃᑲᕐᕌᓂ. 3 ᐅᓪᓗᐃᑦ. 4 ᐃᓃᑦ: ᓄᓱᐊᕐᓕ ᖁᓕᒧᑦ ᐅᕝᕙᓘᓐᓃᑦ ᐊᑎᒧᑦ. Environment Canada ᐃᓂᕐᑎᕈᑎᖏᑦ ᓴᖅᑭᖅᑐᑦ.',
+  pWeather: 'ᐃᑲᕐᕌᑦ, ᐆᓇᕐᓂᖅ ᐊᒻᒪᓗ ᓯᓚ. ᓯᓚᓗᑦᑐᖅ ᐅᕝᕙᓘᓐᓃᑦ ᖃᓐᓂᖅᑐᖅ: 2 ᐃᑲᕐᕌᓂ. 3 ᐅᓪᓗᐃᑦ. 4 ᐃᓃᑦ: ᓄᓱᐊᕐᓕ ᖁᓕᒧᑦ ᐅᕝᕙᓘᓐᓃᑦ ᐊᑎᒧᑦ. Environment Canada ᐃᓂᕐᑎᕈᑎᖏᑦ ᐊᑖᓂ ᓴᖅᑭᖅᑐᑦ: ᓇᕿᓪᓕ. ᓯᓚᐅᑉ ᐊᔾᔨᙳᐊᖓ ᓇᕿᓪᓕ: Radar.',
   altHourly: 'ᐃᑲᕐᕌᑦ: ᐆᓇᕐᓂᖅ, ᓯᓚᓗᒃ, ᐊᓄᕆ.',
   tagHourly: 'ᐅᓪᓗᖅ ᓇᕿᓪᓕ',
   h3Hourly: 'ᐃᑲᕐᕌᑦ',
   pHourly: '7 ᐅᓪᓗᐃᑦ. ᐃᑲᕐᕌᖅ ᑕᒫᓐ: ᐆᓇᕐᓂᖅ, ᓯᓚᓗᒃ, ᐊᓄᕆ. ᓄᓱᐊᕐᓕ ᓴᐅᒥᒧᑦ ᐅᕝᕙᓘᓐᓃᑦ ᑕᓕᖅᐱᒧᑦ: ᐅᓪᓗᖅ ᐊᓯᖅ.',
   altRadar: 'Radar: ᓯᓚᓗᒃ ᓄᓇᙳᐊᕐᒥ.',
-  tagRadar: 'ᓂᕈᓗᓪᓕ ᓴᐅᒥᒧᑦ',
+  tagRadar: 'ᓯᓚᐅᑉ ᐊᔾᔨᙳᐊᖓ ᓇᕿᓪᓕ',
   h3Radar: 'Radar ᐊᒻᒪᓗ ᑲᓪᓕᖅ',
   pRadar: 'Environment Canada Radar, OpenStreetMap ᓄᓇᙳᐊᕐᒥ. ᑲᓪᓕᖅ: 10 min. ᓇᕿᓪᓕ: 3 ᐃᑲᕐᕌᑦ ᖄᖏᖅᑐᑦ. ᓂᕈᓗᓪᓕ ᐊᑎᒧᑦ: ᐊᖏᓪᓕᒋᐊᕐᓕ. ᖁᓕᒧᑦ: ᒥᑭᓪᓕᒋᐊᕐᓕ.',
   altExtras: 'ᓯᕿᓂᖅ: 06:45 – 18:22. UV ᒥᑭᔪᖅ. ᑕᖅᑭᖅ: ᐊᕝᕙᖓ ᑭᖑᓪᓕᖅ, 61%. ᐊᓂᕐᓴᖅ ᐱᐅᔪᖅ.',
@@ -798,8 +845,17 @@ const I18N = {
   altSettings: 'ᐋᖅᑭᔅᓯᒪᐅᑎᑦ: ᑖᓂᑭᓪᓕᖅ, ᑭᕕᑦᑕᐅᒑᖓᑦ, ᓇᐃᑦᑐᑦ, °C, 83%.',
   tagSettings: 'ᓇᕿᓪᓗᒍ ᓇᕿᒻᒥᓕ',
   h3Settings: 'ᐋᖅᑭᔅᓯᒪᐅᑎᑦ',
-  pSettings: 'ᑖᓂᑭᓪᓕᖅ, ᑭᕕᑦᑕᐅᒑᖓᑦ, ᖃᐅᒪᓂᖓ, ᐆᒃᑑᑎᑦ ᐊᒻᒪᓗ ᐅᖃᐅᓯᖅ. ᐃᓃᑦ: ᐅᖄᓚᐅᑎᕋᓛᕐᒥ, QR-ᒥᑦ.',
+  pSettings: 'ᑖᓂᑭᓪᓕᖅ, ᑭᕕᑦᑕᐅᒑᖓᑦ, ᖃᐅᒪᓂᖓ, ᐆᒃᑑᑎᑦ ᐊᒻᒪᓗ ᐅᖃᐅᓯᖅ. ᐃᓃᑦ ᓄᖅᑲᕐᕖᓪᓗ: ᐅᖄᓚᐅᑎᕋᓛᕐᒥ, QR-ᒥᑦ.',
+  altStop: 'RTC ᓄᖅᑲᕐᕕᒃ: ᐊᖅᑯᑦ ᐊᒻᒪᓗ ᐊᐅᓪᓚᖅᑐᑦ, min.',
+  tagStop: 'ᓂᕈᓗᓪᓕ ᓴᐅᒥᒧᑦ',
+  h3Stop: 'ᓄᖅᑲᕐᕖᑦᑲ',
+  pStop: 'ᐊᐅᓪᓚᖅᑐᑦ RTC ᓄᖅᑲᕐᕕᓐᓂ, ᒫᓐᓇ. 8 ᓄᖅᑲᕐᕖᑦ: ᓄᓱᐊᕐᓕ ᖁᓕᒧᑦ ᐅᕝᕙᓘᓐᓃᑦ ᐊᑎᒧᑦ. ᐊᖅᑯᑎᐅᑉ ᑐᓴᒐᔅᓴᖏᑦ ᐊᑖᓂ ᓴᖅᑭᖅᑐᑦ.',
+  altBusmap: 'ᐊᖅᑯᑎᐅᑉ ᓄᓇᙳᐊᖓ: ᓄᖅᑲᕐᕕᒃ ᐊᒻᒪᓗ ᑎᑭᓕᕆᔪᑦ.',
+  tagBusmap: 'ᐊᖅᑯᑦ ᓇᕿᓪᓕ',
+  h3Busmap: 'ᐊᖅᑯᑎᐅᑉ ᓄᓇᙳᐊᖓ',
+  pBusmap: 'ᓄᖅᑲᕐᕕᒃ, ᐊᖅᑯᑦ ᐊᒻᒪᓗ ᑎᑭᓕᕆᔪᑦ. ᓂᕈᓗᓪᓕ ᐊᑎᒧᑦ: ᐊᖏᓪᓕᒋᐊᕐᓕ. ᖁᓕᒧᑦ: ᒥᑭᓪᓕᒋᐊᕐᓕ. ᓴᐅᒥᒧᑦ ᐅᕝᕙᓘᓐᓃᑦ ᑕᓕᖅᐱᒧᑦ: ᐅᑎᕐᓕ.',
   radarNote: 'Radar: Environment Canada. ᑲᓇᑕ ᐊᒻᒪᓗ USA ᑭᓪᓕᖓ.',
+  busNote: 'ᓄᖅᑲᕐᕖᑦ: RTC (Québec) ᑭᓯᐊᓂ.',
   langTitle: 'ᐅᖃᐅᓰᑦ ᐱᖓᓱᑦ',
   langSub: 'ᓴᖅᑭᔭᐅᑦ: ᖃᓪᓗᓈᑎᑐᑦ, ᐅᐃᕕᑎᑐᑦ, ᐃᓄᒃᑎᑐᑦ.',
   langPickLabel: 'ᐃᒐᓚᐅᔭᖅ',
@@ -815,11 +871,12 @@ const I18N = {
   langNote: 'ᐅᖃᐅᓯᖅ ᐊᓯᔾᔨᕐᓗᒍ: ᓴᖅᑭᔭᐅᒻᒥ <b>ᐋᖅᑭᔅᓯᒪᐅᑎᑦ</b> → <b>ᐅᖃᐅᓯᖅ</b> (ᓯᓚᐅᑉ ᐃᒐᓚᐅᔮ ᓇᕿᓪᓗᒍ ᓇᕿᒻᒥᓕ), ᐅᕝᕙᓘᓐᓃᑦ ᐅᖄᓚᐅᑎᕋᓛᕐᒥ <b>ᐆᒃᑑᑎᑦ</b>. ᐃᓄᒃᑎᑐᑦ ᐃᓱᓕᙱᑦᑐᖅ: <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/tree/main/docs/translations">ᐃᑲᔪᕐᓕ</a>.',
   usingTitle: 'ᖃᓄᖅ ᐊᑐᖅᑕᐅᔪᖅ',
   use1: 'ᐅᓪᓗᖅ ᓇᕿᓪᓕ: ᐃᑲᕐᕌᑦ. ᓄᓱᐊᕐᓕ ᓴᐅᒥᒧᑦ ᐅᕝᕙᓘᓐᓃᑦ ᑕᓕᖅᐱᒧᑦ: ᐅᓪᓗᐃᑦ ᐊᓯᖏᑦ.',
-  use2: 'ᓂᕈᓗᓪᓕ ᓴᐅᒥᒧᑦ: Radar. ᓇᕿᓪᓕ: 3 ᐃᑲᕐᕌᑦ ᖄᖏᖅᑐᑦ. ᓂᕈᓗᓪᓕ ᐊᑎᒧᑦ: ᐊᖏᓪᓕᒋᐊᕐᓕ. ᖁᓕᒧᑦ: ᒥᑭᓪᓕᒋᐊᕐᓕ.',
-  use3: 'ᓇᕿᓪᓗᒍ ᓇᕿᒻᒥᓕ: ᐋᖅᑭᔅᓯᒪᐅᑎᑦ. ᑖᓂᑭᓪᓕᖅ, ᐆᒃᑑᑎᑦ, <span class="nw">Wi-Fi</span>, QR ᐅᖄᓚᐅᑎᕋᓛᕐᒧᑦ.',
+  use2: 'ᓯᓚᐅᑉ ᐊᔾᔨᙳᐊᖓ ᓇᕿᓪᓕ: Radar. ᓇᕿᓪᓕ: 3 ᐃᑲᕐᕌᑦ ᖄᖏᖅᑐᑦ. ᓂᕈᓗᓪᓕ ᐊᑎᒧᑦ: ᐊᖏᓪᓕᒋᐊᕐᓕ. ᖁᓕᒧᑦ: ᒥᑭᓪᓕᒋᐊᕐᓕ. ᓴᐅᒥᒧᑦ ᐅᕝᕙᓘᓐᓃᑦ ᑕᓕᖅᐱᒧᑦ: ᐅᑎᕐᓕ.',
+  use3: 'ᓇᕿᓪᓗᒍ ᓇᕿᒻᒥᓕ: ᐋᖅᑭᔅᓯᒪᐅᑎᑦ. ᑖᓂᑭᓪᓕᖅ, ᐆᒃᑑᑎᑦ, <span class="nw">Wi-Fi</span>, QR ᐅᖄᓚᐅᑎᕋᓛᕐᒧᑦ (ᐃᓃᑦ ᓄᖅᑲᕐᕖᓪᓗ).',
   use4: 'ᓂᐸᐃᑦᑐᒥ ᐃᒐᓚᐅᔭᖅ ᑖᓂᑭᓪᓕᖅᑐᖅ. ᓂᐱᖃᖅᐸᑦ ᐃᑭᑦᑐᖅ.',
+  use5: 'ᓂᕈᓗᓪᓕ ᓴᐅᒥᒧᑦ: ᓄᖅᑲᕐᕖᑦᑲ. ᓄᓱᐊᕐᓕ ᖁᓕᒧᑦ ᐅᕝᕙᓘᓐᓃᑦ ᐊᑎᒧᑦ: ᓄᖅᑲᕐᕕᒃ ᐊᓯᖅ. ᐊᖅᑯᑦ ᓇᕿᓪᓕ: ᓄᓇᙳᐊᖅ.',
   foot1: 'ᐱᓕᕆᔾᔪᑎᑦ ᐊᒻᒪᓗ ᑎᑎᕋᖅᓯᒪᔪᑦ: <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus">github.com/TheMonkeyz/esp32-s3-meteobus</a>. ᒥᓇᐃᑦ: <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/releases">ᓄᑖᑦ</a>.',
-  foot2: 'ᓯᓚ: Open-Meteo. Radar: Environment and Climate Change Canada (GeoMet). ᓄᓇᙳᐊᖅ © OpenStreetMap contributors. ESP Web Tools-ᒃᑯᑦ ᐃᓕᑕᐅᔪᖅ.',
+  foot2: 'ᓯᓚ: Open-Meteo. Radar: Environment and Climate Change Canada (GeoMet). ᓄᖅᑲᕐᕖᑦ: Réseau de transport de la Capitale (RTC), rtcquebec.ca-ᒥᑦ, ᐃᖕᒥᓄᑦ ᐊᑐᖅᑕᒃᓴᖅ. ᓄᓇᙳᐊᖅ © OpenStreetMap contributors. ESP Web Tools-ᒃᑯᑦ ᐃᓕᑕᐅᔪᖅ.',
   foot3: 'ᖃᕋᓴᐅᔭᐅᑉ ᐱᓕᕆᔾᔪᑎᖓ © 2026 Laurent Mathieu, <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/blob/main/LICENSE">MIT</a> (<a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/blob/main/THIRD_PARTY_NOTICES.md">ᐊᓯᖏᑦ</a>). Montserrat (<a href="fonts/montserrat-OFL.txt">SIL Open Font License</a>).',
  },
 };

@@ -1,5 +1,11 @@
 # Project history and retrospective
 
+**Two histories.** MeteoBus began on 2026-10-09 as a copy of the weather display
+([esp32-s3-weather](https://github.com/TheMonkeyz/esp32-s3-weather) v1.15.0) with a fresh git history, then took the
+buses from [esp32-s3-rtcquebec](https://github.com/TheMonkeyz/esp32-s3-rtcquebec). Everything below dated before
+2026-10-09 is the weather display's history: its versions (v1.x) and commit ids refer to the esp32-s3-weather
+repository, not this one. MeteoBus's own story is the last timeline entry, "October 9-10: MeteoBus".
+
 A look back over the whole project (September 29 to October 2, 2026), written for the next session: how it grew,
 how the work is done now, what paid off, what cost time, and what is still open. The details live elsewhere
 (ARCHITECTURE for how things work, TESTING for how to check them, CLAUDE.md for the lessons in short); this file is
@@ -91,6 +97,46 @@ one release candidate per group, each installed by the display's own updater and
 What it taught: build exactly what you commit (a script splitting work dropped an include and rc.1's build failed);
 an empty translation is not a missing one; a rule with a time window needs a test that crosses it.
 
+### October 4 to the fork: espforge, presence, the weather display's last releases (v1.13.0 to v1.15.0)
+
+The framework was extracted into espforge (October 4) and the display took its infrastructure from it at release tags
+(v1.14.0); Easy Connect's real failure was found there (CLAUDE.md lesson 20(e)). Then memory at a place switch
+(lessons 26-27), Inuktitut's glyph tips in list scrolls (25, 28, 29), the radar's pipelined history frames (v1.14.3),
+and forge_presence (v1.15.0). These are covered in CLAUDE.md's lessons; this file wasn't brought up to date for them.
+
+### October 9-10: MeteoBus (v0.1.0-rc.1 to v0.2.0-rc.3)
+
+The owner asked how the weather display and the RTC bus display would work as one app on the same board, and whether
+the memory would fit (docs/MERGE-PLAN.md: one picture cache, the radar and the bus map taking turns in PSRAM, one
+download at a time). The answer became this repository (dates from `git log`, times in Québec):
+
+- **October 9, v0.1.0-rc.1** (18:54, tag 19:01): the weather display v1.15.0 unchanged under its new name
+  (MeteoBus, MeteoBus-Setup, its own update site), to prove CI, Pages and the updater on the new repo before any merge
+  work. **v0.1.0-rc.2** (PR #1, 19:20): the flasher site publishes the Beta channel while there is no stable release.
+- **October 9, v0.2.0-rc.1** (PR #2, tag 22:15; its changelog section says October 10): the radar leaves the row and
+  opens from a badge on the weather icon; alerts move to a pill at the bottom (the update as a blue dot on it); the
+  buses at the row's right end (`departures.c`, `rtc_api.c`, `favs.c`, `bus_routes.c` from esp32-s3-rtcquebec), the
+  phone's *My stops* card, the bus map from a stop's route badge; the emulator got stubs for the buses. Before
+  publishing it, test builds labelled v0.2.0-rc.7 to rc.13 found the memory lessons (CLAUDE.md, "MeteoBus so far"): a
+  screen opened on top forced a new 434 KB picture (PSRAM 268 KB, floor 300); a second poller's TLS overlapped the
+  place switch's (internal RAM 17 KB, floor 25), so `netq.c` makes it wait; its stack in PSRAM, it once stopped for
+  good mid-request; the bus code's static arrays were internal RAM. The end state: no `deps` or bus map task, the
+  radar task does the buses' work in its idle time.
+- **October 10, v0.2.0-rc.2** (PR #3, 00:29): back is a sideways swipe everywhere (radar, bus map, alert screen, all
+  sliding in from the right); a tap does nothing on the bus map or an alert (the owner's call); the bus map zooms
+  like the radar (`slide_zoom`), with bus icons hidden while it moves.
+- **October 10, v0.2.0-rc.3** (PR #4, 12:21): the bus map's second picture only at the first zoom (both at the
+  opening took PSRAM's low point to 112 KB); the settings page's stop list rebuilt only when it changed. Then PR #5
+  (graphify-out/ ignored) and PR #6 (a flaky flash helper monitor test on macOS).
+- **v0.2.1** (in review, 2026-10-10): `radar_history_s` was over its 7.0 s limit on the unchanged weather firmware
+  too (7.2-8.2 s). Timing the same GeoMet requests from the PC (~90 ms each) against the board (~200 ms) pointed at
+  Wi-Fi power save: ESP-IDF's default makes each reply wait for the router's beacon. Power save is now off while the
+  radar or the bus map is open (`netq_awake()`): the 14 past frames in 3.1-3.9 s instead of 4.9-6.6.
+
+What it taught: a screen opened on top has no cached picture ready; every new task stack and every overlapping TLS
+download is internal RAM, the scarcest; A/B the old firmware (and time the request from the PC) before blaming a
+change.
+
 ## How the work is done now
 
 1. **Change, then a test build** labelled above the current release (`vX.Y.Z-name.N` in `version.txt`; the
@@ -155,6 +201,20 @@ an empty translation is not a missing one; a rule with a time window needs a tes
 - **Mark only what changed, test what you changed**: every fix in this project added a harness check or a probe.
 
 ## Open threads
+
+MeteoBus (2026-10-10):
+
+- **No stable release yet:** v0.2.0-rc.3 is the newest, on the Beta channel (the flasher site offers Beta while
+  there is no stable one). v0.2.1 (Wi-Fi power save off while a map is open) is in review.
+- **Inuktitut for the bus texts are drafts** (low confidence, docs/translations/iu.tsv) and no Inuktitut snapshot fit
+  check of the bus screens is recorded (docs/translations/README.md has the weather screens'); every new page text needs an Inuktitut line, or the
+  page's Inuktitut test fails on English left over (CLAUDE.md, MeteoBus lesson 6).
+- **The radar's next cost is decoding:** with power save off, the 14 past frames' downloads and decoding (~2.2 s,
+  overlapped) are close; `png_rows` inflates every GeoMet image to 868 KB through a 32 KB dictionary in PSRAM.
+- Planned, not built: a "Bus stops" row in the display's Settings (stops are chosen on the phone), the full
+  departure list from a tap on the columns, buses in the browser emulator (in progress). docs/IDEAS.md.
+
+The weather display's (before the fork):
 
 - The October 3 fix plan is done (v1.12.1 finished D3 and E3, and added a debug build with memory checks). Old
   pull-request refs still reach pre-purge commits; the key was rotated, so no GitHub Support request was made.

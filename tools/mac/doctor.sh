@@ -1,5 +1,5 @@
 #!/bin/bash
-# What this Mac has and lacks for the weather display project: one PASS / FAIL / INFO line per check, exit 1 on any
+# What this Mac has and lacks for the MeteoBus project: one PASS / FAIL / INFO line per check, exit 1 on any
 # FAIL. Changes nothing. Run it first when something doesn't work, and paste its output when asking for help.
 #
 #   bash tools/mac/doctor.sh            # everything

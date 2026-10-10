@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/img/hero.png" width="720" alt="Three round screens of the display: the hourly view, the weather screen and the rain radar">
+  <img src="docs/img/hero.png" width="720" alt="Three round screens of the display: a bus stop page, the weather screen and the rain radar">
 </p>
 
 <h1 align="center">MeteoBus</h1>
@@ -31,16 +31,22 @@
 
 <table align="center">
   <tr>
-    <td align="center"><img src="web/flash/img/weather.png" width="200" alt="Weather screen: clock, city, 15° and clear sky, feels-like, humidity and wind, and a 3-day forecast"><br><a href="#weather-screen"><b>Weather</b></a><br><sub>Now, the next 2 h and 3 days</sub></td>
-    <td align="center"><img src="web/flash/img/hourly.png" width="200" alt="Hourly view: Friday's temperature graph and one row per hour with temperature, chance of rain and wind"><br><a href="#hourly-view"><b>Hourly view</b></a><br><sub>7 days, hour by hour</sub></td>
-    <td align="center"><img src="web/flash/img/radar.png" width="200" alt="Radar screen: rain over a dimmed map around Québec City, with a range ring and the radar time"><br><a href="#radar"><b>Radar</b></a><br><sub>Rain and lightning, 3-hour loop</sub></td>
+    <td align="center"><img src="web/flash/img/weather.png" width="180" alt="Weather screen: clock, Quebec, 12° and clear sky with the radar badge on the sun, feels-like, humidity and wind, a 3-day forecast, and a yellow Frost advisory pill at the bottom"><br><a href="#weather-screen"><b>Weather</b></a><br><sub>Now, the next 2 h and 3 days</sub></td>
+    <td align="center"><img src="web/flash/img/stop.png" width="180" alt="Bus stop page: the stop's name and number, the route badge and the next departure in minutes, the direction, and the three departures after it"><br><a href="#buses"><b>Buses</b></a><br><sub>Your RTC stops' next departures</sub></td>
+    <td align="center"><img src="web/flash/img/busmap.png" width="180" alt="Bus map: the streets around the stop, the route's path and its buses on the way"><br><a href="#bus-map"><b>Bus map</b></a><br><sub>The route and its buses, live</sub></td>
+    <td align="center"><img src="web/flash/img/radar.png" width="180" alt="Radar screen: rain over a dimmed map around Québec City, with a range ring and the radar time"><br><a href="#radar"><b>Radar</b></a><br><sub>Rain and lightning, 3-hour loop</sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="web/flash/img/extras.png" width="200" alt="Extras screen: date, sun arc from sunrise to sunset with the daylight length, UV index, moon phase and air quality"><br><a href="#extras"><b>Extras</b></a><br><sub>Sun, UV, moon, air quality</sub></td>
-    <td align="center"><img src="web/flash/img/status.png" width="200" alt="Status screen: firmware version, update channel, Wi-Fi signal, and each online service with a green dot and its response time"><br><a href="#status"><b>Status</b></a><br><sub>Version, Wi-Fi, online services</sub></td>
-    <td align="center"><img src="web/flash/img/settings.png" width="200" alt="Settings screen: dim when quiet, wake on pick-up, timing, temperature unit, and the brightness band along the bottom"><br><a href="#settings-on-the-display"><b>Settings</b></a><br><sub>Long-press the weather screen</sub></td>
+    <td align="center"><img src="web/flash/img/hourly.png" width="180" alt="Hourly view: a day's temperature graph and one row per hour with temperature, chance of rain and wind"><br><a href="#hourly-view"><b>Hourly view</b></a><br><sub>7 days, hour by hour</sub></td>
+    <td align="center"><img src="web/flash/img/extras.png" width="180" alt="Extras screen: date, sun arc from sunrise to sunset with the daylight length, UV index, moon phase and air quality"><br><a href="#extras"><b>Extras</b></a><br><sub>Sun, UV, moon, air quality</sub></td>
+    <td align="center"><img src="web/flash/img/status.png" width="180" alt="Status screen: firmware version, update channel, Wi-Fi signal, and each online service with a green dot and its response time"><br><a href="#status"><b>Status</b></a><br><sub>Version, Wi-Fi, online services</sub></td>
+    <td align="center"><img src="web/flash/img/settings.png" width="180" alt="Settings screen: dim when quiet, wake on pick-up, timing, temperature unit, and the brightness band along the bottom"><br><a href="#on-the-display"><b>Settings</b></a><br><sub>Press and hold any main screen</sub></td>
   </tr>
 </table>
+
+MeteoBus joins two earlier projects for the same board: the weather display
+([esp32-s3-weather](https://github.com/TheMonkeyz/esp32-s3-weather), which it started from, at v1.15.0) and the RTC
+bus display ([esp32-s3-rtcquebec](https://github.com/TheMonkeyz/esp32-s3-rtcquebec)).
 
 ## 🧰 What you need
 
@@ -70,23 +76,23 @@ Other ways:
   The release notes give the esptool commands: the full image for a first install (erases saved settings), or the
   separate parts for an update that keeps them.
 - On Windows, from your own build: see [Flashing on Windows](#flashing-on-windows).
-- Once installed (v1.3.0 and later), the display updates itself over Wi-Fi: see
-  [Updates over Wi-Fi](#-updates-over-wi-fi).
+- Once installed, the display updates itself over Wi-Fi: see [Updates over Wi-Fi](#-updates-over-wi-fi).
 
 If the computer can't find the board, hold **BOOT**, tap **RESET**, release **BOOT**, then try again.
 
 ## 📶 First-time setup
 
-1. Flash the firmware: the [web flasher](https://themonkeyz.github.io/esp32-s3-meteobus/) (tick *Erase device* the
-   first time; leave it unticked for updates to keep Wi-Fi and settings), or see
-   [Flashing on Windows](#flashing-on-windows). With no Wi-Fi saved, the screen shows **Wi-Fi setup** and a QR code.
+1. Install the firmware (see [Install](#-install)). With no Wi-Fi saved, the screen shows **Wi-Fi setup** and a QR
+   code.
 2. Scan the QR code to join the display's network **MeteoBus-Setup**. Its password is shown under the code: each
-   display has its own (since v1.12.0).
+   display has its own.
 3. The phone's **"Sign in to network"** page opens by itself (captive portal) and shows the setup page with the Wi-Fi
    section on top. If it doesn't, open **http://192.168.4.1**.
 4. The page scans automatically and lists nearby networks (strongest first, 🔒 = password needed). Tap yours, enter
    the password (**Show** reveals it while typing) and save. The display restarts and connects. **Scan again**
    refreshes the list.
+5. Then choose your place and add your bus stops on the settings page (see [Settings](#-settings)). Until
+   then the display shows Québec City's weather, and the buses screen says how to add stops.
 
 ### Wi-Fi without typing the password
 
@@ -103,43 +109,66 @@ page's *Password saved on your phone? Copy it* tip explains how to copy it: Sett
 ## 📱 Using it
 
 The main screens sit in a row: **Status · Extras · Weather · Buses**. From the weather screen, swipe **right** for
-the extras page (and right again for the status page), **left** for your bus stops. Tap the weather icon for the
-radar, a forecast day for the hourly view, and long-press for Settings.
+the extras page (and right again for the status page), **left** for your bus stops. Three screens open on top and
+close with a **sideways swipe**: the radar (tap the weather icon), the bus map (tap a stop's route badge) and the
+alert details (tap the pill at the bottom). **Press and hold** the weather screen or a stop page for Settings.
 
 ### Weather screen
 
 <img align="right" width="200" src="web/flash/img/weather.png" alt="Weather screen">
 
-Clock, city, icon and temperature, conditions, then feels-like, humidity (blue drop) and wind (wind mark). A line
-says when rain or snow starts or stops within 2 h ("Rain around 14:45"). Then the 3-day high/low with icons, and at
-the bottom a weather alert in a coloured pill (tap it for the details, swipe sideways to come back) or, without an alert, an update waiting. With
-both, the alert pill has a blue dot and the alert screen ends with **Update available**.
+Clock, place name, icon and temperature, conditions, then feels-like, humidity (blue drop) and wind (wind mark). A
+line says when rain or snow starts or stops within 2 h ("Rain around 14:45"). Then the 3-day high/low with icons. At
+the bottom, a pill shows a weather alert in its colour, or, without an alert, an update waiting (see
+[Weather alerts](#weather-alerts)).
 
 With several places, there is one page per place (dots on the right edge), each with its own local time.
 
 - **Drag up/down** to change place. The page follows the finger, snaps, and bounces at the first and last.
 - **Tap the weather icon** (it has a small radar badge) for the radar.
 - **Tap a day** of the forecast for its hourly view.
+- **Tap the pill** at the bottom for the alert's details or the update.
 - **Swipe right** for the extras page, **left** for your bus stops.
-- **Long-press** for the Settings screen.
+- **Press and hold** for the Settings screen.
 
 <br clear="right">
 
 ### Buses
 
-One page per favourite stop (add them on the phone's settings page, **My stops**), laid out like the weather screen:
-when it was updated, the clock, the stop's name and number, the route and the next departure in big, the direction,
-real time or scheduled, and the three departures after it. The stop on view is asked from the RTC every 30 s while
-the buses are on screen; the others every 5 minutes. The route's notices (a detour, a stop moved) show in an orange
-pill at the bottom.
+<img align="right" width="200" src="web/flash/img/stop.png" alt="Bus stop page">
 
-- **Drag up/down** to change stop.
-- **Tap the route badge** (it has a small map pin) for the bus map: the stop, the route's path and its buses on the
-  way. Swipe down or up to zoom; swipe sideways to go back (as on the radar).
-- **Tap the orange pill** for the route's notices (swipe sideways to come back).
-- **Swipe right** for the weather.
+One page per favourite stop, up to 8 (add them on the phone's settings page, **My stops**), laid out like the
+weather screen: when it was updated, the clock, the stop's name and number, the route badge and the next departure
+in big, the direction, whether that time is real time (the bus's GPS) or the schedule, and the three departures
+after it. The page also says when a departure is cancelled, when there are no more departures today, and when the
+stop isn't served for now (a detour, works) or is drop-off only.
 
-The departures come from the RTC's website (rtcquebec.ca), which has no public API: this is for personal use.
+The stop on view is asked from the RTC every 30 s while the buses are on screen; the others every 5 minutes. The
+route's notices (a detour, a stop moved) show in an orange pill at the bottom: tap it for the full text (RTC
+publishes it in French only).
+
+- **Drag up/down** to change stop (dots on the right edge).
+- **Tap the route badge** (it has a small map pin) for the [bus map](#bus-map).
+- **Tap the orange pill** for the route's notices; swipe sideways to come back.
+- **Swipe right** for the weather. **Press and hold** for Settings.
+
+With no stops yet, the screen says how to add them: press and hold, then **Location & more (phone)**.
+
+<br clear="right">
+
+### Bus map
+
+<img align="right" width="200" src="web/flash/img/busmap.png" alt="Bus map">
+
+The streets around the stop (OpenStreetMap), the route's path in its direction, the stop, and the route's buses on
+the way as small bus icons, refreshed every 20 s.
+
+- **Swipe down** to zoom in, **up** to zoom out (5 steps, from the neighbourhood to a few streets). The map grows or
+  shrinks under your finger at once; the sharper one replaces it a moment later, and the buses come back once it
+  is still.
+- **Swipe sideways** to go back to the stop (it also goes back by itself after 5 minutes untouched). Taps do nothing.
+
+<br clear="right">
 
 ### Hourly view
 
@@ -159,8 +188,9 @@ per hour: time, icon, temperature, chance of rain, wind. Today starts at the cur
 
 <img align="right" width="200" src="web/flash/img/radar.png" alt="Radar screen">
 
-The area around the location: a dimmed OpenStreetMap map, Environment Canada radar, lightning of the last
-10 minutes (yellow bolts), a range ring, the clock, and the radar time and radius.
+The area around the place shown: a dimmed OpenStreetMap map, Environment Canada radar, lightning of the last
+10 minutes (yellow bolts), a range ring, the clock, and the radar time and radius. The last 3 hours load in a few
+seconds after it opens.
 
 - **Tap** to play the last 3 h (15 frames, 3 fps), looping for a minute (new radar images join the loop). Tap again
   to stop.
@@ -193,8 +223,9 @@ Swipe right twice from the weather screen.
 - Firmware version, update channel and app slot.
 - Wi-Fi signal, IP address and uptime.
 - Every online service the display uses (Open-Meteo forecast and air quality, Environment Canada alerts and radar,
-  OpenStreetMap, GitHub Pages for updates, the time server), with a coloured dot, when it was last contacted, how
-  long it took, or why it failed. Opening the page checks any service not contacted in the last 5 min.
+  OpenStreetMap, the RTC, GitHub Pages for updates, the time server), with a coloured dot, when it was last
+  contacted, how long it took, or why it failed. Opening the page checks any service not contacted in the last
+  5 min.
 
 **Swipe left** to go back; drag to scroll.
 
@@ -202,56 +233,117 @@ Swipe right twice from the weather screen.
 
 ### Weather alerts
 
-Environment Canada watches, warnings, advisories and statements for the location: a pill in the alert colour
-replaces the city name (`+1` if there are more). The details show a map of the affected region on OpenStreetMap,
-until when, the area and the text.
+Environment Canada watches, warnings, advisories and statements for the place shown appear in a pill at the bottom
+of the weather screen, in the alert's colour (`+1` if there are more); the place name stays on top. Tap the pill for
+the details: a map of the affected region on OpenStreetMap, until when, the area and the text. Drag to scroll;
+swipe sideways to come back.
 
-**Tap the top half** of the weather screen for the details; drag to scroll; tap to close.
+When an update is also waiting, the alert keeps the pill and gets a small blue dot; the alert details then end with
+**Update available >**, which opens the update.
+
+A stop's orange notices pill opens the same screen, with the RTC's notices for that route.
 
 ### Alert sounds
 
 Warning beeps through the speaker when a new weather alert appears for the place shown: yellow 2 beeps, orange
-3 + 3, red a hi-lo siren. Each alert sounds once.
+3 + 3, red a hi-lo siren. Each alert sounds once. Choose which alerts sound, the volume and quiet hours (red still
+sounds) in [Settings](#-settings).
 
-Set the level (off / red / orange and red / all), the volume and quiet hours (red still sounds) on the settings page.
-The level, the volume and a test are also on the display's Settings screen.
+## 🔧 Settings
 
-### Settings on the display
+Every setting is saved at once and kept across updates. The display's Settings screen has the everyday ones; the
+settings page on your phone has all of them.
+
+### On the display
 
 <img align="right" width="200" src="web/flash/img/settings.png" alt="Settings screen on the display">
 
-**Long-press** the weather screen.
+**Press and hold** the weather screen or a stop page.
 
 - **Screen:** dim when quiet, wake on pick-up, timing (Short / Normal / Long), brightness.
 - **Units:** temperature, wind, clock, language (English / Français / ᐃᓄᒃᑎᑐᑦ).
-- **More:** the phone settings QR code, Wi-Fi network, check for updates, restart.
+- **Sound:** which alerts sound (off / red / orange and red / all), volume, a test.
+- **More:** **Location & more (phone)** (the QR code for the phone page), Wi-Fi network, updates, restart.
 
-Tap a row to switch or change it (saved at once, same settings as the phone page). Slide along the bottom band for
-brightness (it follows the finger). **Done** or swipe **right** to close. Restart needs two taps.
+Tap a row to switch or change it. Slide along the bottom band for brightness (it follows the finger). **Done** or a
+swipe **right** closes it, back to the screen it was opened from. Restart needs two taps.
 
 <br clear="right">
 
-### Settings page on your phone
+### On your phone
 
-A phone-friendly page, opened from the QR code and served over HTTPS. See
-[Changing settings later](#-changing-settings-later) for how to open it.
+Press and hold the display, tap **Location & more (phone)** and scan the QR code. Your phone must be on the same
+Wi-Fi. The phone warns that the certificate isn't trusted: that's expected, because the display signs its own
+certificate; choose *Advanced → Proceed*. The page is served over HTTPS, which is what allows **Use my phone's
+location**.
 
-- **Places:** up to 4; *Use my phone's location* (GPS), city search, a map, or manual lat/lon.
-- **Units:** language, °C/°F, wind in km/h, mph or m/s (miles on the radar with mph), 24- or 12-hour clock.
-- **Screen & presence:** live sound meter, calibration, delays, brightness, wake on pick-up.
+The code also carries the display's **key**: a page opened from it can change settings, and that phone remembers
+it. A page opened by typing the address shows the settings but asks you to scan the code before changing anything
+(see [Security notes](#-security-notes)).
+
+- **Places:** up to 4 (home, cottage, work...). Tap a place to change it (name, city search, tap the **map** or drag
+  the pin to the exact spot, or *Use my phone's location*), *Show* to put it on the display, or *＋ Add a place*. The
+  map needs internet on the phone. Everything weather follows the place shown: alerts, air quality, the hourly view,
+  extras and the radar. Every place's forecast is refreshed every 10 minutes, so it appears at once; the radar map is
+  cached for the first place only, so other places' maps load in a few seconds.
+- **My stops:** up to 8 bus stops. Enter the stop number (on the sign at the stop) and the route, tap *Find
+  directions*, pick the direction and *Add this stop*; the display asks the RTC first, so a route that doesn't stop
+  there in that direction is refused. *Move up* changes the order of the pages; *Remove* deletes one. The buses
+  don't follow the places: they are Québec City's, shown in Québec time.
+- **Units:** language, °C/°F, wind in km/h, mph or m/s (the radar's distances follow: miles with mph, km
+  otherwise), 24- or 12-hour clock. The display redraws at once.
+- **Screen & presence:** live sound meter, calibration, delays, brightness, wake on pick-up (see
+  [Presence dimming](#-presence-dimming)).
 - **Sound:** which alerts sound, volume, quiet hours, a test.
 - **Wi-Fi network:** scan, choose, password.
-- **Firmware:** version, Stable or Beta channel, check, what's new, install.
+- **Firmware:** version, Stable or Beta channel, check, what's new, install (see [Updates](#-updates-over-wi-fi)).
 
-Changing anything needs the display's key, which comes with the QR code (see [Security notes](#-security-notes)).
+### Wi-Fi: changing it, and when it can't connect
 
-### Presence dimming
+- **Change the network:** press and hold, then **Wi-Fi network**. The display starts **MeteoBus-Setup** alongside
+  its current connection and shows a QR code to join it; the sign-in page then opens on the phone as during
+  first-time setup. Tap the display to cancel; the setup network also switches off after 10 min. When the display is
+  offline, the first press and hold goes straight to the Wi-Fi setup QR code.
+- **When the saved network can't be reached** (new place, new router, router still starting after a power cut):
+  - While it says *Connecting to …* or *Fetching forecast…*, a **press and hold** starts the setup network and shows
+    its QR code.
+  - After about 30 s without a connection it shows the setup QR code by itself (*Can't reach … / Tap to try again*),
+    for 15 minutes. After that (a long outage) it stops opening the setup network by itself and just keeps trying
+    the saved one (*Still trying*); a press and hold still opens setup.
+  - While the setup screen is open, the display doesn't try the saved network: that would get in the way of the
+    phone. Tap the screen to try the saved network again (30 s), or wait: after 5 minutes without a phone on the
+    setup network it tries again by itself, then shows the setup screen again. If you save a new network instead, it
+    restarts and joins that one.
+- **Reset Wi-Fi from the buttons** (rarely needed): press **RESET**, then hold **BOOT** for about 2 s while the
+  screen says *Starting…*. Don't hold BOOT *while* pressing RESET, because that puts the chip into flashing mode.
+
+## 🌙 Presence dimming
 
 The microphones act as a presence sensor: quiet room → dim → screen off. Sustained sound (not a single bang), a
-touch, or picking the display up (motion sensor) → back on.
+touch, or picking the display up (motion sensor) → back on. It's set on the phone page's **Screen & presence** card
+(the display's Settings screen has the on/off switches and the timing).
 
-Configured on the settings page: timing, sound sensitivity, wake on pick-up (on/off, High/Normal/Low, with a live
-movement meter). How it works: [Presence dimming (microphones)](#-presence-dimming-microphones).
+The two onboard microphones measure the room's sound level every 0.1 s.
+
+- **Quiet** for *Dim after* → the screen dims. Quiet for *Turn off after* (total quiet time) → the screen turns off.
+- **Waking** from dim/off needs *Wake after* seconds of **sustained** sound. Sound fills a wake meter and silence
+  drains it at half speed, so talking with pauses wakes it but a door slam doesn't. Touching the screen always wakes
+  it; the touch that wakes a dark screen is ignored, so it doesn't also swipe or tap.
+- **Calibrate** on the settings page while the room is quiet: 5 s of measurement set the background level (90th
+  percentile). "Loud" means background + *Sensitivity* dB.
+- The settings card shows a live meter (orange mark = trigger level), the state (Active / Dimmed / Screen off), the
+  wake progress and the quiet timer, which is handy for tuning.
+- **Presets** (durations can be entered in s / min / h; editing any value switches to *Custom*):
+
+  | Preset | Dim after | Turn off after (total quiet) | Wake after |
+  |---|---|---|---|
+  | Testing | 10 s | 30 s | 2 s |
+  | Short | 2 min | 15 min | 2 s |
+  | **Normal** (default) | 10 min | 60 min | 3 s |
+  | Long | 30 min | 3 h | 3 s |
+
+  Other defaults: sensitivity 10 dB, brightness 100% / dimmed 15%. Defaults only apply when nothing is saved in NVS.
+- **Wake on pick-up:** on or off, High / Normal / Low, with a live movement meter on the page.
 
 ## 🌍 Languages
 
@@ -291,73 +383,13 @@ and there's a [French owner's guide](docs/guide.fr.md).
 > The Inuktitut text is a draft that no fluent speaker has reviewed yet, so some words may be wrong. See
 > [docs/translations/](docs/translations/).
 
-## 🔧 Changing settings later
-
-- **Quick settings on the display:** long-press the weather screen (see
-  [Settings on the display](#settings-on-the-display)). Places, the Wi-Fi password, custom timings and sound
-  calibration are on the phone page.
-- **Location:** long-press the weather screen, tap **More on your phone**, scan the QR code and open the page. Your
-  phone must be on the same Wi-Fi. The code also carries the display's **key**: a page opened from it can change
-  settings, and that phone remembers it. A page opened by typing the address shows the settings but asks you to
-  scan the code before changing anything. The phone will warn that the certificate isn't trusted. That's expected, because
-  the display signs its own certificate; choose *Advanced → Proceed*. HTTPS is what allows **Use my phone's
-  location**. Location changes apply immediately: the map and radar reload within seconds.
-- **Places:** up to 4 (home, cottage, work...), in the **Places** card of the same page. Tap a place to change it
-  (name, city search, or tap the **map** / drag the pin to the exact spot, or use the phone's location), *Show* to
-  put it on the display, or *＋ Add a place*. The map needs internet on the phone. On the display, drag up or down on
-  the weather screen to change place. Everything follows the place shown: alerts, air quality, the hourly view,
-  extras and the radar. Every place's forecast is refreshed every 10 minutes, so it appears at once; the radar map is
-  cached for the first place only, so other places' maps load in a few seconds.
-- **Language:** English, French or Inuktitut; see [Languages](#-languages).
-- **Units:** on the same page, the **Units** card: temperature (°C/°F), wind (km/h, mph, m/s; the radar's distances
-  follow: miles with mph, km otherwise) and clock (24-hour or 12-hour). The display redraws at once.
-- **Wi-Fi:** long-press the weather screen, then tap **Wi-Fi network**. The display starts **MeteoBus-Setup**
-  alongside its current connection and shows a QR code to join it. The sign-in page then opens on the phone as
-  during first-time setup. Tap the display to cancel; the setup network also switches off after 10 min. When the
-  display is offline, the first long-press goes straight to the Wi-Fi setup QR code.
-- **When the saved network can't be reached** (new place, new router, router still starting after a power cut):
-  - While it says *Connecting to …* or *Fetching forecast…*, a **long-press** starts the setup network and shows its
-    QR code.
-  - After about 30 s without a connection it shows the setup QR code by itself (*Can't reach … / Tap to try again*),
-    for 15 minutes. After that (a long outage) it stops opening the setup network by itself and just keeps trying the
-    saved one (*Still trying*); a long-press still opens setup.
-  - While the setup screen is open, the display doesn't try the saved network: that would get in the way of the
-    phone. Tap the screen to try the saved network again (30 s), or wait: after 5 minutes without a phone on the
-    setup network it tries again by itself, then shows the setup screen again. If you save a new network instead, it
-    restarts and joins that one.
-- **Reset Wi-Fi from the buttons** (rarely needed now): press **RESET**, then hold **BOOT** for about 2 s while the
-  screen says *Starting…*. Don't hold BOOT *while* pressing RESET, because that puts the chip into flashing mode.
-
-## 🌙 Presence dimming (microphones)
-
-The two onboard microphones measure the room's sound level every 0.1 s.
-
-- **Quiet** for *Dim after* → the screen dims. Quiet for *Turn off after* (total quiet time) → the screen turns off.
-- **Waking** from dim/off needs *Wake after* seconds of **sustained** sound. Sound fills a wake meter and silence
-  drains it at half speed, so talking with pauses wakes it but a door slam doesn't. Touching the screen always wakes
-  it; the touch that wakes a dark screen is ignored, so it doesn't also swipe or tap.
-- **Calibrate** on the settings page while the room is quiet: 5 s of measurement set the background level (90th
-  percentile). "Loud" means background + *Sensitivity* dB.
-- The settings card shows a live meter (orange mark = trigger level), the state (Active / Dimmed / Screen off), the
-  wake progress and the quiet timer, which is handy for tuning.
-- **Presets** (durations can be entered in s / min / h; editing any value switches to *Custom*):
-
-  | Preset | Dim after | Turn off after (total quiet) | Wake after |
-  |---|---|---|---|
-  | Testing | 10 s | 30 s | 2 s |
-  | Short | 2 min | 15 min | 2 s |
-  | **Normal** (default) | 10 min | 60 min | 3 s |
-  | Long | 30 min | 3 h | 3 s |
-
-  Other defaults: sensitivity 10 dB, brightness 100% / dimmed 15%. Defaults only apply when nothing is saved in NVS.
-
 ## 🔄 Updates over Wi-Fi
 
-From **v1.3.0**, the display updates itself from the [web flasher site](https://themonkeyz.github.io/esp32-s3-meteobus/):
+The display updates itself from the [web flasher site](https://themonkeyz.github.io/esp32-s3-meteobus/):
 
 - It checks a minute after starting and then every 6 hours. When a newer version exists, a blue **Update vX.Y.Z**
-  pill appears at the bottom of the weather screen. Tap it to see **what's new** since your version, then
-  **Install**. It downloads, restarts, and keeps all settings. Nothing installs without you asking.
+  pill appears at the bottom of the weather screen (with a weather alert showing, the alert keeps the pill and gets a
+  blue dot). Tap it to see **what's new** since your version, then **Install**. It downloads, restarts, and keeps all settings. Nothing installs without you asking.
 - The settings page has a **Firmware** card: installed version, **Updates: Stable releases / Beta (release
   candidates)**, *Check for updates*, what's new, and *Install*, with a progress bar.
 - **Beta** follows the flasher's Beta channel (`vX.Y.Z-rc.N` tags) and falls back to Stable when there's no newer
@@ -368,8 +400,10 @@ From **v1.3.0**, the display updates itself from the [web flasher site](https://
   Wi-Fi (ten minutes without Wi-Fi); if it restarts before that (crash, boot loop, power cut), the display goes back
   to the previous version by itself and says so on its update screen. A restart asked for during that minute waits
   for it.
-- **Coming from v1.2.0 or earlier:** flash v1.3.0+ once over USB (web flasher, *Erase device* unticked; settings are
-  kept). It switches to a flash layout with two firmware slots; the stored radar maps download again.
+- **Coming from the weather display** ([esp32-s3-weather](https://github.com/TheMonkeyz/esp32-s3-weather)): it
+  updates from its own site, so it never offers MeteoBus. Install MeteoBus once over USB with the web flasher. With
+  *Erase device* unticked it reads the weather display's saved Wi-Fi and settings (it started as that firmware's
+  v1.15.0, with the same flash layout); if anything looks wrong, install again with it ticked.
 
 What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 
@@ -387,13 +421,23 @@ What changed in each version: [CHANGELOG.md](CHANGELOG.md).
   afterwards. If you open the radar before it's done, a "Preparing maps" panel shows the progress. The radar screen
   credits OpenStreetMap and ECCC; the alert details' map credits OpenStreetMap.
 
+- Buses: the [RTC](https://www.rtcquebec.ca) (Réseau de transport de la Capitale, Québec City), from its website's
+  API (`api-iv.rtcquebec.ca`: departures, routes, the buses' positions and the routes' paths) and its notices on
+  rtcquebec.ca. The RTC has no public API, and this one is undocumented and may change: this is for personal use.
+  The display asks for one stop at a time, at the pace given under [Buses](#buses). The bus map's streets are
+  OpenStreetMap tiles (zoom 13–17), downloaded while the map is open and not stored.
+
 In short: the forecast works anywhere in the world; the radar covers Canada and the northern US border region;
-weather alerts and lightning cover Canada (lightning up to about 250 km beyond).
+weather alerts and lightning cover Canada (lightning up to about 250 km beyond); the buses are Québec City's RTC
+only.
 
 ## 💻 For developers
 
-Built with **ESP-IDF v5.5.4** (the version CI uses) and **LVGL 9.2.2**. How the pieces fit together:
+Built with **ESP-IDF v5.5.4** (the version CI uses) and **LVGL 9.2.2**, on the
+[espforge](https://github.com/TheMonkeyz/espforge) framework. How the pieces fit together:
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). How changes are tested on the board: [docs/TESTING.md](docs/TESTING.md).
+All the docs: [docs/README.md](docs/README.md). The firmware's screens also run in a browser, compiled to
+WebAssembly: [web/emu/](web/emu/README.md).
 
 ### On a Mac
 
@@ -465,10 +509,10 @@ Releasing a new version: first add a section to [`CHANGELOG.md`](CHANGELOG.md) (
 between its version and the offered one before installing.
 
 ```
-git tag v1.1.0-rc.1                # on the changelog commit; test it from the Beta channel first
-git push origin main v1.1.0-rc.1
-git tag v1.1.0                     # on the stable changelog commit, once it's good
-git push origin v1.1.0
+git tag v0.3.0-rc.1                # on the changelog commit; test it from the Beta channel first
+git push origin main v0.3.0-rc.1
+git tag v0.3.0                     # on the stable changelog commit, once it's good
+git push origin v0.3.0
 ```
 
 - Tags are lightweight. Among pre-releases only `-rc.N` is ordered (by N); other suffixes count below every rc of
@@ -477,13 +521,12 @@ git push origin v1.1.0
 - Protect the tags: a repository ruleset on `v*` that only the owner may create or move (a tag is a release, and
   the displays install what it builds).
 
-- The version is `git describe --tags --always` (e.g. `v1.0.0`, `v1.0.0-3-g1a2b3c4` or just a commit hash before
+- The version is `git describe --tags --always` (e.g. `v0.2.0`, `v0.2.0-3-g1a2b3c4` or just a commit hash before
   the first tag). CI writes it to `version.txt`, which ESP-IDF uses as the app version. It appears in the boot log
   (`diag: firmware …`), at the bottom of the settings page and on the flasher page.
 - Release assets: `bootloader.bin`, `partition-table.bin`, `ota_data_initial.bin`, `meteobus-<version>.bin`
   (updates keep settings), `meteobus-<version>-full.bin` (merged, flash at 0x0; erases settings) and
-  `flash-parts.json` (offsets and version, used to build the flasher). v1.0.0 predates `flash-parts.json`; the site
-  builder falls back to the standard file names and offsets for it.
+  `flash-parts.json` (offsets and version, used to build the flasher).
 - The flasher page is `web/flash/index.html` ([ESP Web Tools](https://esphome.github.io/esp-web-tools/)).
   `tools/make_flasher_site.py` has two steps: `dist` turns a build into release files, `site` assembles the page
   with `stable/` and `beta/` folders (each with its images and an ESP Web Tools `manifest.json`), `channels.json`,
@@ -529,10 +572,17 @@ main/
   main.c        boot flow, weather refresh loop, reacts to location changes
   display.c     CO5300 QSPI panel driver + LVGL display port (flush, rounder, LVGL task + mutex, raw frames)
   touch.c       CST9217 I2C touch -> LVGL pointer
-  ui.c          weather screen, hourly view, message/QR screens, settings overlay, swipe handling
+  ui.c          weather screen, hourly view, bus stop pages, bus map, alert screen, message/QR screens, settings
+                overlay, swipe handling
   slide.c       moves between screens, places and days, and list scrolls, drawn from pictures (follow the finger, ~60 fps)
   pager.c       full-screen pages (places, days)
-  radar.c       radar screen: basemap tiles + flash cache, GeoMet frames, animation
+  radar.c       radar screen: basemap tiles + flash cache, GeoMet frames, animation; its task also runs the buses'
+                requests and draws the bus map in its idle time (radar_set_side_work, radar_osm_render)
+  departures.c  the favourite stops' departures, the routes' notices, the map's buses and path (RTC), polling rules
+  rtc_api.c     the RTC's website API: request URLs and reply parsing (host-tested)
+  favs.c        the favourite stops in NVS
+  bus_routes.c  the settings page's /api/favs and /api/route (My stops)
+  netq.c        who is downloading now (the buses wait for the others); Wi-Fi power save off while a map is open
   weather.c     Open-Meteo fetch/parse, WMO code -> text/icon
   alerts.c      Environment Canada weather alerts (MSC GeoMet OGC API)
   routes.c      the settings page's app routes (places, units, sound) and the snapshot hook
@@ -541,7 +591,8 @@ main/
   imu.c         QMI8658 motion sensor (wake on pick-up)
   sound.c       alert beeps through the speaker (ES8311, shares I2S with the microphones)
   i18n.c        the display's texts (i18n_strings.h: English, French, Inuktitut) and the Inuktitut language
-  services.c    the outside services (forecast, air, alerts, radar, tiles) for the status page, their texts
+  services.c    the outside services (forecast, air, alerts, radar, tiles) for the status page, their texts (the RTC's
+                is registered by departures.c)
   console.c     the display's test console commands (simulated touches, fps, pictest...), render bench, "diag: display"
   lvgl_mem.c    LVGL's allocator, in PSRAM (keeps internal RAM for Wi-Fi, DMA and stacks)
   web/index.html  settings page (embedded)
@@ -554,12 +605,16 @@ main/idf_component.yml  LVGL, the audio codec, and espforge's components at a re
                 network and captive portal, Easy Connect, the HTTPS settings server, service health, the per-device
                 certificate), forge_ota (updates over Wi-Fi, rollback), dns_server, forge_presence (screen dimming by
                 presence, since v1.15.0): github.com/TheMonkeyz/espforge
+docs/README.md        an index of the docs
 docs/ARCHITECTURE.md  how the pieces fit together, memory budget, known issues
+docs/MERGE-PLAN.md    how the weather and bus displays were merged (the agreed UI and memory plan)
+docs/MACOS.md         working on a Mac
 docs/DIAGNOSTICS.md   how to measure memory/CPU/render speed, reference numbers, findings
 docs/TESTING.md       how changes are tested on the board: test builds, flash helper, logs, screenshots
 docs/IDEAS.md         feature ideas / backlog
 docs/guide.fr.md      French owner's guide: this README's owner sections, translated (Canadian French)
-docs/HISTORY.md       how the project grew, how the work is done, lessons and open threads (start here)
+docs/HISTORY.md       how the project grew (the weather display's history, then MeteoBus), how the work is done,
+                      lessons and open threads (start here)
 docs/translations/    Inuktitut draft: iu.tsv (the source) and the review sheet
 docs/img/hero.png     the picture at the top of this README (tools/make_hero.js)
 tools/diag_summary.py summarises the diag: lines of serial_log.txt
@@ -572,7 +627,9 @@ tools/harness/        the whole display tested without a person (screens, page, 
 tools/make_flasher_site.py  release files (dist) and the web-flasher site with Stable/Beta channels (site)
 web/flash/            web flasher page (ESP Web Tools) + screenshots
 web/flash/img/        screenshots of the screens, used by the flasher page and this README
-tests/host/           host unit tests of firmware C code (gcc, Linux or WSL: make -C tests/host); see docs/TESTING.md
+tests/host/           host unit tests of firmware C code, the RTC's parsing included (gcc, Linux or WSL: make -C
+                      tests/host); see docs/TESTING.md
+web/emu/              the display in the browser (WebAssembly), shown on the flasher site
 .github/workflows/firmware.yml  CI: build, board-free tests, GitHub Pages flasher, releases
 .github/dependabot.yml          update proposals for the pinned actions and test tools
 flash.bat             Windows: flash firmware\*.bin over USB, then log (COM port auto-detected)
@@ -588,15 +645,15 @@ CLAUDE.md       notes for AI-assisted development sessions
 ## 🔒 Security notes
 
 - **Who can change settings.** The settings page shows the settings to anyone on your Wi-Fi, but changing them
-  (places, units, sound, presence, the saved Wi-Fi network, updates) needs the display's **key**, which only the
+  (places, bus stops, units, sound, presence, the saved Wi-Fi network, updates) needs the display's **key**, which only the
   settings QR code on the display carries: being able to see the display is the permission. The key is random,
   made on each board at its first start. The API answers changes only over HTTPS on your network, only to requests
   that name the display itself (no DNS rebinding) and only as JSON with the key header, which a web page from
-  another site can't send. Before v1.12.0 anyone on the network could change everything, the saved Wi-Fi included.
+  another site can't send. The list of favourite stops can be read without the key.
 - **The setup network** (*MeteoBus-Setup*) has a password of its own on each display, shown on the display, and uses
   WPA2/WPA3. On it no key is needed (seeing the password is the permission), but it doesn't hand out the places'
   coordinates, the saved network's name or screenshots. It opens by itself for 15 minutes when the saved network is
-  unreachable, then only on a long-press.
+  unreachable, then only on a press and hold.
 - **Updates** come over HTTPS from the project's GitHub Pages site, checked for integrity (SHA-256) and project
   name, but not signed: whoever controls the GitHub account can publish firmware, so keep two-factor
   authentication on it.
@@ -604,8 +661,8 @@ CLAUDE.md       notes for AI-assisted development sessions
   to 2099) and kept in NVS (unencrypted, as are the Wi-Fi password and the key: anyone with the board and a USB
   cable can read them). Browsers warn once because it's self-signed; the certificate name includes the end of the
   board's MAC address. Erasing the flash creates a new one (accept the warning again).
-- Very early versions embedded a shared test key from `main/certs/`; no release used it, and it remains only in the
-  git history of the first commit.
+- The bus data is the RTC's, read from its website's undocumented API for personal use (see
+  [Data sources](#-data-sources)); the display sends nothing about you to the RTC beyond the stops it asks about.
 
 ## 📄 License
 

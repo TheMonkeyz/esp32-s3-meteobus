@@ -7,20 +7,25 @@ as a copy of its v1.15.0, with a fresh history) and the RTC bus display
 agreed design (UI flow, harmonized page template, memory budget, step order) is in **`docs/MERGE-PLAN.md`**; read it
 before working on the merge. Everything below came with the weather display, and its lessons still hold here.
 
-### MeteoBus so far (v0.2.0, 2026-10-09)
+### MeteoBus so far (v0.2.0-rc.3, 2026-10-10)
 
 - **Done, as docs/MERGE-PLAN.md says:** row status | extras | weather | buses; the radar opens from the weather icon
   (badge), the bus map from a stop's route badge (pin); alerts in the bottom pill (alert first, a dot when an update
   waits); the stop pages on the weather page's slots. ARCHITECTURE.md, "Buses", has how it works.
-- **Where it differs from the plan:** the radar closes with a sideways swipe or 5 min untouched, not a tap (its tap
-  plays the last 3 h). The bus map draws its tiles with the radar's `radar_osm_render()` (no espforge bump to v0.5.0
-  for forge_map: forge_map keeps its pictures for good, the plan wants them freed when the map closes).
+- **Where it differs from the plan** (the whole list: docs/MERGE-PLAN.md, Status): the radar closes with a sideways
+  swipe or 5 min untouched, not a tap (its tap plays the last 3 h). The alert screen and the bus map ignore taps (the
+  alert screen but its "Update available >" row): back is a sideways swipe everywhere (the user, 2026-10-10). No
+  "Bus stops" row in Settings: stops are chosen on the phone's *My stops* card. A long-press opens Settings on the
+  stop pages too. The bus map draws its tiles with the radar's `radar_osm_render()` into up to two 434 KB pictures,
+  the second at the first zoom (no espforge bump to v0.5.0 for forge_map: forge_map keeps its pictures for good, the
+  plan wants them freed when the map closes).
 - **Lessons from the merge** (also in espforge's docs/BACKLOG.md):
   1. A screen opened on top (not a row neighbour) has no picture ready: `slide_screen()` forced a new 434 KB buffer
      and PSRAM's low point fell to 268 KB (floor 300). `slide.c` now reuses the least useful one.
   2. A second poller (`deps`) cost internal RAM: its TLS download overlapped the place switch's (low point 17 KB,
-     floor 25; place switch 29, floor 36). It now waits for the weather loop's, the radar's and the bus map's downloads
-     (`netq.c`). Its stack went to PSRAM for a while (v0.2.0-rc.7..11) and the task once stopped for good in the middle
+     floor 25; place switch 29, floor 36). It now waits for the weather loop's and the radar's downloads (`netq.c`; the
+     bus map is drawn by the same task). Its stack went to PSRAM for a while (v0.2.0-rc.7..11, test-build labels before
+     rc.1 was published) and the task once stopped for good in the middle
      of a request after ~10 of them (no timeout, no log): TLS stays on internal stacks here (only `radar_dec`, which
      only decodes, runs off PSRAM). Back on an internal stack, internal RAM failed its floors (18 / 33 KB), so since
      rc.13 there is no `deps` or `busmap` task: the radar task runs the buses' work in its idle time
@@ -29,8 +34,9 @@ before working on the merge. Everything below came with the weather display, and
      showed only "…", with a content height it wrapped.
   4. Two more internal-RAM costs the merge found (place switch 35 -> 44 KB once fixed): the bus code's static arrays
      (`ent[]`, the `static dep_entry_t e` copies, `sp[]`) were internal `.bss` (lesson 21(k) again: `EXT_RAM_BSS_ATTR`);
-     and `deps` at rtcquebec's priority 4 kept the test console silent for 15 s after a place switch: it runs at 2
-     now, below the console, the radar and the web server.
+     and `deps` at rtcquebec's priority 4 kept the test console silent for 15 s after a place switch. There is no
+     `deps` task now (lesson 2): the work runs in the radar task's idle time (`radar_set_side_work`, core 0, priority
+     3: the console's, below LVGL and the web server), one request at a time, never above the console.
   5. `radar_history_s` depends on the evening's rain and network: an A/B on 2026-10-09 gave 8.2 s on the unchanged
      weather firmware (v0.1.0-rc.2) and 7.2-7.8 s on v0.2.0, both over the 7.0 limit. A/B before blaming a change.
   6. Inuktitut for the bus texts are drafts (low confidence, docs/translations/iu.tsv): the page's Inuktitut test
@@ -90,9 +96,11 @@ October 4).
   managed_components, or `python tools/fetch_forge.py` (clones the pinned tag into `.espforge/`).
 - **What stays here:** display, touch, `slide.c` (larger than espforge's trimmed fork: port ideas, not the file), pager,
   lvgl_mem, imu, audio (I2S0 and the ES7210: forge_presence's microphone hooks, the speaker's data interface), sound,
-  ui, radar, weather, alerts, config, and the app's glue: `routes.c` (the settings
-  page's app routes), `console.c` (the display's console commands, "where", "diag: display"), `services.c` (the five
-  outside services, their probe URLs, the reasons' texts), `i18n.c` (the texts, Inuktitut's descriptor). Kconfig
+  ui, radar, weather, alerts, config, the buses (MeteoBus: `departures.c` the RTC's polling, `rtc_api.c` its
+  replies, `favs.c` the favourites in NVS, `bus_routes.c` `/api/favs` and `/api/route`, `netq.c` who is downloading
+  and Wi-Fi power save), and the app's glue: `routes.c` (the settings page's app routes), `console.c` (the display's
+  console commands, "where", "diag: display"), `services.c` (the weather's five outside services, their probe URLs,
+  the reasons' texts; the RTC's is registered by `departures.c`), `i18n.c` (the texts, Inuktitut's descriptor). Kconfig
   `CONFIG_FORGE_*` in `sdkconfig.defaults` keep the display's names (MeteoBus-Setup, the certificate, the User-Agent,
   the update site).
 - **A fix to shared code** is made in espforge: test it with this app first (`python tools/forge_local.py`: a build

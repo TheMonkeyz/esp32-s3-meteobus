@@ -4,6 +4,9 @@ How a change gets built, flashed, observed and shown before it is called done. E
 board (log, snapshot, or both). The Windows PC drives the board on its USB serial port (COM5 on the dev PC); the
 board is on the home network. `<ip>` below is the display's address (`net: Connected, IP …` in the log).
 
+Most of this file came with the weather display (esp32-s3-weather): versions written v1.x are its releases and dates
+before 2026-10-09 its history. MeteoBus's releases are v0.x; what is new for the buses is marked "MeteoBus".
+
 ## 1. Build
 
 | Where | ESP-IDF | Components | Use |
@@ -15,14 +18,16 @@ board is on the home network. `<ip>` below is the display's address (`net: Conne
 Test build on the PC, in its own folder so the repo's `sdkconfig` is never touched (PowerShell):
 
 ```powershell
-Set-Content version.txt "v1.4.0-status.3" -NoNewline -Encoding ascii   # label; git-ignored
+Set-Content version.txt "v0.2.1-power.1" -NoNewline -Encoding ascii   # label; git-ignored
 (Get-Item CMakeLists.txt).LastWriteTime = Get-Date                      # version.txt is read at configure time
 . C:\Espressif\esp-idf\export.ps1
 idf.py -B build\v55 -D SDKCONFIG=build\v55\sdkconfig build
 ```
 
-- **Label test builds above the current stable release** (`v1.4.0-name.N` while v1.3.1 is out). A lower label is
-  offered the stable release as an update. Delete `version.txt` when done, or later builds keep the label.
+- **Label test builds above the current release** (MeteoBus, 2026-10-10: no stable release yet, the board on the
+  Beta channel, the newest release candidate v0.2.0-rc.3: label the next work `v0.2.1-name.N`). A lower label is
+  offered that release as an update. Delete `version.txt` when done, or later builds keep the label. (Weather-era
+  example: `v1.4.0-name.N` while v1.3.1 was out.)
   **And above a published release candidate** when the board is on the Beta channel: `v1.14.2-ram.1` (a test label
   counts below any rc of its version) was offered v1.14.2-rc.1 during a harness run, and the offer arriving in the
   middle of `perf`'s place drags (release notes, the update row) made the drag back wait for a picture (177 ms,
@@ -100,11 +105,16 @@ python tools/snapshot.py <ip> weather out.png
 python tools/snapshot.py <ip> weather --key <key>   # the key: see §1 (else $WEATHER_KEY, else the harness's file)
 ```
 
-- Screens: `weather`, `extras`, `status`, `radar`, `update`, `alert`, `settings`, `hourly0`…`hourly6` (the hourly view of that
-  day, list scrolled to the top; unchanged if the view is open), `current` (the one shown). For text-fit checks of
-  screens a test can't safely open: `settings1`…`settings3` (the Settings list scrolled down by one screen each),
-  `phone` (the settings-page QR overlay), `setup0` / `setup1` (the Wi-Fi setup pages, texts only: no access point or
-  Easy Connect is started; the QR is blank).
+The environment variable is still called `WEATHER_KEY` (`tools/snapshot.py`), a name kept from the weather display.
+
+- Screens: `weather`, `extras`, `status`, `radar`, `update`, `alert`, `settings`, `hourly0`…`hourly6` (the hourly
+  view of that day, list scrolled to the top; unchanged if the view is open), `current` (the one shown). MeteoBus:
+  `stop`, `stop2`…`stop8` (a stop's page, shown or not; as many as there are favourites), `busmap` (the bus map;
+  only meaningful while it is open: its pictures exist only then). For text-fit checks of screens a test can't
+  safely open: `settings1`…`settings3` (the Settings list scrolled down by one screen each), `phone` (the
+  settings-page QR overlay), `setup0` / `setup1` (the Wi-Fi setup pages, texts only: no access point or Easy Connect
+  is started; the QR is blank), `setup1fail` (the Easy Connect page after a failed attempt). For tests: `picture`
+  (slide.c's picture of the screen shown, §6).
 - Outside the round panel is tinted red, so anything the circle cuts off stands out (`--square` to skip).
 - The IP is in the log: `web: Settings page: https://<ip>/`. Each capture logs `web: snapshot <name> 466x466 sent`.
 - It shows the screen's state, not what a person would see after interacting. For example, the status page's checks
@@ -134,6 +144,28 @@ python tools/snapshot.py <ip> weather --key <key>   # the key: see §1 (else $WE
     {"lang":"fr"}` (a code, not a number), ~20 s for the refetch, snapshot, put the language back. Done October 4
     with "Wreckhouse wind warning" (Channel-Port aux Basques, 47.5745,-59.13).
   - The harness's `alert_layout` checks the layout without an alert (console `alert sample`, §6).
+- **Buses (MeteoBus):**
+  - **Favourites first.** Without any, the buses screen shows "No stops yet" and the harness's bus tests
+    (`buses_screen`, `bus_map`, `stop_on_view_every_30s`) pass with a note, checking nothing. Add some from the PC
+    (the list is replaced whole; each new stop is checked with the RTC, so the display must be online):
+    ```python
+    b.api('/api/favs', {'favs': [{'stop': '1025', 'route': '800', 'dir': '0'}]})   # {'ok': True} or why not
+    ```
+    (`b` is a harness `Board`, §6; `/api/route {"route":"800"}` lists a route's direction codes.) Or the phone's
+    *My stops* card. Put the user's list back after (`GET /api/favs` first).
+  - **The RTC's replies** are in the log: `deps: GET /BorneVirtuelle_ArretParcours?noArret=…: 200, N B in N ms`
+    (status 0 = no answer, -1 = a reply that didn't parse, 404 = nothing by that number), `deps: route 800: N
+    notice(s)`, `deps: route 800/0 path: …`. The status page's "RTC" row shows the last outcome. The service is
+    undocumented: when a reply changes shape, add the new one to `tests/host/data/` and a case to
+    `test_rtc_api.c` (§7).
+  - **The bus map and the radar take turns in PSRAM:** open one, close it, open the other; each logs that its
+    pictures were freed (`ui: bus map: closed, pictures freed`). The harness's `bus_map` checks the free PSRAM with
+    the map open (`psram_kb.bus_map`) and that the picture cache let some go (`slide: N picture(s) let go`).
+  - **The polling must not stop:** `buses: the RTC fetch task has been stuck for N s` (`bus_tick`, when
+    `deps_step()` hasn't run for 60 s outside the radar) fails the harness (`stop_on_view_every_30s`). It is the
+    radar task's idle work now; a v0.2.0-rc.11 test build with the old `deps` task's stack in PSRAM stopped for good.
+  - Snapshots of every stop (`stop`, `stop2`…) in English, French and Inuktitut: direction names and the "what's
+    wrong" lines ("Route N doesn't stop here in this direction") are the long ones.
 - **Presence (dim / off / wake):** shorten the delays through the API for the test
   (`POST /api/presence {"dim_s":10,"off_s":20}`), have the user stay quiet and still, then restore the values read
   from `GET /api/presence` beforehand. Look for `presence: ACTIVE -> DIM`, `DIM -> OFF`, `picked up / moved`.
@@ -187,9 +219,10 @@ npx playwright install chromium  # first time
 npm test
 ```
 
-- `mock-server.js` serves the real page and answers `/api/*` like `web.c`, with the state in memory
-  (`POST /__reset`, `GET /__state` for the tests). Started by `playwright.config.js` on port 8099. Keep it in step
-  with `web.c` (and espforge's `presence_web.c` for `/api/presence` / `/api/calibrate`) when an API changes.
+- `mock-server.js` serves the real page and answers `/api/*` like the firmware (espforge forge_net's `web.c`,
+  `routes.c`, `bus_routes.c`), with the state in memory (`POST /__reset`, `GET /__state` for the tests). Started by
+  `playwright.config.js` on port 8099. Keep it in step with them (and espforge's `presence_web.c` for
+  `/api/presence` / `/api/calibrate`) when an API changes.
 - `tests/fixtures.js` answers the outside services locally, so runs are repeatable and need no internet: Leaflet
   from `node_modules/leaflet` (same version and integrity hashes as the page), a grey tile for OpenStreetMap, fixed
   answers for the city search and reverse geocoding. The `noInternet` option makes every outside request fail (a
@@ -211,6 +244,15 @@ npm test
   'noisy'}` ends it as a noisy room: the previous level kept), no verdict for one the page didn't see, a refusal
   (`{"ok":false,"why":"no_mic"}`), a save the display couldn't keep (`POST /__presence {not_saved: true}`: `"ok":false`),
   and the verdicts in French and Inuktitut.
+- The other specs (`tools/webtest/tests/`, 2026-10-10): `settings.spec.js` (the page loads with the display's
+  settings, a unit change is saved, wake on pick-up and its sensitivity, the "Testing" timings only with `?test`, what
+  the Beta channel means); `places.spec.js` (add from the city search or a map tap, edit, cancel, show, delete, a name
+  too long, no Add with 4 places, a phone without internet, the `review:` shot); `key.spec.js` (the key from the QR
+  kept and sent, a change refused without it, a refused Wi-Fi save, 32-character network names, the setup network
+  without a key); `sound.spec.js` (the Sound card, and in French); `stops.spec.js` (MeteoBus, *My stops*: add a stop
+  with its directions from the display, reorder and remove, the RTC's refusals explained (unknown route, stop not
+  served, RTC down, bad input, a duplicate), French, adding one on the setup network). The mock answers
+  `/api/favs` and `/api/route` as `bus_routes.c` does.
 - Every test saves a full-page screenshot in `tools/webtest/shots/`; the `review:` test saves the Places card (list
   and editor) for design review. Look at them before flashing a page change.
   Shots go through `reviewShot()` (`tests/fixtures.js`): a
@@ -252,14 +294,24 @@ the window at the end.
 | Suite | What it proves |
 |---|---|
 | `smoke` | console answers, firmware version, Wi-Fi up, settings API |
-| `navigation` | swipes and taps land on the right screen (weather ↔ extras ↔ status, radar, Settings by long-press, hourly by tapping a day); the ends bounce back, a short slow drag snaps back; places (from the first place: drag up / down, the first one bounces) and hourly days (left / right) change by one (`page`); snapshot of every screen incl. `settings1..3`, `phone`, `setup0/1`, `update`; `hourly_touches`: three quick short flicks scroll the hours list, and a day swipe made while it coasts changes the day; `alert_layout`: the alert screen with long titles in English, French and the longest a name can be (console `alert sample`), the column under a two-line title starts below it (snapshots `alert_en/fr/max.png`); `scroll_other_languages`: Settings scrolled down and back in French and Inuktitut, with a flick and with a slow 2.5 s drag (every label comes in a row at a time: deterministic where the flick missed one time in four), `pictest` after each (the language is put back); a miss at the end of a scroll can depend only on where the list stops (a label just past the edge it left: one position in ~60 on the board, CLAUDE.md lesson 29): to reproduce one, aim scrolls at that end position, correcting the drag length by each miss of the target; `easy_connect_fail_text`: snapshot `setup1fail` (the Easy Connect page after a failed attempt) in English, French and Inuktitut: two lines of text, none outside the round panel |
-| `web` | the Playwright suite (`tools/webtest`) and the live API on the board; the page must arrive whole; who may change things (`main/web.c`): 403 for a POST over plain HTTP, 302 to the device itself, 401 without or with a wrong key, 415 for a non-JSON POST, 421 for another Host, 401 for a snapshot without the key, 200 with it |
-| `perf` | boot stage times and internal RAM, heap low points, full-screen render bench (best of 3), radar first frame and lightning, frame rate of each move (`fps`: screen to screen, places, days, the hourly list and Settings scrolling; for drags also `drag_fps` and `drag_start_ms` from slide.c's log line, a place drag back 2 s after a switch, and a place drag 0.8 s after new data: console `dirty`); internal RAM's low point over that switch there and back (`memlow`, `internal_min_kb.place_switch`); compared with `tools/harness/baseline.json`. The radar animation plays at 3 fps by design: not measured. `alert_active`: a real alert on the first place (a point under an alert in force, from Environment Canada's API on the PC; console `alert at`), then its region map, snapshots of the weather and alert screens and the place drags there and back: PSRAM's low point over the test (`memlow`, `psram_min_kb.alert`), `drag_start_ms.drag_place*_alert`, and the map not downloaded again on the way back (snapshots `alert_active_*.png`) |
+| `boot` | `start_lines_after_reset`: three restarts through the console, each logging `ota: Running` and the boot info (the lines the tools read; a PC monitor used to miss the first ~2.5 s), then the first forecast |
+| `navigation` | swipes and taps land on the right screen (status ↔ extras ↔ weather ↔ buses, the buses at the right end; the radar from a tap on the weather icon, where `page` says it is (`icon=X,Y`), closed by a swipe either way; Settings by long-press, hourly by tapping a day); the ends bounce back, a short slow drag snaps back; places (from the first place: drag up / down, the first one bounces) and hourly days (left / right) change by one (`page`); snapshot of every screen incl. `settings1..3`, `phone`, `setup0/1`, `update`; `hourly_touches`: three quick short flicks scroll the hours list, and a day swipe made while it coasts changes the day; `alert_layout`: the alert screen with long titles in English, French and the longest a name can be (console `alert sample`), the column under a two-line title starts below it (snapshots `alert_en/fr/max.png`); `scroll_other_languages`: Settings scrolled down and back in French and Inuktitut, with a flick and with a slow 2.5 s drag (every label comes in a row at a time: deterministic where the flick missed one time in four), `pictest` after each (the language is put back); a miss at the end of a scroll can depend only on where the list stops (a label just past the edge it left: one position in ~60 on the board, CLAUDE.md lesson 29): to reproduce one, aim scrolls at that end position, correcting the drag length by each miss of the target; `easy_connect_fail_text`: snapshot `setup1fail` (the Easy Connect page after a failed attempt) in English, French and Inuktitut: two lines of text, none outside the round panel; MeteoBus: `buses_screen` (with favourites: swipe up through every stop and down back, both ends bounce, a snapshot of each stop (`snapshot_ms.stop*`); the notice pill opens the notices, a tap there does nothing and a swipe right goes back; a long-press opens Settings and *Done* returns to the stop), `bus_map` (a tap on the route badge, where `page` says it is (`badge=X,Y`): the map drawn (`bus_map_ms`), a tap does nothing, free PSRAM with it open (`psram_kb.bus_map`), zoom in and out drawn by slide.c (`bus_map_zoom_fps`), a swipe right closes it and its pictures are freed, the picture cache let some go), `stop_on_view_every_30s` (the stop on view fetched at least twice in 70 s, at most once in the 70 s after the weather is back; fails on "the RTC fetch task has been stuck"). The three bus tests note and pass without favourites |
+| `web` | the Playwright suite (`tools/webtest`) and the live API on the board; the page must arrive whole; who may change things (espforge forge_net's `web.c`, `guarded()`; it was `main/web.c` in the weather display): 403 for a POST over plain HTTP, 302 to the device itself, 401 without or with a wrong key, 415 for a non-JSON POST, 421 for another Host, 401 for a snapshot without the key, 200 with it |
+| `perf` | boot stage times and internal RAM, heap low points, full-screen render bench (best of 3), radar first frame and lightning, frame rate of each move (`fps`: screen to screen, places, days, the hourly list and Settings scrolling; for drags also `drag_fps` and `drag_start_ms` from slide.c's log line, a place drag back 2 s after a switch, and a place drag 0.8 s after new data: console `dirty`); internal RAM's low point over that switch there and back (`memlow`, `internal_min_kb.place_switch`); compared with `tools/harness/baseline.json`. The radar animation plays at 3 fps by design: not measured. `radar_timing` opens the radar from the weather icon: `radar_first_frame_s`, `radar_history_s` (the 14 past frames; see the power-save note below the table). `alert_active`: a real alert on the first place (a point under an alert in force, from Environment Canada's API on the PC; console `alert at`), then its region map, snapshots of the weather and alert screens and the place drags there and back: PSRAM's low point over the test (`memlow`, `psram_min_kb.alert`), `drag_start_ms.drag_place*_alert`, and the map not downloaded again on the way back (snapshots `alert_active_*.png`) |
 | `presence` | dim, off and wake with short delays set through the API (the user's put back after, even on a failure): ACTIVE → DIM → OFF → `wake`; three fades up during a swipe (the brightness command from core 0 while LVGL sends bands from core 1), and `where` must show `raw_phase=0` after each |
 | `firstrun` | `hint next-boot` + restart: the "Choose your location" settings QR comes up by itself after the first forecast, then the gesture hint; a tap closes each (places and the real once-only flags untouched) |
 | `wifi_runtime` | network lost while running: retries go on; long-press opens setup and **pauses them**; tap closes it; reconnects, and an update check follows at once; on the real Easy Connect page, `setup fail` (console) shows the failure text: 2 lines, above the page dots |
 | `wifi_setup` | start-up with the network unreachable (the October 1 path): setup after 30 s, no retries while open, **the PC joins the setup network like a phone** (DNS answers every name with 192.168.4.1, the Android check gets the 302, the page and `/api/config` load without the places' coordinates, the Sound card's API answers, a snapshot is refused, the PC is not dropped for 15 s; it joins with this display's own password, read from `wifi status`), Easy Connect listens on the router's 2.4 GHz channel as the PC sees it, the setup network works again after Easy Connect (DNS socket bug), tap → 30 s retry → setup again, network back → weather screen. `--phone` adds the real Easy Connect scan |
 | `wifi_setup` (2) | `setup_stops_opening_by_itself`: a boot that can't reach the network with a 60 s automatic-setup window (`wifi offline-boot-short`; 15 min normally): setup opens by itself, then no longer after the window (*Still trying*), a long-press still opens it, recovery |
+
+**MeteoBus metrics** (`baseline.json`, 2026-10-10): `bus_map_ms` (the map's first picture, 9 OSM tiles at zoom 15:
+max 8,000 ms, 1.85-2.39 s measured), `bus_map_zoom_fps` (min 30, 42.6 measured), `psram_kb.bus_map` (min 600 KB, 1,411
+measured), `snapshot_ms.stop`, `.stop2`, `.stop3` (max 5,000 ms, 1.4-2.1 s). Only three stops have a limit: on a board
+with four favourites or more `snapshot_ms.stop4`… would come out NEW and fail the run until the baseline gets them.
+`radar_history_s` (max 7.0 s) was over its limit on 2026-10-09 on the unchanged weather firmware too (7.2-8.2 s): Wi-Fi
+power save made each GeoMet reply wait for a beacon (~100 ms a request). Since v0.2.1 it is off while the radar or the
+bus map is open (`netq_awake()`, ARCHITECTURE "Network queue"): 3.1-3.9 s. A slow request: time the same URL from
+the PC before blaming the server or a change.
 
 **Ad-hoc scripts** use the harness's classes, which find the helper's files and carry the display's key:
 
@@ -281,7 +333,7 @@ run the **main checkout's** `tools/harness/harness.py --flash <absolute path to 
 
 How it works:
 
-- **Test console** (espforge's forge_core `testcon.c` with this display's commands in `main/console.c`, USB only): `ping`, `screen`, `page` (place and day shown), `tap X Y`,
+- **Test console** (espforge's forge_core `testcon.c` with this display's commands in `main/console.c`, USB only): `ping`, `screen`, `page` (`page place=N places=N day=N days=N icon=X,Y badge=X,Y`: place and day shown, and where the weather icon and the shown stop's route badge are, for the taps that open the radar and the bus map), `tap X Y`,
   `press X Y [ms]`, `swipe left|right|up|down`, `drag X1 Y1 X2 Y2 [ms]`, `wake`, `presence`, `wifi
   status|offline|offline-boot|online`, `portal windows-quiet`, `fps [reset]` (frames and animation fps since the
   reset; the worst gap between frames under 250 ms apart, with when it ended and between which frames, e.g.
@@ -290,7 +342,7 @@ How it works:
   `slide: pictest rows_differ=N first=Y`), `dirty` (what new data does to slide.c's pictures: every hidden one out
   of date and the screen shown redrawn), `alert sample en|fr|max|off` (the alert screen laid out with long sample
   names, pill and alerts held untouched: `test: alert sample en title_y=40 title_h=62 lines=2 box_y=111`; `off` puts it
-  back), `alert at LAT LON|off` (the first place's alerts looked up at that point, RAM only, §4), `memlow start` then
+  back), `alert at LAT LON|off` (the first place's alerts looked up at that point, RAM only, §4), `setup fail` (on the Easy Connect page only: its text as after a failed attempt, `test: setup fail lines=N bottom=N`), `memlow start` then
   `memlow stop` (`test: memlow psram_min=N internal_min=N`: the low points in between, from ESP-IDF's local minimum:
   each heap's own low point, added up, so internal_min is below the real moment, docs/DIAGNOSTICS.md §5; meanwhile `heap` and the diag lines' "min ever" are the window's, and the since-boot ones come back after), `reboot`,
   `help`. Answers are log lines `test: …`. Simulated touches enter at the
@@ -436,7 +488,18 @@ wsl -d Ubuntu --cd /mnt/c/Users/<you>/ESPDEV/esp32-s3-meteobus/tests/host -- mak
   (`presence_cfg_from_blob_v1()`): the old `presence_cfg_t` written as declared, its size (32) and offsets pinned by
   `_Static_assert`, values back the same, junk padding ignored, out-of-range and NaN values clamped, other sizes
   refused.
-- Not covered yet: `web.c`'s handlers.
+- `test_rtc_api.c` (MeteoBus, from esp32-s3-rtcquebec): `rtc_api.c` against the RTC's real replies saved in
+  `tests/host/data/` (2026-10-06/07: a stop's board for route 800, a route, the buses on the way, notices for routes
+  800 and 11, route 800's path): times with their UTC offset (summer and winter), the notices' local-time query, the
+  board (five departures kept, real time or scheduled, cancelled, not served / drop-off only flags), a route's two
+  directions, the "null" reply (route 999: nothing by that number, not "the RTC didn't answer"), notices per
+  route and direction, the path's encoded polylines, the request URLs; and the shapes it must refuse (the 404 HTML
+  page, missing fields, NULL).
+- `test_textfit.c`: `textfit()` with the display's two fonts (`main/montserrat.ttf`, `main/syllabics.ttf`): emoji
+  and other characters neither font has are left out ("…" when nothing is left), French and syllabics kept, a cut
+  UTF-8 sequence dropped, whole characters only (twin of espforge's, plus the syllabics).
+- Not covered yet: the web handlers (forge_net's `web.c`, `routes.c`, `bus_routes.c`), `departures.c`'s polling
+  rules (the harness's `stop_on_view_every_30s` checks them on the board).
 - CI runs them on every push (`host-tests` job, cJSON fetched at ESP-IDF's version); a release needs them to pass.
 - A fix that can be reproduced off the board gets a case here; check that the case fails on the old code
   (`git show HEAD:main/x.c`) before calling it a test.
