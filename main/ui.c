@@ -823,13 +823,14 @@ static void radar_open(void)
 {
     printf("ui: radar open (icon)\n");
     radar_set_visible(true);
-    slide_screen(scr_radar, LV_SCR_LOAD_ANIM_MOVE_TOP, 260);
+    slide_screen(scr_radar, LV_SCR_LOAD_ANIM_MOVE_LEFT, 260);    // in from the right (the user, 2026-10-10: sideways)
 }
 
-static void radar_close(const char *why)
+// Out in the swipe's direction (a swipe right, or the idle timer: back to the right)
+static void radar_close(const char *why, lv_dir_t dir)
 {
     printf("ui: radar closed (%s)\n", why);
-    slide_screen(scr_main, LV_SCR_LOAD_ANIM_MOVE_BOTTOM, 260);    // radar_unloaded stops it
+    slide_screen(scr_main, dir == LV_DIR_LEFT ? LV_SCR_LOAD_ANIM_MOVE_LEFT : LV_SCR_LOAD_ANIM_MOVE_RIGHT, 260);   // radar_unloaded stops it
 }
 
 static void radar_unloaded(lv_event_t *e) { radar_set_visible(false); }   // however it was left
@@ -838,7 +839,7 @@ static void radar_idle(lv_timer_t *t)
 {
     if (lv_screen_active() != scr_radar || slide_running()) return;
     int64_t seen = slide_last_touch() > drag_seen ? slide_last_touch() : drag_seen;
-    if (esp_timer_get_time() - seen > RADAR_IDLE_US) radar_close("idle");
+    if (esp_timer_get_time() - seen > RADAR_IDLE_US) radar_close("idle", LV_DIR_RIGHT);
 }
 
 // The badge on the weather icon: a small radar (two rings and a sweep), so the icon reads as something to tap. Drawn
@@ -1299,7 +1300,7 @@ static void gesture_cb(lv_event_t *e)
         radar_zoom(dir == LV_DIR_BOTTOM ? +1 : -1);  // swipe down = zoom in, up = zoom out
         lv_indev_wait_release(in);
     } else if (cur == scr_radar && (dir == LV_DIR_LEFT || dir == LV_DIR_RIGHT)) {
-        radar_close("swipe");
+        radar_close("swipe", dir);
         lv_indev_wait_release(in);
     } else {
         lv_indev_wait_release(in);      // unused swipe: don't let its release open the hourly view
@@ -3270,6 +3271,7 @@ static lv_obj_t *scr_busmap, *bm_img, *bm_title, *bm_status, *bm_attr, *bm_stop,
 static lv_draw_buf_t *bm_buf;             // the map picture (434 KB, PSRAM): while the map is open
 static lv_draw_buf_t *bm_none;            // 1 x 1: the canvas's buffer while the map is closed (it can't have none)
 static bool bm_path_drawn;                 // the path is on the picture drawn at bm_zoom_drawn
+static void bm_text(lv_obj_t *l, const char *t, int max_w);
 static bool bm_quit;                       // the map closed (under the display lock)
 static volatile int bm_zoom = BM_ZOOM, bm_zoom_drawn = -1;
 static volatile bool bm_failed;
@@ -3390,7 +3392,7 @@ static void bm_refresh(void)
     char buf[96], d[64] = "";
     if (e.state == DEP_OK) textfit(e.board.direction, d, sizeof(d));
     snprintf(buf, sizeof(buf), "%s%s%s", e.fav.route, d[0] ? "  →  " : "", d);
-    set_text(bm_title, buf);
+    bm_text(bm_title, buf, 330);
     bm_marker(bm_stop, bm_lat, bm_lon);
     EXT_RAM_BSS_ATTR static rtc_bus_t bus[BM_BUSES];
     time_t fetched;
@@ -3410,7 +3412,7 @@ static void bm_refresh(void)
     else if (next) { char w[16]; bus_when(next->depart, now, w, sizeof(w)); snprintf(buf, sizeof(buf), tr(T_MAP_NEXT), w); }
     else if (!nb) snprintf(buf, sizeof(buf), "%s", tr(T_MAP_NO_BUS));
     else buf[0] = 0;
-    set_text(bm_status, buf);
+    bm_text(bm_status, buf, 290);
 }
 
 static void busmap_open(int i)
@@ -3441,13 +3443,13 @@ static void busmap_open(int i)
     deps_track(i);
     printf("ui: bus map open (stop %d)\n", i + 1);
     bm_refresh();
-    slide_screen(scr_busmap, LV_SCR_LOAD_ANIM_MOVE_TOP, 260);
+    slide_screen(scr_busmap, LV_SCR_LOAD_ANIM_MOVE_LEFT, 260);   // in from the right, as the radar
 }
 
-static void busmap_close(const char *why)
+static void busmap_close(const char *why, lv_dir_t dir)
 {
     printf("ui: bus map closed (%s)\n", why);
-    slide_screen(scr_bus, LV_SCR_LOAD_ANIM_MOVE_BOTTOM, 260);    // busmap_unloaded ends the task
+    slide_screen(scr_bus, dir == LV_DIR_LEFT ? LV_SCR_LOAD_ANIM_MOVE_LEFT : LV_SCR_LOAD_ANIM_MOVE_RIGHT, 260);    // busmap_unloaded ends the task
 }
 
 // However the map was left: no more buses asked for, and its task ends and frees the picture
@@ -3466,14 +3468,13 @@ static void busmap_unloaded(lv_event_t *ev)
     }
 }
 
-static void busmap_tap(lv_event_t *ev) { busmap_close("tap"); }
 
 static void busmap_gesture(lv_event_t *ev)
 {
     lv_indev_t *in = lv_indev_active();
     if (!in) return;
     lv_dir_t dir = lv_indev_get_gesture_dir(in);
-    if (dir == LV_DIR_LEFT || dir == LV_DIR_RIGHT) busmap_close("swipe");
+    if (dir == LV_DIR_LEFT || dir == LV_DIR_RIGHT) busmap_close("swipe", dir);
     else {
         int z = bm_zoom + (dir == LV_DIR_BOTTOM ? 1 : -1);  // swipe down = zoom in, up = zoom out (as the radar)
         if (z >= BM_ZOOM_MIN && z <= BM_ZOOM_MAX && bm_buf) {
@@ -3494,7 +3495,7 @@ static void busmap_tick(void)
     if (!bm_released) { bm_released = true; slide_cache_release_unneeded(); }
     bm_refresh();
     int64_t seen = slide_last_touch() > drag_seen ? slide_last_touch() : drag_seen;
-    if (esp_timer_get_time() - seen > BUSMAP_IDLE_US) busmap_close("idle");
+    if (esp_timer_get_time() - seen > BUSMAP_IDLE_US) busmap_close("idle", LV_DIR_RIGHT);
 }
 
 // The badge on a stop's route badge: a small map pin, so the badge reads as something to tap (as the weather icon's)
@@ -3551,6 +3552,19 @@ static lv_obj_t *bm_dot(lv_color_t fill, int d)
     return o;
 }
 
+// A map pill's text on one line, as wide as it is up to max_w (padding included), then cut with "..." (LONG_DOT needs
+// a fixed width and height: pill_text)
+static void bm_text(lv_obj_t *l, const char *t, int max_w)
+{
+    set_text(l, t);
+    lv_point_t sz;
+    lv_text_get_size(&sz, t, lv_obj_get_style_text_font(l, 0), 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    int pad = 2 * lv_obj_get_style_pad_left(l, 0), w = sz.x + pad + 1 < max_w ? sz.x + pad + 1 : max_w;
+    int h = sz.y + 2 * lv_obj_get_style_pad_top(l, 0);
+    if (lv_obj_get_style_width(l, 0) != w) lv_obj_set_width(l, w);
+    if (lv_obj_get_style_height(l, 0) != h) lv_obj_set_height(l, h);
+}
+
 static lv_obj_t *bm_pill(lv_font_t *f, lv_color_t c, int y)
 {
     lv_obj_t *l = label(scr_busmap, f, c, y);
@@ -3560,7 +3574,7 @@ static lv_obj_t *bm_pill(lv_font_t *f, lv_color_t c, int y)
     lv_obj_set_style_radius(l, 12, 0);
     lv_obj_set_style_pad_hor(l, 12, 0);
     lv_obj_set_style_pad_ver(l, 3, 0);
-    lv_obj_set_style_max_width(l, 320, 0);
+    lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);        // (bm_text sizes it: one line, cut with "...")
     lv_obj_align(l, LV_ALIGN_TOP_MID, 0, y);
     return l;
 }
@@ -3574,14 +3588,15 @@ static void busmap_create(void)
     bm_none = lv_draw_buf_create(1, 1, LV_COLOR_FORMAT_RGB565, 0);
     lv_canvas_set_draw_buf(bm_img, bm_none);
     lv_obj_set_pos(bm_img, 0, 0);
-    bm_title = bm_pill(f_small, C_TEXT, 34);
-    bm_status = bm_pill(f_tiny, C_TEXT, 396);
-    bm_attr = bm_pill(f_micro, C_TEXT, 430);              // OSM asks for it on screen; on a pill to be read
-    lv_label_set_text(bm_attr, "© OpenStreetMap contributors");
+    // Where the round screen is wide enough for them (y 76: 344 px; 387: 312; 417: 286), long text cut (bm_text):
+    // the title at y 34 and the credit at 430 ran past the edge (the user, 2026-10-10); the credit is never cut
+    bm_title = bm_pill(f_small, C_TEXT, 76);
+    bm_status = bm_pill(f_tiny, C_TEXT, 362);
+    bm_attr = bm_pill(f_micro, C_TEXT, 396);              // OSM asks for it on screen; on a pill to be read
+    bm_text(bm_attr, "© OpenStreetMap contributors", 280);
     bm_stop = bm_dot(C_TEXT, 14);
     for (int i = 0; i < BM_BUSES; i++) bm_bus[i] = bm_dot(lv_color_hex(0x6FD08C), 16);
     passthrough(scr_busmap);
-    lv_obj_add_event_cb(scr_busmap, busmap_tap, LV_EVENT_SHORT_CLICKED, NULL);
     lv_obj_add_event_cb(scr_busmap, busmap_gesture, LV_EVENT_GESTURE, NULL);
     lv_obj_add_event_cb(scr_busmap, busmap_unloaded, LV_EVENT_SCREEN_UNLOADED, NULL);
 }

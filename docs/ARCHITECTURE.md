@@ -588,8 +588,9 @@ order, and ~11 ms on the bus.
   434 KB) exists only while the map is open, drawn by the radar task's idle work (`bm_draw`, before the RTC's
   requests): the tiles from `radar_osm_render()` (OSM, zoom 13..17, 15 first; swipe down = in), the route's path on
   the picture (`deps_trace`); the stop and the buses are small objects on top. Once it has slid in, the picture cache
-  lets go of the pictures it doesn't need (`slide_cache_release_unneeded()`). Closed by a tap, a sideways swipe or 5
-  min untouched; `busmap_unloaded` frees the picture, or `bm_draw` once a drawing under way ends (display lock).
+  lets go of the pictures it doesn't need (`slide_cache_release_unneeded()`). Closed by a sideways swipe or 5 min
+  untouched (a tap does nothing, as the user asked: back by a swipe, as on the radar; both slide in from the right
+  and leave in the swipe's direction); `busmap_unloaded` frees the picture, or `bm_draw` once a drawing under way ends (display lock).
 
 ## Radar (`radar.c`)
 

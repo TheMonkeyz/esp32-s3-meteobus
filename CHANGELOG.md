@@ -15,7 +15,7 @@ list everything again.
 - Add your stops on the phone's settings page, in the new "My stops" card: the stop number, the route, then pick the
   direction.
 - Tap a stop's route badge for the bus map: the stop, the route's path and its buses on the way. Swipe down or up
-  to zoom; tap or swipe sideways to close.
+  to zoom; swipe sideways to go back.
 - The radar now opens with a tap on the weather icon (it has a small radar badge), and closes with a sideways swipe.
 - Weather alerts moved to the bottom of the weather screen, so the place name always shows. With an update waiting
   too, the alert pill has a blue dot, and the alert screen ends with "Update available".

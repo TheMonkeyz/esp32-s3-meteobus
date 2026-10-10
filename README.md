@@ -135,7 +135,7 @@ pill at the bottom.
 
 - **Drag up/down** to change stop.
 - **Tap the route badge** (it has a small map pin) for the bus map: the stop, the route's path and its buses on the
-  way. Swipe down or up to zoom; tap or swipe sideways to close.
+  way. Swipe down or up to zoom; swipe sideways to go back (as on the radar).
 - **Tap the orange pill** for the route's notices.
 - **Swipe right** for the weather.
 

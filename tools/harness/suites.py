@@ -332,6 +332,9 @@ def bus_map(ctx):
     ctx.metric('bus_map_ms', int(d.group(2)))
     time.sleep(1.5)
     b.snap('busmap', ctx.out('screen_busmap.png'))
+    b.cmd('tap 233 300')                                 # a tap does nothing: back is a swipe, as on the radar
+    time.sleep(1.2)
+    check(b.screen() == 'busmap', f'a tap left the bus map ({b.screen()})')
     heap = b.cmd('heap', r'test: heap (.*)').group(1)
     psram = int(re.search(r'psram=(\d+)', heap).group(1))
     ctx.metric('psram_kb.bus_map', psram)
