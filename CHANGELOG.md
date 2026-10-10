@@ -9,6 +9,14 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 their own `## vX.Y.Z-rc.N` section. Those are shown only to Beta users, while the final release's section should
 list everything again.
 
+## v0.2.0-rc.2 - 2026-10-10
+- Going back is a sideways swipe everywhere: from the radar, the bus map and the alert screen, which now slide in
+  from the side. A tap on the bus map or an alert does nothing.
+- The bus map zooms like the radar: the map grows or shrinks under your finger instead of going blank while the new
+  one loads.
+- The buses on the map are small bus icons, hidden while a zoom moves.
+- The bus map's title and the OpenStreetMap credit no longer run past the round edge.
+
 ## v0.2.0-rc.1 - 2026-10-10
 - Buses: swipe left from the weather for your RTC stops' next departures, one stop per page (drag up or down). The
   next bus in big, real time or scheduled, the three after it, and the route's notices in an orange pill (tap it).
