@@ -105,7 +105,9 @@ LVGL timer and event callbacks already run inside the lock.
   and closes with a sideways swipe or after 5 min untouched (`radar_idle`); leaving it however it happens stops it
   (`radar_unloaded`, `LV_EVENT_SCREEN_UNLOADED`). The weather alert pill is at the bottom (`PILL_Y`, under the
   forecast), sharing that slot with the update pill (`pills_show()`: the alert first, with a blue dot when an update
-  waits; the alert screen then ends with "Update available >", `al_upd`). Pill labels are sized by `pill_text()`
+  waits; the alert screen then ends with "Update available >", `al_upd`). The alert screen slides in from the right and
+  closes with a sideways swipe (`alert_gesture`); a tap does nothing but on that row (the user, 2026-10-10: back is a
+  swipe everywhere, as on the radar and the bus map). Pill labels are sized by `pill_text()`
   (`LV_LABEL_LONG_DOT` needs a fixed width and height).
 - **Places:** the weather widgets live on one page per place (`place_page_t pp[MAX_PLACES]`) in a vertical pager
   (`pager.c`) on `scr_main`; the alert pill, update pill, page dots, place dots and settings overlay are siblings
@@ -585,11 +587,14 @@ order, and ~11 ms on the bus.
   changed (`ui_deps_changed` sets bits, the LVGL task refreshes). `drag_paint` refreshes a stop page before its first
   strip. Names for the console and snapshots: `stop`, `stop2`..`stop8`.
 - **Bus map** (`scr_busmap`): a tap on the route badge (its map-pin badge: `pin_draw`). Its picture (466×466 RGB565,
-  434 KB) exists only while the map is open, drawn by the radar task's idle work (`bm_draw`, before the RTC's
-  requests): the tiles from `radar_osm_render()` (OSM, zoom 13..17, 15 first; swipe down = in), the route's path on
+  434 KB, two of them: the one shown and the next zoom's, drawn behind it, then swapped) exist only while the map is
+  open, drawn by the radar task's idle work (`bm_draw`, before the RTC's requests). A zoom moves as the radar's
+  (`bm_zoom_step`, `slide_zoom`): in, the picture shown grows 2x at once and the sharper one replaces it; out, it stays
+  until the wider one is drawn, which then shrinks into place; the stop and buses hide until the motion ends. The map: the tiles from `radar_osm_render()` (OSM, zoom 13..17, 15 first; swipe down = in), the route's path on
   the picture (`deps_trace`); the stop and the buses are small objects on top. Once it has slid in, the picture cache
-  lets go of the pictures it doesn't need (`slide_cache_release_unneeded()`). Closed by a tap, a sideways swipe or 5
-  min untouched; `busmap_unloaded` frees the picture, or `bm_draw` once a drawing under way ends (display lock).
+  lets go of the pictures it doesn't need (`slide_cache_release_unneeded()`). Closed by a sideways swipe or 5 min
+  untouched (a tap does nothing, as the user asked: back by a swipe, as on the radar; both slide in from the right
+  and leave in the swipe's direction); `busmap_unloaded` frees the picture, or `bm_draw` once a drawing under way ends (display lock).
 
 ## Radar (`radar.c`)
 

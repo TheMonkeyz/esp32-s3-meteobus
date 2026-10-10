@@ -58,6 +58,11 @@
   "note": "the bus map's first picture: 9 OSM tiles at zoom 15 through radar_osm_render() (navigation.bus_map). 1.85-2.39 s on 2026-10-09 (MeteoBus v0.2.0)",
   "ref": 2100
  },
+ "bus_map_zoom_fps": {
+  "min": 30,
+  "note": "the bus map's zoom in drawn by slide.c (slide_zoom, as the radar's): 43 fps on 2026-10-10",
+  "ref": 42.6
+ },
  "drag_fps.drag_hourly_day": {
   "min": 45,
   "note": "slide.c's drag alone, from its first frame (57-69 fps in the October 2 runs)",
@@ -195,8 +200,8 @@
  },
  "psram_kb.bus_map": {
   "min": 600,
-  "note": "free PSRAM with the bus map open (its 434 KB picture, the picture cache trimmed by slide_cache_release_unneeded): 1.8 MB on 2026-10-09 (MeteoBus v0.2.0)",
-  "ref": 1800
+  "note": "free PSRAM with the bus map open (its two 434 KB pictures, the one shown and the next zoom's; the picture cache trimmed by slide_cache_release_unneeded): 1.4 MB on 2026-10-10",
+  "ref": 1411
  },
  "psram_min_kb": {
   "min": 300,

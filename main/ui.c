@@ -823,13 +823,14 @@ static void radar_open(void)
 {
     printf("ui: radar open (icon)\n");
     radar_set_visible(true);
-    slide_screen(scr_radar, LV_SCR_LOAD_ANIM_MOVE_TOP, 260);
+    slide_screen(scr_radar, LV_SCR_LOAD_ANIM_MOVE_LEFT, 260);    // in from the right (the user, 2026-10-10: sideways)
 }
 
-static void radar_close(const char *why)
+// Out in the swipe's direction (a swipe right, or the idle timer: back to the right)
+static void radar_close(const char *why, lv_dir_t dir)
 {
     printf("ui: radar closed (%s)\n", why);
-    slide_screen(scr_main, LV_SCR_LOAD_ANIM_MOVE_BOTTOM, 260);    // radar_unloaded stops it
+    slide_screen(scr_main, dir == LV_DIR_LEFT ? LV_SCR_LOAD_ANIM_MOVE_LEFT : LV_SCR_LOAD_ANIM_MOVE_RIGHT, 260);   // radar_unloaded stops it
 }
 
 static void radar_unloaded(lv_event_t *e) { radar_set_visible(false); }   // however it was left
@@ -838,7 +839,7 @@ static void radar_idle(lv_timer_t *t)
 {
     if (lv_screen_active() != scr_radar || slide_running()) return;
     int64_t seen = slide_last_touch() > drag_seen ? slide_last_touch() : drag_seen;
-    if (esp_timer_get_time() - seen > RADAR_IDLE_US) radar_close("idle");
+    if (esp_timer_get_time() - seen > RADAR_IDLE_US) radar_close("idle", LV_DIR_RIGHT);
 }
 
 // The badge on the weather icon: a small radar (two rings and a sweep), so the icon reads as something to tap. Drawn
@@ -912,7 +913,7 @@ static void main_tap(lv_event_t *e)
             printf("ui: tap alert\n");
             al_back = scr_main;
             if (al_bus) { al_bus = false; weather_alert_render(); slide_cache_dirty(scr_alert); }
-            slide_screen(scr_alert, LV_SCR_LOAD_ANIM_MOVE_TOP, 260);
+            slide_screen(scr_alert, LV_SCR_LOAD_ANIM_MOVE_LEFT, 260);   // in from the right, as the maps
         } else if (!lv_obj_has_flag(up_pill, LV_OBJ_FLAG_HIDDEN)) update_show(scr_main);
         return;
     }
@@ -1299,7 +1300,7 @@ static void gesture_cb(lv_event_t *e)
         radar_zoom(dir == LV_DIR_BOTTOM ? +1 : -1);  // swipe down = zoom in, up = zoom out
         lv_indev_wait_release(in);
     } else if (cur == scr_radar && (dir == LV_DIR_LEFT || dir == LV_DIR_RIGHT)) {
-        radar_close("swipe");
+        radar_close("swipe", dir);
         lv_indev_wait_release(in);
     } else {
         lv_indev_wait_release(in);      // unused swipe: don't let its release open the hourly view
@@ -1582,15 +1583,20 @@ static void alert_close(lv_event_t *e)
     if (!lv_obj_has_flag(al_upd, LV_OBJ_FLAG_HIDDEN) && p.y >= a.y1 - 10 && p.y <= a.y2 + 10) {
         printf("ui: alert screen: update\n");
         update_show(scr_alert);
-        return;
     }
-    slide_screen(al_back ? al_back : scr_main, LV_SCR_LOAD_ANIM_MOVE_BOTTOM, 260);
+    // Any other tap does nothing: back is a sideways swipe, as on the radar and the bus map (the user, 2026-10-10)
 }
 
 static void alert_gesture(lv_event_t *e)
 {
     lv_indev_t *in = lv_indev_active();
-    if (in) lv_indev_wait_release(in);                  // a swipe is not a tap (= close)
+    if (!in) return;
+    lv_dir_t dir = lv_indev_get_gesture_dir(in);
+    if (dir == LV_DIR_LEFT || dir == LV_DIR_RIGHT) {     // back, leaving in the swipe's direction
+        printf("ui: alert screen closed (swipe)\n");
+        slide_screen(al_back ? al_back : scr_main, dir == LV_DIR_LEFT ? LV_SCR_LOAD_ANIM_MOVE_LEFT : LV_SCR_LOAD_ANIM_MOVE_RIGHT, 260);
+    }
+    lv_indev_wait_release(in);                          // (up / down: the list scrolls)
 }
 
 static lv_obj_t *al_label(lv_obj_t *parent, lv_font_t *f, lv_color_t c)
@@ -3155,7 +3161,7 @@ static void bus_alert_show(int i)
     lv_label_set_text(al_body, body);
     lv_obj_scroll_to_y(al_box, 0, LV_ANIM_OFF);
     slide_cache_dirty(scr_alert);
-    slide_screen(scr_alert, LV_SCR_LOAD_ANIM_MOVE_TOP, 260);
+    slide_screen(scr_alert, LV_SCR_LOAD_ANIM_MOVE_LEFT, 260);   // in from the right, as the maps
 }
 
 static void bus_tap(lv_event_t *e)
@@ -3267,9 +3273,14 @@ static void bus_create(void)
 #define BM_ZOOM 15
 #define BM_BUSES RTC_BUSES_MAX
 static lv_obj_t *scr_busmap, *bm_img, *bm_title, *bm_status, *bm_attr, *bm_stop, *bm_bus[BM_BUSES];
-static lv_draw_buf_t *bm_buf;             // the map picture (434 KB, PSRAM): while the map is open
+static lv_draw_buf_t *bm_buf;             // the map picture shown (434 KB, PSRAM): while the map is open
+static lv_draw_buf_t *bm_back;            // the next zoom's picture, drawn while bm_buf is shown scaled (then swapped)
+#define BM_ZOOM_MS 300                     // the zoom's motion, as the radar's (ZOOM_ANIM_MS)
+static uint32_t bm_anim_until;             // lv_tick when the zoom's motion ends (markers hidden until then)
 static lv_draw_buf_t *bm_none;            // 1 x 1: the canvas's buffer while the map is closed (it can't have none)
 static bool bm_path_drawn;                 // the path is on the picture drawn at bm_zoom_drawn
+static void bm_text(lv_obj_t *l, const char *t, int max_w);
+static void bm_refresh(void);
 static bool bm_quit;                       // the map closed (under the display lock)
 static volatile int bm_zoom = BM_ZOOM, bm_zoom_drawn = -1;
 static volatile bool bm_failed;
@@ -3326,14 +3337,58 @@ static void bm_draw_path(void)
 // The map's picture, drawn in the radar task's idle time (bus_side_work, radar_set_side_work): the tiles around the
 // stop at the zoom asked, then the path. The picture is only freed by whoever holds it last: busmap_unloaded if no
 // drawing is under way, else this, once it is done (both under the display lock).
-static bool bm_drawing;                    // the radar task is drawing into bm_buf now
+static bool bm_drawing;                    // the radar task is drawing into bm_back now
+
+// Both pictures and the path's points, once the map is closed and no drawing is under way (display lock held)
+static void bm_free(void)
+{
+    if (bm_buf) lv_draw_buf_destroy(bm_buf);
+    if (bm_back) lv_draw_buf_destroy(bm_back);
+    bm_buf = bm_back = NULL;
+    free(bm_ll);
+    bm_ll = NULL;
+    ESP_LOGI("ui", "bus map: closed, pictures freed");
+}
+
+static void bm_scale_cb(void *o, int32_t v) { lv_image_set_scale((lv_obj_t *)o, v); }
+static void bm_zoom_step(int step);
+static void busmap_close(const char *why, lv_dir_t dir);
+
+// A swipe made while slide.c drew the zoom (LVGL didn't see it): up / down zoom, sideways back (as the gestures)
+static void bm_zoom_swipe(int dx, int dy)
+{
+    if (abs(dy) >= 40 && abs(dy) > abs(dx)) bm_zoom_step(dy > 0 ? 1 : -1);
+    else if (abs(dx) >= 40) busmap_close("swipe", dx > 0 ? LV_DIR_RIGHT : LV_DIR_LEFT);
+}
+
+static void bm_markers_back(lv_timer_t *t) { bm_refresh(); }
+
+// The picture shown, scaled from `from` to `to` (256 = 1x) as the radar's zoom: drawn by slide.c straight to the
+// panel (~60 fps), else LVGL's animation (another move going on). Display lock held.
+static void bm_scale_anim(int32_t from, int32_t to)
+{
+    lv_anim_delete(bm_img, bm_scale_cb);
+    bm_anim_until = lv_tick_get() + BM_ZOOM_MS + 100;
+    lv_timer_t *t = lv_timer_create(bm_markers_back, BM_ZOOM_MS + 120, NULL);   // the markers once it's still
+    lv_timer_set_repeat_count(t, 1);
+    if (bm_buf && slide_zoom(bm_img, (const uint16_t *)bm_buf->data, from, to, BM_ZOOM_MS, bm_zoom_swipe)) return;
+    lv_image_set_scale(bm_img, from);
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, bm_img);
+    lv_anim_set_exec_cb(&a, bm_scale_cb);
+    lv_anim_set_values(&a, from, to);
+    lv_anim_set_duration(&a, BM_ZOOM_MS);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_out);
+    lv_anim_start(&a);
+}
 static bool bm_draw(void)
 {
     display_lock(-1);
-    bool want = bm_buf && !bm_quit && bm_zoom != bm_zoom_drawn;
+    bool want = bm_buf && bm_back && !bm_quit && bm_zoom != bm_zoom_drawn;
     int z = bm_zoom;
     double lat = bm_lat, lon = bm_lon;
-    uint16_t *px = want ? (uint16_t *)bm_buf->data : NULL;
+    uint16_t *px = want ? (uint16_t *)bm_back->data : NULL;
     if (want) bm_drawing = true;
     display_unlock();
     if (!want) return false;
@@ -3342,24 +3397,32 @@ static bool bm_draw(void)
     double ox = floor(cx - DISP_W / 2), oy = floor(cy - DISP_H / 2);
     int64_t t0 = esp_timer_get_time();
     bool ok = radar_osm_render(z, ox, oy, px, DISP_W, DISP_H);
+    // Let a zoom-in's motion end first (it scales the picture shown), as the radar's wait_zoom_anim()
+    uint32_t now = lv_tick_get();
+    if (bm_anim_until > now && bm_anim_until - now < 2000) vTaskDelay(pdMS_TO_TICKS(bm_anim_until - now));
     display_lock(-1);
     bm_drawing = false;
-    if (bm_quit) {                             // closed meanwhile: the picture is ours to free
-        lv_draw_buf_t *buf = bm_buf;
-        bm_buf = NULL;
+    if (bm_quit) {                             // closed meanwhile: the pictures are ours to free
+        bm_free();
         display_unlock();
-        if (buf) lv_draw_buf_destroy(buf);
-        free(bm_ll);
-        bm_ll = NULL;
-        ESP_LOGI("ui", "bus map: closed, picture freed");
         return true;
     }
+    int was = bm_zoom_drawn;
+    lv_draw_buf_t *shown = bm_buf;             // the new picture in front, the old one for the next zoom
+    bm_buf = bm_back;
+    bm_back = shown;
+    lv_anim_delete(bm_img, bm_scale_cb);
+    lv_image_set_scale(bm_img, LV_SCALE_NONE);
+    lv_canvas_set_draw_buf(bm_img, bm_buf);
     bm_ox = ox; bm_oy = oy;
     bm_zoom_drawn = z;
     bm_path_drawn = false;
     bm_failed = !ok;
     bm_draw_path();
     lv_obj_invalidate(bm_img);
+    // A zoom out: the wider map shrinks into place from 2x (4x after two swipes), so no border shows
+    if (was > z && ok) bm_scale_anim(LV_SCALE_NONE << (was - z > 2 ? 2 : was - z), LV_SCALE_NONE);
+    bm_refresh();                              // the stop and the buses with the new picture (after a motion: at its end)
     display_unlock();
     ESP_LOGI("ui", "bus map: zoom %d %s in %d ms", z, ok ? "drawn" : "failed", (int)((esp_timer_get_time() - t0) / 1000));
     return true;
@@ -3377,7 +3440,10 @@ static void bm_marker(lv_obj_t *o, double lat, double lon)
     bm_world(lat, lon, bm_zoom_drawn, &x, &y);
     x -= bm_ox; y -= bm_oy;
     double dx = x - DISP_W / 2, dy = y - DISP_H / 2;
-    bool in = bm_zoom_drawn >= 0 && dx * dx + dy * dy < 220.0 * 220.0;
+    // Hidden from a zoom swipe until the new zoom's picture is in (they were drawn at the old zoom's positions, then
+    // jumped: the user, 2026-10-10)
+    bool in = bm_zoom_drawn >= 0 && bm_zoom_drawn == bm_zoom && dx * dx + dy * dy < 220.0 * 220.0 &&
+              (int32_t)(lv_tick_get() - bm_anim_until) >= 0;
     if (in) lv_obj_set_pos(o, (int)lround(x) - lv_obj_get_style_width(o, 0) / 2, (int)lround(y) - lv_obj_get_style_height(o, 0) / 2);
     set_hidden(o, !in);
 }
@@ -3390,7 +3456,7 @@ static void bm_refresh(void)
     char buf[96], d[64] = "";
     if (e.state == DEP_OK) textfit(e.board.direction, d, sizeof(d));
     snprintf(buf, sizeof(buf), "%s%s%s", e.fav.route, d[0] ? "  →  " : "", d);
-    set_text(bm_title, buf);
+    bm_text(bm_title, buf, 330);
     bm_marker(bm_stop, bm_lat, bm_lon);
     EXT_RAM_BSS_ATTR static rtc_bus_t bus[BM_BUSES];
     time_t fetched;
@@ -3410,7 +3476,7 @@ static void bm_refresh(void)
     else if (next) { char w[16]; bus_when(next->depart, now, w, sizeof(w)); snprintf(buf, sizeof(buf), tr(T_MAP_NEXT), w); }
     else if (!nb) snprintf(buf, sizeof(buf), "%s", tr(T_MAP_NO_BUS));
     else buf[0] = 0;
-    set_text(bm_status, buf);
+    bm_text(bm_status, buf, 290);
 }
 
 static void busmap_open(int i)
@@ -3418,17 +3484,19 @@ static void busmap_open(int i)
     EXT_RAM_BSS_ATTR static dep_entry_t e;
     if (!deps_get(i, &e) || e.state != DEP_OK || (e.board.lat == 0 && e.board.lon == 0)) return;   // no place yet
     if (bm_buf || bm_drawing) return;                       // the last one is still closing
+    // Two pictures (868 KB of PSRAM while the map is open): the one shown, and the next zoom's, drawn behind it
     bm_buf = lv_draw_buf_create(DISP_W, DISP_H, LV_COLOR_FORMAT_RGB565, 0);
+    bm_back = lv_draw_buf_create(DISP_W, DISP_H, LV_COLOR_FORMAT_RGB565, 0);
     bm_ll = heap_caps_malloc(2 * DEPS_TRACE_POINTS * sizeof(float), MALLOC_CAP_SPIRAM);
-    if (!bm_buf || !bm_ll) {
-        ESP_LOGW("ui", "bus map: no memory for the picture");
-        if (bm_buf) lv_draw_buf_destroy(bm_buf);
-        free(bm_ll);
-        bm_buf = NULL; bm_ll = NULL;
+    if (!bm_buf || !bm_back || !bm_ll) {
+        ESP_LOGW("ui", "bus map: no memory for the pictures");
+        bm_free();
         return;
     }
     for (int k = 0; k < DISP_W * DISP_H; k++) ((uint16_t *)bm_buf->data)[k] = 0x18E3;     // rgb565(24, 28, 24)
+    lv_image_set_scale(bm_img, LV_SCALE_NONE);
     lv_canvas_set_draw_buf(bm_img, bm_buf);
+    bm_anim_until = 0;
     bm_stop_i = i;
     bm_lat = e.board.lat;
     bm_lon = e.board.lon;
@@ -3441,13 +3509,13 @@ static void busmap_open(int i)
     deps_track(i);
     printf("ui: bus map open (stop %d)\n", i + 1);
     bm_refresh();
-    slide_screen(scr_busmap, LV_SCR_LOAD_ANIM_MOVE_TOP, 260);
+    slide_screen(scr_busmap, LV_SCR_LOAD_ANIM_MOVE_LEFT, 260);   // in from the right, as the radar
 }
 
-static void busmap_close(const char *why)
+static void busmap_close(const char *why, lv_dir_t dir)
 {
     printf("ui: bus map closed (%s)\n", why);
-    slide_screen(scr_bus, LV_SCR_LOAD_ANIM_MOVE_BOTTOM, 260);    // busmap_unloaded ends the task
+    slide_screen(scr_bus, dir == LV_DIR_LEFT ? LV_SCR_LOAD_ANIM_MOVE_LEFT : LV_SCR_LOAD_ANIM_MOVE_RIGHT, 260);    // busmap_unloaded ends the task
 }
 
 // However the map was left: no more buses asked for, and its task ends and frees the picture
@@ -3457,33 +3525,35 @@ static void busmap_unloaded(lv_event_t *ev)
     bm_stop_i = -1;
     lv_canvas_set_draw_buf(bm_img, bm_none);
     bm_quit = true;
-    if (!bm_drawing && bm_buf) {                            // else bm_draw frees it when its drawing ends
-        lv_draw_buf_destroy(bm_buf);
-        bm_buf = NULL;
-        free(bm_ll);
-        bm_ll = NULL;
-        ESP_LOGI("ui", "bus map: closed, picture freed");
-    }
+    lv_anim_delete(bm_img, bm_scale_cb);
+    lv_image_set_scale(bm_img, LV_SCALE_NONE);
+    if (!bm_drawing && bm_buf) bm_free();                   // else bm_draw frees them when its drawing ends
 }
 
-static void busmap_tap(lv_event_t *ev) { busmap_close("tap"); }
 
 static void busmap_gesture(lv_event_t *ev)
 {
     lv_indev_t *in = lv_indev_active();
     if (!in) return;
     lv_dir_t dir = lv_indev_get_gesture_dir(in);
-    if (dir == LV_DIR_LEFT || dir == LV_DIR_RIGHT) busmap_close("swipe");
-    else {
-        int z = bm_zoom + (dir == LV_DIR_BOTTOM ? 1 : -1);  // swipe down = zoom in, up = zoom out (as the radar)
-        if (z >= BM_ZOOM_MIN && z <= BM_ZOOM_MAX && bm_buf) {
-            bm_zoom = z;
-            ESP_LOGI("ui", "bus map: zoom %d", z);
-            radar_side_wake();
-            bm_refresh();
-        }
-    }
+    if (dir == LV_DIR_LEFT || dir == LV_DIR_RIGHT) busmap_close("swipe", dir);
+    else bm_zoom_step(dir == LV_DIR_BOTTOM ? 1 : -1);      // swipe down = zoom in, up = zoom out (as the radar)
     lv_indev_wait_release(in);
+}
+
+// A zoom step, as the radar's: in, the picture shown grows 2x now and the sharper one replaces it once drawn; out, it
+// stays until the wider one is drawn, which then shrinks into place (bm_draw). The markers hide meanwhile.
+static void bm_zoom_step(int step)
+{
+    int z = bm_zoom + step;
+    if (z < BM_ZOOM_MIN || z > BM_ZOOM_MAX || !bm_buf) return;
+    bm_zoom = z;
+    ESP_LOGI("ui", "bus map: zoom %d", z);
+    int32_t sc = lv_image_get_scale(bm_img);
+    if (step > 0) bm_scale_anim(sc, sc * 2 > 1024 ? 1024 : sc * 2);
+    else if (sc > LV_SCALE_NONE) bm_scale_anim(sc, sc / 2);   // undo a zoom-in not drawn yet
+    radar_side_wake();
+    bm_refresh();
 }
 
 // Every second while the map is shown: the buses and the line at the bottom; the pictures it doesn't need let go
@@ -3494,7 +3564,7 @@ static void busmap_tick(void)
     if (!bm_released) { bm_released = true; slide_cache_release_unneeded(); }
     bm_refresh();
     int64_t seen = slide_last_touch() > drag_seen ? slide_last_touch() : drag_seen;
-    if (esp_timer_get_time() - seen > BUSMAP_IDLE_US) busmap_close("idle");
+    if (esp_timer_get_time() - seen > BUSMAP_IDLE_US) busmap_close("idle", LV_DIR_RIGHT);
 }
 
 // The badge on a stop's route badge: a small map pin, so the badge reads as something to tap (as the weather icon's)
@@ -3551,6 +3621,48 @@ static lv_obj_t *bm_dot(lv_color_t fill, int d)
     return o;
 }
 
+// A map pill's text on one line, as wide as it is up to max_w (padding included), then cut with "..." (LONG_DOT needs
+// a fixed width and height: pill_text)
+static void bm_text(lv_obj_t *l, const char *t, int max_w)
+{
+    set_text(l, t);
+    lv_point_t sz;
+    lv_text_get_size(&sz, t, lv_obj_get_style_text_font(l, 0), 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    int pad = 2 * lv_obj_get_style_pad_left(l, 0), w = sz.x + pad + 1 < max_w ? sz.x + pad + 1 : max_w;
+    int h = sz.y + 2 * lv_obj_get_style_pad_top(l, 0);
+    if (lv_obj_get_style_width(l, 0) != w) lv_obj_set_width(l, w);
+    if (lv_obj_get_style_height(l, 0) != h) lv_obj_set_height(l, h);
+}
+
+// A small bus seen from the front (esp32-s3-rtcquebec's): green body, dark windshield, headlights, a dark outline
+// that keeps it visible on the map (the font has no bus; the user, 2026-10-10: icons, not dots)
+static lv_obj_t *bm_bus_icon(void)
+{
+    lv_obj_t *b = lv_obj_create(scr_busmap);
+    lv_obj_remove_style_all(b);
+    lv_obj_set_size(b, 22, 26);
+    lv_obj_set_style_radius(b, 6, 0);
+    lv_obj_set_style_bg_color(b, C_LIVE, 0);
+    lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(b, lv_color_hex(0x04121F), 0);
+    lv_obj_set_style_border_width(b, 2, 0);
+    lv_obj_add_flag(b, LV_OBJ_FLAG_HIDDEN);
+    static const struct { int x, y, w, h, r; } parts[] = {
+        { 3, 3, 12, 8, 2 },                                // windshield (inside the 2 px outline: 18 x 22)
+        { 2, 15, 4, 3, 1 }, { 12, 15, 4, 3, 1 },           // headlights
+    };
+    for (size_t i = 0; i < sizeof(parts) / sizeof(parts[0]); i++) {
+        lv_obj_t *o = lv_obj_create(b);
+        lv_obj_remove_style_all(o);
+        lv_obj_set_pos(o, parts[i].x, parts[i].y);
+        lv_obj_set_size(o, parts[i].w, parts[i].h);
+        lv_obj_set_style_radius(o, parts[i].r, 0);
+        lv_obj_set_style_bg_color(o, i ? lv_color_hex(0xFFF2B0) : lv_color_hex(0x16323A), 0);
+        lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
+    }
+    return b;
+}
+
 static lv_obj_t *bm_pill(lv_font_t *f, lv_color_t c, int y)
 {
     lv_obj_t *l = label(scr_busmap, f, c, y);
@@ -3560,7 +3672,7 @@ static lv_obj_t *bm_pill(lv_font_t *f, lv_color_t c, int y)
     lv_obj_set_style_radius(l, 12, 0);
     lv_obj_set_style_pad_hor(l, 12, 0);
     lv_obj_set_style_pad_ver(l, 3, 0);
-    lv_obj_set_style_max_width(l, 320, 0);
+    lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);        // (bm_text sizes it: one line, cut with "...")
     lv_obj_align(l, LV_ALIGN_TOP_MID, 0, y);
     return l;
 }
@@ -3574,14 +3686,15 @@ static void busmap_create(void)
     bm_none = lv_draw_buf_create(1, 1, LV_COLOR_FORMAT_RGB565, 0);
     lv_canvas_set_draw_buf(bm_img, bm_none);
     lv_obj_set_pos(bm_img, 0, 0);
-    bm_title = bm_pill(f_small, C_TEXT, 34);
-    bm_status = bm_pill(f_tiny, C_TEXT, 396);
-    bm_attr = bm_pill(f_micro, C_TEXT, 430);              // OSM asks for it on screen; on a pill to be read
-    lv_label_set_text(bm_attr, "© OpenStreetMap contributors");
+    // Where the round screen is wide enough for them (y 76: 344 px; 387: 312; 417: 286), long text cut (bm_text):
+    // the title at y 34 and the credit at 430 ran past the edge (the user, 2026-10-10); the credit is never cut
+    bm_title = bm_pill(f_small, C_TEXT, 76);
+    bm_status = bm_pill(f_tiny, C_TEXT, 362);
+    bm_attr = bm_pill(f_micro, C_TEXT, 396);              // OSM asks for it on screen; on a pill to be read
+    bm_text(bm_attr, "© OpenStreetMap contributors", 280);
     bm_stop = bm_dot(C_TEXT, 14);
-    for (int i = 0; i < BM_BUSES; i++) bm_bus[i] = bm_dot(lv_color_hex(0x6FD08C), 16);
+    for (int i = 0; i < BM_BUSES; i++) bm_bus[i] = bm_bus_icon();
     passthrough(scr_busmap);
-    lv_obj_add_event_cb(scr_busmap, busmap_tap, LV_EVENT_SHORT_CLICKED, NULL);
     lv_obj_add_event_cb(scr_busmap, busmap_gesture, LV_EVENT_GESTURE, NULL);
     lv_obj_add_event_cb(scr_busmap, busmap_unloaded, LV_EVENT_SCREEN_UNLOADED, NULL);
 }

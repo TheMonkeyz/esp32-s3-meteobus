@@ -112,7 +112,7 @@ radar, a forecast day for the hourly view, and long-press for Settings.
 
 Clock, city, icon and temperature, conditions, then feels-like, humidity (blue drop) and wind (wind mark). A line
 says when rain or snow starts or stops within 2 h ("Rain around 14:45"). Then the 3-day high/low with icons, and at
-the bottom a weather alert in a coloured pill (tap it for the details) or, without an alert, an update waiting. With
+the bottom a weather alert in a coloured pill (tap it for the details, swipe sideways to come back) or, without an alert, an update waiting. With
 both, the alert pill has a blue dot and the alert screen ends with **Update available**.
 
 With several places, there is one page per place (dots on the right edge), each with its own local time.
@@ -135,8 +135,8 @@ pill at the bottom.
 
 - **Drag up/down** to change stop.
 - **Tap the route badge** (it has a small map pin) for the bus map: the stop, the route's path and its buses on the
-  way. Swipe down or up to zoom; tap or swipe sideways to close.
-- **Tap the orange pill** for the route's notices.
+  way. Swipe down or up to zoom; swipe sideways to go back (as on the radar).
+- **Tap the orange pill** for the route's notices (swipe sideways to come back).
 - **Swipe right** for the weather.
 
 The departures come from the RTC's website (rtcquebec.ca), which has no public API: this is for personal use.
