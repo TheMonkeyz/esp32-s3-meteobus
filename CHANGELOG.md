@@ -9,6 +9,10 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 their own `## vX.Y.Z-rc.N` section. Those are shown only to Beta users, while the final release's section should
 list everything again.
 
+## v0.2.0-rc.6 - 2026-10-10
+- My stops (phone settings page): removing a stop right after moving one no longer removes the wrong stop; the buttons
+  wait until the new order is saved.
+
 ## v0.2.0-rc.5 - 2026-10-10
 - Bus map: the buses no longer cover the route's name, the next bus or the map credit at the top and bottom.
 
