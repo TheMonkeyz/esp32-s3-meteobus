@@ -299,9 +299,12 @@ def buses_screen(ctx):
     time.sleep(1.2)
     if b.screen() == 'alert':
         b.snap('alert', ctx.out('screen_bus_alert.png'))
-        b.cmd('tap 233 233')
+        b.cmd('tap 233 233')                             # a tap does nothing: back is a swipe (as the maps)
+        time.sleep(1.2)
+        check(b.screen() == 'alert', f'a tap closed the notices ({b.screen()})')
+        b.cmd('swipe right')
         b.wait_screen('stop', 6)
-        ctx.note('notice pill: the notices, a tap back to the stop')
+        ctx.note('notice pill: the notices; a tap stays, a swipe right back to the stop')
     else:
         check(b.screen() == 'stop', f'a tap at the bottom of a stop without notices left it ({b.screen()})')
     b.cmd('press 233 233')

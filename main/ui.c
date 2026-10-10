@@ -913,7 +913,7 @@ static void main_tap(lv_event_t *e)
             printf("ui: tap alert\n");
             al_back = scr_main;
             if (al_bus) { al_bus = false; weather_alert_render(); slide_cache_dirty(scr_alert); }
-            slide_screen(scr_alert, LV_SCR_LOAD_ANIM_MOVE_TOP, 260);
+            slide_screen(scr_alert, LV_SCR_LOAD_ANIM_MOVE_LEFT, 260);   // in from the right, as the maps
         } else if (!lv_obj_has_flag(up_pill, LV_OBJ_FLAG_HIDDEN)) update_show(scr_main);
         return;
     }
@@ -1583,15 +1583,20 @@ static void alert_close(lv_event_t *e)
     if (!lv_obj_has_flag(al_upd, LV_OBJ_FLAG_HIDDEN) && p.y >= a.y1 - 10 && p.y <= a.y2 + 10) {
         printf("ui: alert screen: update\n");
         update_show(scr_alert);
-        return;
     }
-    slide_screen(al_back ? al_back : scr_main, LV_SCR_LOAD_ANIM_MOVE_BOTTOM, 260);
+    // Any other tap does nothing: back is a sideways swipe, as on the radar and the bus map (the user, 2026-10-10)
 }
 
 static void alert_gesture(lv_event_t *e)
 {
     lv_indev_t *in = lv_indev_active();
-    if (in) lv_indev_wait_release(in);                  // a swipe is not a tap (= close)
+    if (!in) return;
+    lv_dir_t dir = lv_indev_get_gesture_dir(in);
+    if (dir == LV_DIR_LEFT || dir == LV_DIR_RIGHT) {     // back, leaving in the swipe's direction
+        printf("ui: alert screen closed (swipe)\n");
+        slide_screen(al_back ? al_back : scr_main, dir == LV_DIR_LEFT ? LV_SCR_LOAD_ANIM_MOVE_LEFT : LV_SCR_LOAD_ANIM_MOVE_RIGHT, 260);
+    }
+    lv_indev_wait_release(in);                          // (up / down: the list scrolls)
 }
 
 static lv_obj_t *al_label(lv_obj_t *parent, lv_font_t *f, lv_color_t c)
@@ -3156,7 +3161,7 @@ static void bus_alert_show(int i)
     lv_label_set_text(al_body, body);
     lv_obj_scroll_to_y(al_box, 0, LV_ANIM_OFF);
     slide_cache_dirty(scr_alert);
-    slide_screen(scr_alert, LV_SCR_LOAD_ANIM_MOVE_TOP, 260);
+    slide_screen(scr_alert, LV_SCR_LOAD_ANIM_MOVE_LEFT, 260);   // in from the right, as the maps
 }
 
 static void bus_tap(lv_event_t *e)

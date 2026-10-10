@@ -105,7 +105,9 @@ LVGL timer and event callbacks already run inside the lock.
   and closes with a sideways swipe or after 5 min untouched (`radar_idle`); leaving it however it happens stops it
   (`radar_unloaded`, `LV_EVENT_SCREEN_UNLOADED`). The weather alert pill is at the bottom (`PILL_Y`, under the
   forecast), sharing that slot with the update pill (`pills_show()`: the alert first, with a blue dot when an update
-  waits; the alert screen then ends with "Update available >", `al_upd`). Pill labels are sized by `pill_text()`
+  waits; the alert screen then ends with "Update available >", `al_upd`). The alert screen slides in from the right and
+  closes with a sideways swipe (`alert_gesture`); a tap does nothing but on that row (the user, 2026-10-10: back is a
+  swipe everywhere, as on the radar and the bus map). Pill labels are sized by `pill_text()`
   (`LV_LABEL_LONG_DOT` needs a fixed width and height).
 - **Places:** the weather widgets live on one page per place (`place_page_t pp[MAX_PLACES]`) in a vertical pager
   (`pager.c`) on `scr_main`; the alert pill, update pill, page dots, place dots and settings overlay are siblings
