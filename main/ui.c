@@ -3277,6 +3277,7 @@ static lv_draw_buf_t *bm_buf;             // the map picture (434 KB, PSRAM): wh
 static lv_draw_buf_t *bm_none;            // 1 x 1: the canvas's buffer while the map is closed (it can't have none)
 static bool bm_path_drawn;                 // the path is on the picture drawn at bm_zoom_drawn
 static void bm_text(lv_obj_t *l, const char *t, int max_w);
+static void bm_refresh(void);
 static bool bm_quit;                       // the map closed (under the display lock)
 static volatile int bm_zoom = BM_ZOOM, bm_zoom_drawn = -1;
 static volatile bool bm_failed;
@@ -3367,6 +3368,7 @@ static bool bm_draw(void)
     bm_failed = !ok;
     bm_draw_path();
     lv_obj_invalidate(bm_img);
+    bm_refresh();                              // the stop and the buses with the new picture, not a second later
     display_unlock();
     ESP_LOGI("ui", "bus map: zoom %d %s in %d ms", z, ok ? "drawn" : "failed", (int)((esp_timer_get_time() - t0) / 1000));
     return true;
@@ -3384,7 +3386,9 @@ static void bm_marker(lv_obj_t *o, double lat, double lon)
     bm_world(lat, lon, bm_zoom_drawn, &x, &y);
     x -= bm_ox; y -= bm_oy;
     double dx = x - DISP_W / 2, dy = y - DISP_H / 2;
-    bool in = bm_zoom_drawn >= 0 && dx * dx + dy * dy < 220.0 * 220.0;
+    // Hidden from a zoom swipe until the new zoom's picture is in (they were drawn at the old zoom's positions, then
+    // jumped: the user, 2026-10-10)
+    bool in = bm_zoom_drawn >= 0 && bm_zoom_drawn == bm_zoom && dx * dx + dy * dy < 220.0 * 220.0;
     if (in) lv_obj_set_pos(o, (int)lround(x) - lv_obj_get_style_width(o, 0) / 2, (int)lround(y) - lv_obj_get_style_height(o, 0) / 2);
     set_hidden(o, !in);
 }
@@ -3570,6 +3574,35 @@ static void bm_text(lv_obj_t *l, const char *t, int max_w)
     if (lv_obj_get_style_height(l, 0) != h) lv_obj_set_height(l, h);
 }
 
+// A small bus seen from the front (esp32-s3-rtcquebec's): green body, dark windshield, headlights, a dark outline
+// that keeps it visible on the map (the font has no bus; the user, 2026-10-10: icons, not dots)
+static lv_obj_t *bm_bus_icon(void)
+{
+    lv_obj_t *b = lv_obj_create(scr_busmap);
+    lv_obj_remove_style_all(b);
+    lv_obj_set_size(b, 22, 26);
+    lv_obj_set_style_radius(b, 6, 0);
+    lv_obj_set_style_bg_color(b, C_LIVE, 0);
+    lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(b, lv_color_hex(0x04121F), 0);
+    lv_obj_set_style_border_width(b, 2, 0);
+    lv_obj_add_flag(b, LV_OBJ_FLAG_HIDDEN);
+    static const struct { int x, y, w, h, r; } parts[] = {
+        { 3, 3, 12, 8, 2 },                                // windshield (inside the 2 px outline: 18 x 22)
+        { 2, 15, 4, 3, 1 }, { 12, 15, 4, 3, 1 },           // headlights
+    };
+    for (size_t i = 0; i < sizeof(parts) / sizeof(parts[0]); i++) {
+        lv_obj_t *o = lv_obj_create(b);
+        lv_obj_remove_style_all(o);
+        lv_obj_set_pos(o, parts[i].x, parts[i].y);
+        lv_obj_set_size(o, parts[i].w, parts[i].h);
+        lv_obj_set_style_radius(o, parts[i].r, 0);
+        lv_obj_set_style_bg_color(o, i ? lv_color_hex(0xFFF2B0) : lv_color_hex(0x16323A), 0);
+        lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
+    }
+    return b;
+}
+
 static lv_obj_t *bm_pill(lv_font_t *f, lv_color_t c, int y)
 {
     lv_obj_t *l = label(scr_busmap, f, c, y);
@@ -3600,7 +3633,7 @@ static void busmap_create(void)
     bm_attr = bm_pill(f_micro, C_TEXT, 396);              // OSM asks for it on screen; on a pill to be read
     bm_text(bm_attr, "© OpenStreetMap contributors", 280);
     bm_stop = bm_dot(C_TEXT, 14);
-    for (int i = 0; i < BM_BUSES; i++) bm_bus[i] = bm_dot(lv_color_hex(0x6FD08C), 16);
+    for (int i = 0; i < BM_BUSES; i++) bm_bus[i] = bm_bus_icon();
     passthrough(scr_busmap);
     lv_obj_add_event_cb(scr_busmap, busmap_gesture, LV_EVENT_GESTURE, NULL);
     lv_obj_add_event_cb(scr_busmap, busmap_unloaded, LV_EVENT_SCREEN_UNLOADED, NULL);
