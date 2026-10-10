@@ -45,6 +45,36 @@ class Monitor(unittest.TestCase):
         with open(self.path('serial_live.txt'), encoding='utf-8') as f:
             return f.read().splitlines()
 
+    def wait_started(self, timeout=10):
+        """Until monitor() has opened serial_live.txt: it drops a serial.send it finds at its start (a stale command from
+        an earlier run), so a command written before that was lost. A fixed 0.3 s sleep lost it on a slow macOS runner
+        (CI, 2026-10-10)."""
+        end = time.time() + timeout
+        while time.time() < end:
+            if os.path.exists(self.path('serial_live.txt')):
+                return True
+            time.sleep(0.02)
+        return False
+
+    def send_and_check(self):
+        self.assertTrue(self.wait_started(), 'the monitor never started')
+        with open(self.path('serial.send'), 'w') as f:
+            f.write('ping\n\nscreen\n')
+        self.assertTrue(self.wait_for('> ping'), 'the command was not echoed in serial_live.txt')
+        self.assertTrue(self.wait_for('ping'), 'the loopback did not return the bytes sent')
+        self.assertTrue(self.wait_for('> screen'), 'the second command was not echoed')
+        open(self.path('stop.request'), 'w').close()       # done: end the window (10 s at most otherwise)
+
+    def check_sent_and_logged(self, lines, early, err):
+        self.assertIsNone(err)
+        self.assertTrue(early, 'the window did not end on stop.request')
+        self.assertIn('> ping', lines)
+        self.assertIn('> screen', lines)
+        self.assertNotIn('> ', lines)                 # the empty line is skipped
+        self.assertFalse(os.path.exists(self.path('serial.send')), 'serial.send was not consumed')
+        with open(self.path('serial_log.txt'), encoding='utf-8') as f:
+            self.assertEqual(f.read().splitlines(), lines)
+
     def wait_for(self, line, timeout=3):
         end = time.time() + timeout
         while time.time() < end:
@@ -54,21 +84,21 @@ class Monitor(unittest.TestCase):
         return False
 
     def test_command_is_sent_and_logged(self):
-        def during():
-            time.sleep(0.3)
-            with open(self.path('serial.send'), 'w') as f:
-                f.write('ping\n\nscreen\n')
-            self.assertTrue(self.wait_for('> ping'), 'the command was not echoed in serial_live.txt')
-            self.assertTrue(self.wait_for('ping'), 'the loopback did not return the bytes sent')
-        lines, early, err = self.run_monitor(1.5, during)
-        self.assertIsNone(err)
-        self.assertFalse(early)
-        self.assertIn('> ping', lines)
-        self.assertIn('> screen', lines)
-        self.assertNotIn('> ', lines)                 # the empty line is skipped
-        self.assertFalse(os.path.exists(self.path('serial.send')), 'serial.send was not consumed')
-        with open(self.path('serial_log.txt'), encoding='utf-8') as f:
-            self.assertEqual(f.read().splitlines(), lines)
+        self.check_sent_and_logged(*self.run_monitor(10, self.send_and_check))
+
+    def test_command_is_sent_when_the_monitor_starts_slowly(self):
+        # A slow machine: the monitor reaches its start-up cleanup 0.5 s late. A command written once it has started is
+        # still sent (the old test wrote it after a fixed 0.3 s, and on CI's macOS runner the cleanup deleted it)
+        remove = fh.remove
+
+        def slow_remove(name):
+            time.sleep(0.5)
+            remove(name)
+        fh.remove = slow_remove
+        try:
+            self.check_sent_and_logged(*self.run_monitor(10, self.send_and_check))
+        finally:
+            fh.remove = remove
 
     def test_stop_request_ends_the_window_early(self):
         def during():
