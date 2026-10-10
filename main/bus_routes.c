@@ -9,6 +9,7 @@
 #include "departures.h"
 #include "favs.h"
 #include "ui.h"
+#include "radar.h"
 
 static const char *TAG = "bus";
 
@@ -132,7 +133,7 @@ static const web_route_t routes[] = {
 
 void bus_start(void)
 {
-    deps_start(ui_deps_changed);
+    deps_start(ui_deps_changed, radar_side_wake);   // its requests run in the radar task's idle time
     rtc_fav_t f[FAVS_MAX];
     int n = favs_load(f);
     deps_set_favs(f, n);

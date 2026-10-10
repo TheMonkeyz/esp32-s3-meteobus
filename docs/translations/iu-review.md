@@ -490,3 +490,7 @@ anything that reads wrong.
 | `web:badFav` | Check the stop and route numbers. | ᓈᓴᐅᑏᑦ ᖃᐅᔨᒋᐊᕐᓗᒋᑦ. | Naasautiit qaujigiarlugit. | low | check the numbers (MeteoBus, 2026-10-09, unreviewed) |
 | `web:stopsFull` | That's the most stops the display can show ({0}). | ᓄᖅᑲᕐᕖᑦ {0} ᑭᓯᐊᓂ. | Nuqqarviit {0} kisiani. | low | only {0} stops (MeteoBus, 2026-10-09, unreviewed) |
 | `web:dupStop` | That stop is already in the list. | ᓄᖅᑲᕐᕕᒃ ᐅᓇ ᐃᓚᓕᖅᓯᒪᔪᖅ. | Nuqqarvik una ilaliqsimajuq. | low | already added (MeteoBus, 2026-10-09, unreviewed) |
+| `fw:T_MAP_NEXT` | Next bus: %s | ᑎᑭᓕᕆᔪᖅ: %s | Tikilirijuq: %s | low | tikiliri- = is arriving (MeteoBus, 2026-10-09, unreviewed) |
+| `fw:T_MAP_LOADING` | Loading the map... | ᓄᓇᙳᐊᖅ... ᐅᑕᖅᑭᕆᑦᓯ | Nunannguaq... utaqqiritsi | low | as T_LOADING_RADAR (MeteoBus, 2026-10-09, unreviewed) |
+| `fw:T_MAP_NO_TILES` | Can't load the map | ᓄᓇᙳᐊᖅ ᒥᓇᕆᔭᐅᔪᓐᓇᙱᑦᑐᖅ | Nunannguaq minarijaujunnanngittuq | low | as T_MAPS_LOADING (MeteoBus, 2026-10-09, unreviewed) |
+| `fw:T_MAP_NO_BUS` | No bus on the way now | ᑎᑭᓕᕆᔪᖃᙱᑦᑐᖅ ᒫᓐᓇ | Tikilirijuqanngittuq maanna | low | none arriving now (MeteoBus, 2026-10-09, unreviewed) |

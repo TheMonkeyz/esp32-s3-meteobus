@@ -1,6 +1,7 @@
 // Rain radar screen: OpenStreetMap basemap (dimmed) + Environment Canada GeoMet radar,
 // ~200 km radius around the city, Web Mercator zoom 7 (~840 m/pixel at 47°N).
 #include "radar.h"
+#include "netq.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -42,6 +43,7 @@ static uint16_t *out565;    // basemap + radar, shown on screen
 static lv_image_dsc_t dsc;
 static lv_obj_t *scr, *img, *lbl_title, *lbl_status, *ring, *ring_lbl, *bar, *lbl_rtime;
 static lv_obj_t *pnl, *pnl_body, *pnl_bar, *pnl_title;     // "Preparing maps" panel (background preload)
+static bool (*side_work)(void);         // radar_set_side_work: other downloads in the idle time
 static TaskHandle_t task;
 static volatile bool visible;
 static bool base_ok;
@@ -333,7 +335,7 @@ static bool load_basemap(void)
 }
 
 // Draw the dimmed OSM map for any w x h window whose top-left is (ox, oy) in world pixels at zoom z
-// (used by the alert map when the radar cache doesn't cover it). Other task, own connection.
+// (the alert map when the radar cache doesn't cover it, the bus map). Other task, own connection.
 bool radar_osm_render(int z, double ox, double oy, uint16_t *dst, int w, int h)
 {
     for (int i = 0; i < w * h; i++) dst[i] = rgb565(18, 20, 24);
@@ -357,7 +359,7 @@ bool radar_osm_render(int z, double ox, double oy, uint16_t *dst, int w, int h)
         }
     }
     if (hc) esp_http_client_cleanup(hc);
-    ESP_LOGI(TAG, "Alert map: %d/%d tiles at zoom %d", ok, total, z);
+    ESP_LOGI(TAG, "OSM map: %d/%d tiles at zoom %d", ok, total, z);
     return ok > 0;
 }
 
@@ -1065,6 +1067,7 @@ static void radar_task(void *arg)
     ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(3000));  // main asks for the map preload right after connecting
     bool prefetch = true;                            // latest frame at boot so the first swipe is instant
     while (1) {
+        netq_set(NETQ_RADAR, true);                      // the RTC's requests wait while the radar downloads (netq.h)
         if (preload_req) {
             preload_req = false;
             if (config_active_place() == 0) preload_all();      // other places aren't cached (see cache_save)
@@ -1073,7 +1076,17 @@ static void radar_task(void *arg)
         }
         if (zoom_target != zoom) relocate_pending = true;
         if (!prefetch && !relocate_pending) {
-            ulTaskNotifyTake(pdTRUE, visible ? pdMS_TO_TICKS(REFRESH_S * 1000) : portMAX_DELAY);
+            netq_set(NETQ_RADAR, false);
+            if (!visible && side_work) {
+                // Idle: the other work a second at a time (the buses, the bus map), until the radar is wanted again
+                bool woken = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000)) != 0;
+                if (!visible && !preload_req && zoom_target == zoom && !relocate_pending) {
+                    if (side_work()) xTaskNotifyGive(task);          // more may be due: look again at once
+                    continue;
+                }
+                (void)woken;
+            } else ulTaskNotifyTake(pdTRUE, visible ? pdMS_TO_TICKS(REFRESH_S * 1000) : portMAX_DELAY);
+            netq_set(NETQ_RADAR, true);
         }
         if (zoom_target != zoom) relocate_pending = true;
         if (relocate_pending) {
@@ -1100,9 +1113,10 @@ static void radar_task(void *arg)
         }
         bool want_work = prefetch || visible || play_pending;
         prefetch = false;
-        if (!want_work) continue;
+        if (!want_work) { netq_set(NETQ_RADAR, false); continue; }
         if (!net_is_connected()) {                       // look again soon: "No Wi-Fi" stayed up to 6 min after it
             set_status(NULL, tr(T_NO_WIFI));             // came back (the next wake was the refresh period)
+            netq_set(NETQ_RADAR, false);
             ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10000));
             prefetch = true;
             continue;
@@ -1120,6 +1134,7 @@ static void radar_task(void *arg)
             time_t latest = latest_radar_time();
             if (!latest) {
                 set_status(NULL, tr(T_RADAR_NA));
+                netq_set(NETQ_RADAR, false);
                 ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5000));    // a zoom/relocate request wakes us early
                 if (visible) xTaskNotifyGive(task);
                 continue;
@@ -1293,6 +1308,17 @@ lv_obj_t *radar_create(lv_font_t *f_title, lv_font_t *f_small, lv_font_t *f_micr
 
     xTaskCreatePinnedToCore(radar_task, "radar", 10240, NULL, 3, &task, 0);
     return scr;
+}
+
+void radar_set_side_work(bool (*work)(void))
+{
+    side_work = work;
+    if (task) xTaskNotifyGive(task);
+}
+
+void radar_side_wake(void)
+{
+    if (task && side_work) xTaskNotifyGive(task);
 }
 
 void radar_set_visible(bool v)

@@ -284,9 +284,19 @@ static int priority(int e)
     return CACHE_N;
 }
 
+// How much a key is worth keeping: its place in keep[] (0 = what's shown), CACHE_N if not needed now
+static int key_priority(const void *key)
+{
+    for (int i = 0; i < keep_n; i++) if (key && keep[i] == key) return i;
+    return CACHE_N;
+}
+
 // A slot for a new picture: free, else the one worth least. A slot holding a picture still needed is only taken when
-// `force` (a slide needs its pictures now), never one of the two `spare` keys.
-static int slot_for(bool force, const void *spare1, const void *spare2)
+// `force` (a slide needs its pictures now), or when it is worth less than the new one (want_p: the new picture's place
+// in keep[]); never one of the two `spare` keys. (MeteoBus: with a fifth neighbour, the stop page, every slot held a
+// needed picture after a visit to the extras page, and the next place's, though worth more than the hourly view's,
+// never got one back: place drags waited ~0.12 s for it.)
+static int slot_for(bool force, const void *spare1, const void *spare2, int want_p)
 {
     int best = -1, best_p = -1;
     for (int i = 0; i < CACHE_N; i++) {
@@ -295,7 +305,7 @@ static int slot_for(bool force, const void *spare1, const void *spare2)
         if (cache[i].key && !cache[i].buf) pr = CACHE_N + 1;
         if (pr > best_p) { best_p = pr; best = i; }
     }
-    if (best < 0 || (best_p < CACHE_N && !force)) return -1;
+    if (best < 0 || (best_p < CACHE_N && !force && best_p <= want_p)) return -1;
     return best;
 }
 
@@ -304,7 +314,7 @@ static lv_draw_buf_t *get(const void *key, bool render, bool force, const void *
     int e = find(key);
     if (e >= 0 && !cache[e].dirty) return cache[e].buf;
     if (!render || !paint_cb || !key) return NULL;
-    if (e < 0 && (e = slot_for(force, spare, key)) < 0) return NULL;
+    if (e < 0 && (e = slot_for(force, spare, key, key_priority(key))) < 0) return NULL;
     if (!cache[e].buf && !room_for(1) && force) {
         // No room for another buffer: a slide needs this picture now, so it takes the buffer of the picture worth
         // least (not a spare). Allocating anyway took PSRAM's low point from ~450 to 268 KB when the radar, opened
@@ -330,6 +340,20 @@ static lv_draw_buf_t *get(const void *key, bool render, bool force, const void *
 }
 
 lv_draw_buf_t *slide_cache_get(const void *key, bool render) { return get(key, render, false, NULL); }
+
+void slide_cache_release_unneeded(void)
+{
+    int n = 0;
+    for (int i = 0; i < CACHE_N; i++) {
+        if (!cache[i].buf || priority(i) < CACHE_N) continue;
+        lv_draw_buf_destroy(cache[i].buf);
+        cache[i].buf = NULL;
+        cache[i].key = NULL;
+        cache[i].dirty = false;
+        n++;
+    }
+    if (n) ESP_LOGI(TAG, "%d picture(s) let go (%d KB of PSRAM)", n, n * DISP_W * DISP_H * 2 / 1024);
+}
 
 
 // Rows y0..y1 of picture i are out of date (added to any rows already out of date; a render in progress restarts)
@@ -390,7 +414,14 @@ bool slide_cache_idle_work(int quiet_ms)
         if (e < 0 ? quiet : cache[e].dirty && (quiet || now - cache[e].dirty_since > 2000000 ||
                                                 cache[e].d1 - cache[e].d0 < STRIP)) {
             if (e < 0) {                                 // a slot for it: free, or holding a picture not needed now
-                if ((e = slot_for(false, NULL, NULL)) < 0) return false;
+                if ((e = slot_for(false, NULL, NULL, i)) < 0) return false;
+                if (!cache[e].buf && !room_for(1)) {     // no room for another buffer: a less useful picture's
+                    int alt = -1, alt_p = i;
+                    for (int k = 0; k < CACHE_N; k++)
+                        if (cache[k].buf && priority(k) > alt_p) { alt_p = priority(k); alt = k; }
+                    if (alt < 0) return false;
+                    e = alt;
+                }
                 if (!cache[e].buf) {
                     if (!room_for(1)) return false;
                     cache[e].buf = lv_draw_buf_create(DISP_W, DISP_H, LV_COLOR_FORMAT_RGB565, 0);
@@ -591,12 +622,21 @@ static void drag_run(void *unused)
     }
     frame_t f = { .cur = bc->data, .stride = bc->header.stride, .vertical = drag.vertical };
     int x = drag.x1, y = drag.y1, frames = 0, rendered = cached ? 0 : 1, raw = 0, samples = 0;
+    // Which picture had to be rendered first, for the log line: the screen shown's own, or the neighbour's (not
+    // cached at all, or out of date in rows d0..d1)
+    char why[48] = "";
+    if (!cached) snprintf(why, sizeof(why), "shown not ready");
     // The neighbour the finger is heading to, before the first frame: a quick flick may be over by then
     int first = (drag.vertical ? y - drag.y0 : x - drag.x0) > 0 ? -1 : 1, fi = first < 0 ? 0 : 1;
     tried[fi] = true;
     nkey[fi] = drag.neighbour ? drag.neighbour(first, drag.user) : NULL;
     if (nkey[fi]) {
-        if (!slide_cache_get(nkey[fi], false)) rendered++;
+        if (!slide_cache_get(nkey[fi], false)) {
+            rendered++;
+            int e = find(nkey[fi]);
+            if (e < 0) snprintf(why, sizeof(why), "neighbour not cached");
+            else snprintf(why, sizeof(why), "neighbour rows %d-%d out of date", cache[e].d0, cache[e].d1);
+        }
         bs[fi] = get(nkey[fi], true, true, ckey);            // takes the least useful slot if it must
     }
     if (fi == 0) f.prev = bs[0] ? bs[0]->data : NULL; else f.next = bs[1] ? bs[1]->data : NULL;
@@ -693,10 +733,10 @@ static void drag_run(void *unused)
     // (the part after " | " is for people reading the log; the harness reads the part before it)
     if (t_first) ESP_LOGI(TAG, "drag: first frame after %lld ms (%d pictures rendered), %d frames in %lld ms (%.0f fps), %s"
                           " | gap max %lld ms, held reads %d err %d up (longest %lld ms), finger still max %lld ms, "
-                          "samples %d, %.2f px/ms",
+                          "samples %d, %.2f px/ms%s%s",
                           (t_first - t0) / 1000, rendered, frames, (t1 - ts) / 1000, frames * 1e6f / (t1 - ts),
                           go || blind ? (side < 0 ? "to prev" : "to next") : "back", gap_max / 1000, held_err, held_up,
-                          hold_max / 1000, still_max / 1000, samples, vel);
+                          hold_max / 1000, still_max / 1000, samples, vel, why[0] ? ", rendered first: " : "", why);
     else ESP_LOGW(TAG, "drag: finger up before the first frame (%d pictures rendered in %lld ms), %s", rendered,
                   (t1 - t0) / 1000, go || blind ? (side < 0 ? "to prev" : "to next") : "back");
     drag.queued = false;

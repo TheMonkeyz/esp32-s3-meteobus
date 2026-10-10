@@ -446,3 +446,11 @@ X(T_NO_STOPS,      "No stops yet", "Aucun arrêt",
                     "ᓄᖅᑲᕐᕕᖃᙱᑦᑐᖅ")
 X(T_NO_STOPS_HOW,  "Add your stops from your\nphone: press and hold,\nthen Location & more", "Ajoutez vos arrêts depuis\nvotre téléphone : appuyez\nlonguement, puis Endroit et plus",
                     "ᓄᖅᑲᕐᕖᑦ ᐃᓚᓗᒋᑦ\nᐅᖄᓚᐅᑎᕋᓛᕐᒥ:\nᓇᕿᓪᓗᒍ ᓇᕿᒻᒥᓕ")
+X(T_MAP_NEXT,     "Next bus: %s", "Prochain bus : %s",
+                    "ᑎᑭᓕᕆᔪᖅ: %s")
+X(T_MAP_LOADING,  "Loading the map...", "Chargement de la carte...",
+                    "ᓄᓇᙳᐊᖅ... ᐅᑕᖅᑭᕆᑦᓯ")
+X(T_MAP_NO_TILES, "Can't load the map", "Impossible de charger la carte",
+                    "ᓄᓇᙳᐊᖅ ᒥᓇᕆᔭᐅᔪᓐᓇᙱᑦᑐᖅ")
+X(T_MAP_NO_BUS,   "No bus on the way now", "Aucun bus en route",
+                    "ᑎᑭᓕᕆᔪᖃᙱᑦᑐᖅ ᒫᓐᓇ")

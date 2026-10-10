@@ -25,6 +25,7 @@ void ui_place_state(int i, bool ok);
 void ui_first_run(bool location, bool gestures);
 void ui_pages(int *place, int *day, int *places, int *days);
 void ui_hero_icon(int *x, int *y);
+void ui_route_badge(int *x, int *y);                   // test console "page": where a tap opens the bus map
 void ui_deps_changed(int i);                           // departures.c's task: a stop's data or the notices changed
 void ui_favs_changed(void);                            // the favourite stops changed (start-up, settings page)                     // test console "page": where a tap opens the radar   // test console (display lock held)
 const char *ui_screen_name(void);        // "weather", "radar", "settings", "setup0"... (display lock held)

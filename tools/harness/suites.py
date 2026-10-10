@@ -314,6 +314,40 @@ def buses_screen(ctx):
 
 
 @test('navigation')
+def bus_map(ctx):
+    """The bus map (MeteoBus v0.2.0): a tap on the route badge opens it around the stop, its tiles drawn into a picture
+    allocated for it; swipe down zooms in; a sideways swipe closes it, and its picture is freed (the map and the radar
+    take turns in PSRAM, docs/MERGE-PLAN.md)."""
+    b = ctx.board
+    if not stop_names(ctx):
+        ctx.note('no favourite stop on this board: not checked')
+        return
+    go_stops(ctx)
+    at = len(ctx.log.lines())
+    m = b.cmd('page', r'test: page .*badge=(\d+),(\d+)')
+    b.cmd(f'tap {m.group(1)} {m.group(2)}')
+    b.wait_screen('busmap', 6)
+    d = ctx.log.wait(r'ui: bus map: zoom 15 (drawn|failed) in (\d+) ms', 40, 'the map drawn', start=at)
+    check(d.group(1) == 'drawn', "the map's tiles failed to load")
+    ctx.metric('bus_map_ms', int(d.group(2)))
+    time.sleep(1.5)
+    b.snap('busmap', ctx.out('screen_busmap.png'))
+    heap = b.cmd('heap', r'test: heap (.*)').group(1)
+    psram = int(re.search(r'psram=(\d+)', heap).group(1))
+    ctx.metric('psram_kb.bus_map', psram)
+    at2 = len(ctx.log.lines())
+    b.cmd('swipe down')                                   # zoom in
+    ctx.log.wait(r'ui: bus map: zoom 16 drawn', 40, 'zoom 16 drawn', start=at2)
+    b.cmd('swipe right')
+    b.wait_screen('stop', 6)
+    ctx.log.wait(r'ui: bus map: closed, picture freed', 20, 'the map picture freed', start=at2)
+    check(ctx.log.count(r'slide: \d+ picture\(s\) let go', start=at), 'the picture cache kept every picture while the map was open')
+    ctx.note(f'map drawn in {d.group(2)} ms, zoom 16, closed and freed; PSRAM {psram} KB free with the map open')
+    b.cmd('swipe right')
+    b.wait_screen('weather', 6)
+
+
+@test('navigation')
 def stop_on_view_every_30s(ctx):
     """The RTC's polling rules (departures.c): the stop on view every 30 s while the buses screen is shown, and not
     every 30 s once the weather is back on screen (the others: at most every 5 min)."""
@@ -336,6 +370,8 @@ def stop_on_view_every_30s(ctx):
     time.sleep(70)
     off = sum(1 for l in ctx.log.lines()[at:] if pat.search(l))
     check(off <= 1, f'with the weather on screen the stop was still fetched {off} times in 70 s (every 5 min at most)')
+    check(not ctx.log.count(r'RTC fetch task has been stuck', start=0),
+          'the RTC fetch task got stuck (ui: "buses: the RTC fetch task has been stuck"; v0.2.0-rc.11 with its stack in PSRAM)')
     ctx.note(f'{f["route"]} at {f["stop"]}: {on} fetches in 70 s on view, {off} in the 70 s after')
 
 

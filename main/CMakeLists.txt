@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "main.c" "display.c" "weather.c" "ui.c" "touch.c" "radar.c" "config.c" "audio.c" "lvgl_mem.c" "alerts.c" "pager.c" "imu.c" "i18n.c" "sound.c" "slide.c" "routes.c" "console.c" "services.c" "departures.c" "rtc_api.c" "favs.c" "bus_routes.c"
+    SRCS "main.c" "display.c" "weather.c" "ui.c" "touch.c" "radar.c" "config.c" "audio.c" "lvgl_mem.c" "alerts.c" "pager.c" "imu.c" "i18n.c" "sound.c" "slide.c" "routes.c" "console.c" "services.c" "departures.c" "rtc_api.c" "favs.c" "bus_routes.c" "netq.c"
     INCLUDE_DIRS "."
     # forge_core, forge_net, forge_ota, forge_presence: espforge's components at the tag in idf_component.yml (Wi-Fi, web server,
     # updates, diagnostics, test console, languages, textfit, png_rows, screen dimming by presence...)

@@ -38,7 +38,10 @@ typedef struct {
 #define DEPS_CHANGED_ALERTS -1
 #define DEPS_CHANGED_BUSES -2
 #define DEPS_CHANGED_TRACE -3
-void deps_start(void (*changed)(int i));
+void deps_start(void (*changed)(int i), void (*wake)(void));   // wake: the task running deps_step(), now
+// One step of the polling rules: at most one request, in the caller's task (the radar's idle time, MeteoBus).
+// True if it asked something.
+bool deps_step(void);
 void deps_set_favs(const rtc_fav_t *favs, int n);   // replaces the list; the new ones are fetched soon
 void deps_show(int i);                              // the favourite on view (-1: none); fetched now if due
 bool deps_get(int i, dep_entry_t *out);
@@ -64,6 +67,9 @@ int deps_trace(float *latlon, int max, int *len);
 // 1 = found, 0 = RTC says no such route / stop on that route, -1 = couldn't ask (offline, timeout, bad reply).
 int deps_lookup_route(const char *route, rtc_route_t *out);
 int deps_check_fav(const rtc_fav_t *f, rtc_board_t *out);
+
+// Seconds since deps_step() last ran: more than a minute (the radar not on screen) means it is stuck (ui.c logs it)
+int deps_stalled_s(void);
 
 // Today's service date as RTC wants it (yyyymmdd, local time); false while the clock isn't set
 bool deps_date(char *out, int n);

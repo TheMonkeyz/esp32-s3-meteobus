@@ -16,6 +16,7 @@
 #include "http_once.h"
 #include "svc.h"
 #include "net.h"
+#include "netq.h"
 
 static const char *TAG = "deps";
 #define RX_CAP 4096                     // a reply is ~1.1 KB (5 departures)
@@ -23,10 +24,10 @@ static const char *TAG = "deps";
 #define GAP_MS 2000                     // between two requests
 
 static SemaphoreHandle_t mu;            // entries, n, shown, job
-static dep_entry_t ent[FAVS_MAX];
+EXT_RAM_BSS_ATTR static dep_entry_t ent[FAVS_MAX];   // (PSRAM: internal RAM is the tightest, MeteoBus)
 static int64_t tried[FAVS_MAX];         // esp_timer µs of the last try, 0 = never
 static int n_ent, shown = -1;
-static TaskHandle_t task;
+static void (*wake)(void);              // the task that runs deps_step() (the radar's): now, not in a second
 static void (*on_changed)(int i);
 static int svc_rtc = -1;
 
@@ -49,7 +50,7 @@ static int64_t bus_tried;
 static time_t bus_fetched;
 static bool bus_failing;
 static int n_bus;
-static rtc_bus_t bus[RTC_BUSES_MAX];
+EXT_RAM_BSS_ATTR static rtc_bus_t bus[RTC_BUSES_MAX];
 
 // Its route's path: the variants' points one after the other (PSRAM), fetched once per route, direction and day
 static char trace_key[32];                  // "800/0/20261007" fetched (or tried and failed: retried in 5 min)
@@ -233,108 +234,123 @@ static int due(int64_t now)
     return -1;
 }
 
-static void fetch_task(void *arg)
+// When deps_step() last ran (esp_timer µs): the radar task's idle second calls it (deps_stalled_s)
+static int64_t alive_us;
+static int64_t next_ok;                 // 2 s between two requests (GAP_MS)
+static char *step_buf;                  // the replies (PSRAM)
+static rtc_board_t *step_board;
+
+int deps_stalled_s(void)
 {
-    char *buf = heap_caps_malloc(RX_CAP, MALLOC_CAP_SPIRAM);
-    rtc_board_t *b = heap_caps_malloc(sizeof(rtc_board_t), MALLOC_CAP_SPIRAM);
-    while (1) {
-        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000));
-        xSemaphoreTake(mu, portMAX_DELAY);
-        job_t *jb = job;                                      // taken: run_job now waits for it whatever happens
-        job = NULL;
-        xSemaphoreGive(mu);
-        if (jb) {                                             // the settings page waits for it
-            jb->result = jb->route ? ask_route(jb->route_no, jb->route_out, buf)
-                                   : ask_board(&jb->fav, jb->board_out, buf);
-            xSemaphoreGive(job_done);
-            vTaskDelay(pdMS_TO_TICKS(GAP_MS));
-            continue;
-        }
-        char date[12];
-        if (!net_is_connected() || !deps_date(date, sizeof(date))) continue;
+    int64_t a = __atomic_load_n(&alive_us, __ATOMIC_ACQUIRE);
+    return a ? (int)((esp_timer_get_time() - a) / 1000000) : 0;
+}
 
-        // The map's route path, once (it changes with the service day at most)
-        char tkey[32] = "";                                   // (date: today's, checked above)
-        xSemaphoreTake(mu, portMAX_DELAY);
-        if (track >= 0) {
-            char key[32];
-            snprintf(key, sizeof(key), "%s/%s/%s", track_fav.route, track_fav.dir, date);
-            if (strcmp(key, trace_key) && (!trace_tried || esp_timer_get_time() - trace_tried > 5 * 60 * 1000000LL)) {
-                strlcpy(tkey, key, sizeof(tkey));
-                trace_tried = esp_timer_get_time();
-            }
-        }
-        rtc_fav_t trf = track_fav;
-        xSemaphoreGive(mu);
-        if (tkey[0]) {
-            fetch_trace(&trf, date, tkey);
-            vTaskDelay(pdMS_TO_TICKS(GAP_MS));
-            continue;
-        }
-
-        // The map's buses first: someone is looking at them
-        xSemaphoreTake(mu, portMAX_DELAY);
-        bool buses = track >= 0 && (!bus_tried || esp_timer_get_time() - bus_tried >= DEPS_BUSES_S * 1000000LL);
-        rtc_fav_t tf = track_fav;
-        if (buses) bus_tried = esp_timer_get_time();
-        xSemaphoreGive(mu);
-        if (buses) {
-            static rtc_bus_t got[RTC_BUSES_MAX];
-            char url[160];
-            buses_t x = { .b = got };
-            int st = rtc_buses_url(url, sizeof(url), tf.route, tf.dir) ? get(url, buf, RX_CAP, parse_buses, &x) : -1;
-            xSemaphoreTake(mu, portMAX_DELAY);
-            bool same = track >= 0 && !memcmp(&track_fav, &tf, sizeof(tf));
-            if (same) {
-                bus_failing = st != 200;
-                if (st == 200) { n_bus = x.n; memcpy(bus, got, x.n * sizeof(got[0])); bus_fetched = time(NULL); }
-            }
-            xSemaphoreGive(mu);
-            if (same && on_changed) on_changed(DEPS_CHANGED_BUSES);
-            vTaskDelay(pdMS_TO_TICKS(GAP_MS));
-            continue;
-        }
-
-        xSemaphoreTake(mu, portMAX_DELAY);
-        int i = due(esp_timer_get_time());
-        rtc_fav_t f = i >= 0 ? ent[i].fav : (rtc_fav_t){0};
-        if (i >= 0) tried[i] = esp_timer_get_time();
-        int a = -1;                                           // else a route's notices, when due
-        char route[8] = "";
-        for (int k = 0; k < n_ra && i < 0 && a < 0; k++)
-            if (!ra[k].tried || esp_timer_get_time() - ra[k].tried >= DEPS_ALERTS_S * 1000000LL) a = k;
-        if (a >= 0) { ra[a].tried = esp_timer_get_time(); strlcpy(route, ra[a].route, sizeof(route)); }
-        xSemaphoreGive(mu);
-        if (a >= 0) {
-            static EXT_RAM_BSS_ATTR rtc_notice_t got[RTC_NOTICES_MAX];
-            int n = 0, r = ask_notices(route, got, &n);
-            xSemaphoreTake(mu, portMAX_DELAY);
-            bool same = a < n_ra && !strcmp(ra[a].route, route);
-            if (same) {
-                ra[a].failing = r < 0;
-                if (r == 1) { ra[a].n = n; memcpy(ra[a].nt, got, n * sizeof(got[0])); ra[a].fetched = time(NULL); }
-            }
-            xSemaphoreGive(mu);
-            if (same && r == 1) ESP_LOGI(TAG, "route %s: %d notice(s)", route, n);
-            if (same && on_changed) on_changed(DEPS_CHANGED_ALERTS);
-            vTaskDelay(pdMS_TO_TICKS(GAP_MS));
-            continue;
-        }
-        if (i < 0) continue;
-
-        int r = ask_board(&f, b, buf);
-        xSemaphoreTake(mu, portMAX_DELAY);
-        bool same = i < n_ent && !memcmp(&ent[i].fav, &f, sizeof(f));   // the list didn't change meanwhile
-        if (same) {
-            dep_entry_t *e = &ent[i];
-            e->failing = r < 0;
-            if (r == 1) { e->state = DEP_OK; e->board = *b; e->fetched = time(NULL); }
-            else if (r == 0) e->state = DEP_NOT_FOUND;
-        }
-        xSemaphoreGive(mu);
-        if (same && on_changed) on_changed(i);
-        vTaskDelay(pdMS_TO_TICKS(GAP_MS));
+// One step of the polling rules (MeteoBus): at most one request, run by the caller (the radar task, while the radar
+// isn't on screen: it has the internal stack TLS needs, and never downloads at the same time). Nothing while the
+// weather loop or the bus map downloads (netq.h), nor within GAP_MS of the last request. True if it asked something.
+bool deps_step(void)
+{
+    __atomic_store_n(&alive_us, esp_timer_get_time(), __ATOMIC_RELEASE);
+    if (!mu || !step_buf || !step_board || esp_timer_get_time() < next_ok || netq_others_busy(NETQ_RADAR)) return false;
+    char *buf = step_buf;
+    rtc_board_t *b = step_board;
+    xSemaphoreTake(mu, portMAX_DELAY);
+    job_t *jb = job;                                      // taken: run_job now waits for it whatever happens
+    job = NULL;
+    xSemaphoreGive(mu);
+    if (jb) {                                             // the settings page waits for it
+        jb->result = jb->route ? ask_route(jb->route_no, jb->route_out, buf)
+                               : ask_board(&jb->fav, jb->board_out, buf);
+        xSemaphoreGive(job_done);
+        next_ok = esp_timer_get_time() + GAP_MS * 1000LL;
+        return true;
     }
+    char date[12];
+    if (!net_is_connected() || !deps_date(date, sizeof(date))) return false;
+
+    // The map's route path, once (it changes with the service day at most)
+    char tkey[32] = "";                                   // (date: today's, checked above)
+    xSemaphoreTake(mu, portMAX_DELAY);
+    if (track >= 0) {
+        char key[32];
+        snprintf(key, sizeof(key), "%s/%s/%s", track_fav.route, track_fav.dir, date);
+        if (strcmp(key, trace_key) && (!trace_tried || esp_timer_get_time() - trace_tried > 5 * 60 * 1000000LL)) {
+            strlcpy(tkey, key, sizeof(tkey));
+            trace_tried = esp_timer_get_time();
+        }
+    }
+    rtc_fav_t trf = track_fav;
+    xSemaphoreGive(mu);
+    if (tkey[0]) {
+        fetch_trace(&trf, date, tkey);
+        next_ok = esp_timer_get_time() + GAP_MS * 1000LL;
+        return true;
+    }
+
+    // The map's buses first: someone is looking at them
+    xSemaphoreTake(mu, portMAX_DELAY);
+    bool buses = track >= 0 && (!bus_tried || esp_timer_get_time() - bus_tried >= DEPS_BUSES_S * 1000000LL);
+    rtc_fav_t tf = track_fav;
+    if (buses) bus_tried = esp_timer_get_time();
+    xSemaphoreGive(mu);
+    if (buses) {
+        static rtc_bus_t got[RTC_BUSES_MAX];
+        char url[160];
+        buses_t x = { .b = got };
+        int st = rtc_buses_url(url, sizeof(url), tf.route, tf.dir) ? get(url, buf, RX_CAP, parse_buses, &x) : -1;
+        xSemaphoreTake(mu, portMAX_DELAY);
+        bool same = track >= 0 && !memcmp(&track_fav, &tf, sizeof(tf));
+        if (same) {
+            bus_failing = st != 200;
+            if (st == 200) { n_bus = x.n; memcpy(bus, got, x.n * sizeof(got[0])); bus_fetched = time(NULL); }
+        }
+        xSemaphoreGive(mu);
+        if (same && on_changed) on_changed(DEPS_CHANGED_BUSES);
+        next_ok = esp_timer_get_time() + GAP_MS * 1000LL;
+        return true;
+    }
+
+    xSemaphoreTake(mu, portMAX_DELAY);
+    int i = due(esp_timer_get_time());
+    rtc_fav_t f = i >= 0 ? ent[i].fav : (rtc_fav_t){0};
+    if (i >= 0) tried[i] = esp_timer_get_time();
+    int a = -1;                                           // else a route's notices, when due
+    char route[8] = "";
+    for (int k = 0; k < n_ra && i < 0 && a < 0; k++)
+        if (!ra[k].tried || esp_timer_get_time() - ra[k].tried >= DEPS_ALERTS_S * 1000000LL) a = k;
+    if (a >= 0) { ra[a].tried = esp_timer_get_time(); strlcpy(route, ra[a].route, sizeof(route)); }
+    xSemaphoreGive(mu);
+    if (a >= 0) {
+        static EXT_RAM_BSS_ATTR rtc_notice_t got[RTC_NOTICES_MAX];
+        int n = 0, r = ask_notices(route, got, &n);
+        xSemaphoreTake(mu, portMAX_DELAY);
+        bool same = a < n_ra && !strcmp(ra[a].route, route);
+        if (same) {
+            ra[a].failing = r < 0;
+            if (r == 1) { ra[a].n = n; memcpy(ra[a].nt, got, n * sizeof(got[0])); ra[a].fetched = time(NULL); }
+        }
+        xSemaphoreGive(mu);
+        if (same && r == 1) ESP_LOGI(TAG, "route %s: %d notice(s)", route, n);
+        if (same && on_changed) on_changed(DEPS_CHANGED_ALERTS);
+        next_ok = esp_timer_get_time() + GAP_MS * 1000LL;
+        return true;
+    }
+    if (i < 0) return false;
+
+    int r = ask_board(&f, b, buf);
+    xSemaphoreTake(mu, portMAX_DELAY);
+    bool same = i < n_ent && !memcmp(&ent[i].fav, &f, sizeof(f));   // the list didn't change meanwhile
+    if (same) {
+        dep_entry_t *e = &ent[i];
+        e->failing = r < 0;
+        if (r == 1) { e->state = DEP_OK; e->board = *b; e->fetched = time(NULL); }
+        else if (r == 0) e->state = DEP_NOT_FOUND;
+    }
+    xSemaphoreGive(mu);
+    if (same && on_changed) on_changed(i);
+    next_ok = esp_timer_get_time() + GAP_MS * 1000LL;
+    return true;
 }
 
 static void probe_url(char *url, size_t n)                    // the service health check (status page)
@@ -343,15 +359,19 @@ static void probe_url(char *url, size_t n)                    // the service hea
     if (!deps_date(date, sizeof(date)) || !rtc_route_url(url, n, "800", date)) url[0] = 0;
 }
 
-void deps_start(void (*changed)(int i))
+void deps_start(void (*changed)(int i), void (*wake_fn)(void))
 {
     on_changed = changed;
+    wake = wake_fn;
     mu = xSemaphoreCreateMutex();
     job_mu = xSemaphoreCreateMutex();
     job_done = xSemaphoreCreateBinary();
     svc_rtc = svc_add("RTC", "BorneVirtuelle", probe_url);
-    // TLS needs internal RAM for its stack: 6 KB measured enough for esp_http_client + mbedTLS in forge_ota
-    xTaskCreatePinnedToCore(fetch_task, "deps", 6144, NULL, 4, &task, 0);
+    step_buf = heap_caps_malloc(RX_CAP, MALLOC_CAP_SPIRAM);
+    step_board = heap_caps_malloc(sizeof(rtc_board_t), MALLOC_CAP_SPIRAM);
+    // No task of its own (MeteoBus): rtcquebec's "deps" task cost a 6 KB internal stack (with it in PSRAM the task
+    // stopped for good in the middle of a request once, v0.2.0-rc.11), and internal RAM is the weather display's
+    // tightest. The radar task calls deps_step() every second while the radar isn't on screen.
 }
 
 // Before deps_start() there is no lock and nothing to give: a call then is ignored (it once took a NULL mutex at
@@ -394,7 +414,7 @@ void deps_set_favs(const rtc_fav_t *favs, int n)
         else { memset(r, 0, sizeof(*r)); strlcpy(r->route, ent[i].fav.route, sizeof(r->route)); }
     }
     xSemaphoreGive(mu);
-    if (task) xTaskNotifyGive(task);
+    if (wake) wake();
 }
 
 void deps_show(int i)
@@ -403,7 +423,7 @@ void deps_show(int i)
     xSemaphoreTake(mu, portMAX_DELAY);
     shown = i;
     xSemaphoreGive(mu);
-    if (task) xTaskNotifyGive(task);
+    if (wake) wake();
 }
 
 bool deps_get(int i, dep_entry_t *out)
@@ -499,7 +519,7 @@ void deps_track(int i)
     track = i >= 0 && i < n_ent ? i : -1;
     if (track >= 0) track_fav = ent[i].fav;
     xSemaphoreGive(mu);
-    if (task) xTaskNotifyGive(task);
+    if (wake) wake();
 }
 
 int deps_buses(rtc_bus_t *out, int max, time_t *fetched, bool *failing)
@@ -531,13 +551,13 @@ int deps_trace(float *latlon, int max, int *len)
 
 static int run_job(job_t *j)
 {
-    if (!task || !mu || !net_is_connected()) return -1;
+    if (!wake || !mu || !net_is_connected()) return -1;
     if (xSemaphoreTake(job_mu, pdMS_TO_TICKS(20000)) != pdTRUE) return -1;
     xSemaphoreTake(job_done, 0);
     xSemaphoreTake(mu, portMAX_DELAY);
     job = j;
     xSemaphoreGive(mu);
-    xTaskNotifyGive(task);
+    wake();
     // The task may be in the middle of a favourite's request (up to ~10 s): give it 20 s to take this one. Once taken,
     // wait for the end whatever it takes: j is on this stack.
     bool done = xSemaphoreTake(job_done, pdMS_TO_TICKS(20000)) == pdTRUE;
