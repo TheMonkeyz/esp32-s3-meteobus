@@ -291,7 +291,7 @@ void app_main(void)
     presence_web_routes();      // GET/POST /api/presence, POST /api/calibrate, before web_start()
     routes_init(on_location_changed);   // the settings page's routes, before web_start()
     bus_routes_init();          // /api/favs, /api/route (the stops)
-    bus_start();                // departures.c's task and the saved stops (it waits for Wi-Fi and the clock)
+    bus_start();                // the saved stops; their requests run in the radar task's idle time
     ota_set_err_text(ota_err_text);
     ota_start(ui_ota);          // before ui_init (the status page's update-site row); checks once Wi-Fi is up; marks a
                                 // new firmware valid after 60 s
