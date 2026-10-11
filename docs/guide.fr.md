@@ -1,4 +1,4 @@
-<!-- source: README.md @ 3d232e5b07b2f1474c3c66239b150c12b19e49b2; sections: What you need, Install, First-time setup, Using it, Settings, Presence dimming, Languages, Updates over Wi-Fi, Data sources -->
+<!-- source: README.md @ 06e134d93aaea1371868f64a19decb8084578f16; sections: What you need, Install, First-time setup, Using it, Settings, Presence dimming, Languages, Updates over Wi-Fi, Data sources -->
 
 <p align="center">
   <img src="img/hero.png" width="720" alt="Trois écrans ronds de l'afficheur : la page d'un arrêt d'autobus, l'écran météo et le radar de pluie">
@@ -202,7 +202,8 @@ des 10 dernières minutes (éclairs jaunes), un cercle de distance, l'horloge, 
 Les 3 dernières heures se chargent en quelques secondes après l'ouverture.
 
 - **Touchez** pour lire les 3 dernières heures (15 images, 3 images par seconde), en boucle pendant une minute (les
-  nouvelles images radar s'ajoutent à la boucle). Touchez de nouveau pour arrêter.
+  nouvelles images radar s'ajoutent à la boucle). Touchez de nouveau pour arrêter. La lecture commence tout de suite,
+  même si les images sont encore en chargement : chacune s'affiche dès qu'elle arrive.
 - **Glissez vers le bas** pour un zoom avant, **vers le haut** pour un zoom arrière : d'un rayon d'environ 25 km
   à environ 1 550 km, en 7 paliers (le rayon double à chaque palier), avec animation.
 - **Glissez de côté** pour revenir (le radar se ferme aussi de lui-même après 5 minutes sans toucher).

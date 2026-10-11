@@ -9,6 +9,10 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 their own `## vX.Y.Z-rc.N` section. Those are shown only to Beta users, while the final release's section should
 list everything again.
 
+## v0.2.1-rc.2 - 2026-10-11
+- The radar's last 3 hours play as soon as you tap, even while the images are still loading: each one shows as soon as
+  it arrives, instead of waiting for all of them.
+
 ## v0.2.1-rc.1 - 2026-10-11
 - The radar and bus map zooms are smoother (about 57 and 54 frames a second instead of 43).
 - When the room has been quiet long enough to turn the screen off, it is now really off: the screen goes to sleep and

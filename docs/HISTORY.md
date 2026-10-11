@@ -146,7 +146,10 @@ change.
 - **v0.2.1** (test builds v0.2.1-power.1 to .11, each flashed and run through the harness): the zoom's fill in one
   pass with the overlays as runs (54-58 fps), 64-byte data cache lines (every PSRAM-bound frame a little faster), the
   panel asleep while presence has the screen off and the CPU idling at 80 MHz then (72 % of the time, profiled), the
-  stop on view polled every 5 min instead of 30 s meanwhile. The owner asked to check the weather display's history
+  stop on view polled every 5 min instead of 30 s meanwhile. Published as v0.2.1-rc.1 (its update test 19/19).
+- **The radar plays at the tap** (the owner's ask, October 11): frames show as soon as they are downloaded, the
+  downloads switch to oldest first once it plays; the first frame ~1.3 s after a tap with none loaded (it waited
+  ~4-6 s for 13 of 15 before). The owner asked to check the weather display's history
   first: nobody had tried panel sleep or power management before, and the display lessons (L81-L83) shaped the wake
   path.
 

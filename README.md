@@ -193,7 +193,7 @@ The area around the place shown: a dimmed OpenStreetMap map, Environment Canada 
 seconds after it opens.
 
 - **Tap** to play the last 3 h (15 frames, 3 fps), looping for a minute (new radar images join the loop). Tap again
-  to stop.
+  to stop. It starts at once, even while the images are still loading: each one shows as soon as it arrives.
 - **Swipe down** to zoom in, **up** to zoom out: ≈25 km up to ≈1,550 km radius in 7 doubling steps, animated.
 - **Swipe sideways** to go back (it also goes back by itself after 5 minutes untouched).
 

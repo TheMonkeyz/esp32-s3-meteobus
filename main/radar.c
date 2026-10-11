@@ -411,6 +411,15 @@ static EXT_RAM_BSS_ATTR frame_t frames[NFRAMES];   // [NFRAMES-1] is the latest 
 static lv_timer_t *play_timer;
 static int play_i;
 static volatile bool play_pending;
+// The animation starts at the tap and plays what has loaded, oldest first; a frame still on its way holds it
+// (play_step). Until v0.2.1 a tap waited for 13 of the 15 frames ("Loading past 3 h... n/15", ~3-4 s).
+static volatile bool playing;              // the animation runs: pipe_load() fetches the oldest missing frame next
+static volatile bool pipe_busy;            // pipe_load() is going through the past frames
+static volatile bool pipe_done[NFRAMES];   // ...and is done with frame i in this pass (loaded or failed)
+static volatile bool pipe_planned;         // plan_frames() laid out frames that no pass has been through yet
+static int64_t play_t0, play_hold_t0, play_hold_us;   // the log: first frame shown, time spent holding
+static int play_holds, play_ready0;
+static bool play_shown;
 
 // Latest available radar time from GetCapabilities (<Dimension name="time" ...>start/end/PT6M<)
 static time_t latest_radar_time(void)
@@ -758,9 +767,20 @@ static void radar_clock(lv_timer_t *t)
 
 /* ---------------- playback (runs in the LVGL task) ---------------- */
 
+static void play_log_end(void)
+{
+    if (play_t0 && play_holds)
+        ESP_LOGI(TAG, "Playback: held %d time(s) for frames still loading, %d ms in all", play_holds,
+                 (int)(play_hold_us / 1000));
+    play_t0 = 0;
+}
+
 static void stop_play(void)
 {
     if (play_timer) { lv_timer_delete(play_timer); play_timer = NULL; }
+    playing = false;
+    play_log_end();
+    lv_obj_add_flag(lbl_status, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(bar, LV_OBJ_FLAG_HIDDEN);
     show_live();
 }
@@ -768,13 +788,65 @@ static void stop_play(void)
 #define PLAY_LOOP_MS  60000      // a tap loops the animation this long; another tap stops it
 static uint32_t play_started;
 
+static int frames_ready(void);
+
+// A past frame that pipe_load() is still to fetch in this pass: the animation waits for it (the live frame, loaded
+// apart, and a frame that failed are skipped)
+static bool frame_coming(int i) { return i < NFRAMES - 1 && !pipe_done[i] && (pipe_busy || pipe_planned); }
+
+#define PLAY_STEP_MS  333          // 3 frames a second
+#define PLAY_POLL_MS  40           // waiting for a frame: shown as soon as it lands, not at the next step
+
+// Waiting for a frame (on) or not: the step's period, and the time spent waiting (log). A frame takes ~0.25-0.45 s
+// to load (more rain, more bytes: 0.44 s at the wider zooms on a rainy night), so the first loop may wait a little
+// at each frame; polling shows each one the moment it is decoded instead of at the next 333 ms step.
+static void play_wait(lv_timer_t *t, bool on)
+{
+    if (on && !play_hold_t0) { play_hold_t0 = esp_timer_get_time(); play_holds++; }
+    if (!on && play_hold_t0) { play_hold_us += esp_timer_get_time() - play_hold_t0; play_hold_t0 = 0; }
+    static uint32_t period = PLAY_STEP_MS;    // (lv_timer_t is private in LVGL 9)
+    uint32_t want = on ? PLAY_POLL_MS : PLAY_STEP_MS;
+    if (want != period) {
+        period = want;
+        if (t) lv_timer_set_period(t, want);
+    }
+}
+
+// "Loading past 3 h... n/15" while frames are still coming, steady (not at each wait: it blinked)
+static void play_status(void)
+{
+    bool loading = (pipe_busy || pipe_planned) && frames_ready() < NFRAMES;
+    if (loading) {
+        char msg[40];
+        snprintf(msg, sizeof(msg), tr(T_LOADING_PAST), frames_ready(), NFRAMES);
+        if (strcmp(lv_label_get_text(lbl_status), msg)) lv_label_set_text(lbl_status, msg);
+    }
+    if (loading == lv_obj_has_flag(lbl_status, LV_OBJ_FLAG_HIDDEN)) {
+        if (loading) lv_obj_remove_flag(lbl_status, LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(lbl_status, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
 static void play_step(lv_timer_t *t)
 {
-    while (play_i < NFRAMES && !frames[play_i].ok) play_i++;
     if (play_i >= NFRAMES + 3) {                               // held the last frame ~1 s
         if (lv_tick_elaps(play_started) >= PLAY_LOOP_MS) { stop_play(); return; }
         play_i = 0;                                            // loop
-        while (play_i < NFRAMES && !frames[play_i].ok) play_i++;
+    }
+    play_status();
+    while (play_i < NFRAMES && !frames[play_i].ok) {
+        if (frame_coming(play_i)) {                            // on its way: keep the picture shown, and wait
+            lv_bar_set_value(bar, play_i, LV_ANIM_OFF);
+            play_wait(t, true);
+            return;
+        }
+        play_i++;
+    }
+    play_wait(t, false);
+    if (play_i < NFRAMES && !play_shown) {
+        play_shown = true;
+        ESP_LOGI(TAG, "Playback: first frame after %d ms (%d of %d frames ready at the tap)",
+                 (int)((esp_timer_get_time() - play_t0) / 1000), play_ready0, NFRAMES);
     }
     if (play_i < NFRAMES) {
         frame_t *f = &frames[play_i];
@@ -801,24 +873,27 @@ static void start_play(void)     // caller holds the display lock
     play_pending = false;
     lv_obj_add_flag(lbl_status, LV_OBJ_FLAG_HIDDEN);
     if (play_timer) lv_timer_delete(play_timer);
+    play_log_end();
+    play_t0 = esp_timer_get_time();
+    play_hold_t0 = play_hold_us = 0;
+    play_holds = 0;
+    play_shown = false;
+    play_ready0 = frames_ready();
+    playing = true;
     play_i = 0;
     play_started = lv_tick_get();
     lv_bar_set_value(bar, 0, LV_ANIM_OFF);
     lv_obj_remove_flag(bar, LV_OBJ_FLAG_HIDDEN);
-    play_timer = lv_timer_create(play_step, 333, NULL);   // 3 frames per second
+    play_wait(NULL, false);                        // (the period remembered: the new timer's)
+    play_timer = lv_timer_create(play_step, PLAY_STEP_MS, NULL);   // 3 frames per second
     play_step(play_timer);
 }
 
 static void on_tap(lv_event_t *e)
 {
     if (play_timer) { stop_play(); return; }
-    if (frames_ready() >= NFRAMES) { start_play(); return; }
-    play_pending = true;
-    char msg[40];
-    snprintf(msg, sizeof(msg), tr(T_LOADING_PAST), frames_ready(), NFRAMES);
-    lv_label_set_text(lbl_status, msg);
-    lv_obj_remove_flag(lbl_status, LV_OBJ_FLAG_HIDDEN);
-    if (task) xTaskNotifyGive(task);
+    start_play();                                // at once: frames still loading come in as it plays
+    if (frames_ready() < NFRAMES && !pipe_busy && task) xTaskNotifyGive(task);   // (an earlier pass missed some)
 }
 
 /* ---------------- view / location ---------------- */
@@ -886,6 +961,8 @@ static void plan_frames(time_t latest)
     // and the buffers handed to missing frames belonged to frames that are no longer in the list.
     display_lock(-1);
     memcpy(frames, nw, sizeof(frames));
+    for (int i = 0; i < NFRAMES; i++) if (!frames[i].ok) pipe_done[i] = false;   // to load: an animation waits
+    pipe_planned = true;                         // (a tap right after opening: before pipe_load() has started)
     display_unlock();
 }
 
@@ -932,10 +1009,12 @@ static void decode_task(void *arg)
         pipe_dec_us += esp_timer_get_time() - t0;
         free(p->radar.buf); p->radar.buf = NULL;   // (the decoders free and clear what they used)
         free(p->ltg.buf); p->ltg.buf = NULL;
+        pipe_done[p->i] = true;                    // (loaded, failed or dropped: the animation stops waiting for it)
         if (ok && !pipe_abort) {
             display_lock(-1);
             p->f.ok = true;
             frames[p->i] = p->f;
+            pipe_done[p->i] = true;
             display_unlock();
             if (play_pending) {
                 char msg[40];
@@ -964,11 +1043,25 @@ static void pipe_load(void)
     int64_t t0 = esp_timer_get_time(), dl_us = 0;
     int n = 0;
     pipe_dec_us = 0;
-    for (int i = NFRAMES - 2; i >= 0; i--) {
+    bool queued[NFRAMES] = {0};
+    for (int k = 0; k < NFRAMES; k++) pipe_done[k] = false;
+    pipe_busy = true;
+    for (;;) {
         if (!(visible || play_pending) || relocate_pending || zoom_target != zoom) break;
-        if (frames[i].ok) continue;
+        // The next missing frame: the newest while they load in the background (the recent past matters most),
+        // the oldest once the animation plays (it plays oldest first from the tap; a frame takes ~0.25 s here and
+        // is shown for 0.33 s, so after the first one the downloads stay ahead)
+        int i = -1;
+        for (int j = 0; j <= NFRAMES - 2; j++) {
+            if (frames[j].ok || queued[j]) continue;
+            i = j;
+            if (playing) break;
+        }
+        if (i < 0) { pipe_planned = false; break; }      // every frame of this plan tried
+        queued[i] = true;
         if (!pipe_full) {                            // no decode task: one frame after the other, as before
             n += load_frame(i);
+            pipe_done[i] = true;
             if (play_pending) {
                 char msg[40];
                 snprintf(msg, sizeof(msg), tr(T_LOADING_PAST), frames_ready(), NFRAMES);
@@ -997,6 +1090,7 @@ static void pipe_load(void)
         for (int k = 0; k < PIPE_SLOTS; k++) xQueueSend(pipe_free, &s[k], 0);
         pipe_abort = false;
     }
+    pipe_busy = false;
     if (n) ESP_LOGI(TAG, "Past frames: %d loaded in %d ms (%d of %d ready; downloads %d ms, decoding %d ms)", n,
                     (int)((esp_timer_get_time() - t0) / 1000), frames_ready(), NFRAMES, (int)(dl_us / 1000),
                     (int)(pipe_dec_us / 1000));
@@ -1099,6 +1193,8 @@ static void radar_task(void *arg)
             apply_view();
             display_lock(-1);
             if (play_timer) { lv_timer_delete(play_timer); play_timer = NULL; lv_obj_add_flag(bar, LV_OBJ_FLAG_HIDDEN); }
+            playing = false;
+            play_log_end();
             for (int i = 0; i < NFRAMES; i++) frames[i].ok = false;
             display_unlock();
             last_fetch = 0;
@@ -1146,11 +1242,12 @@ static void radar_task(void *arg)
             last_fetch = time(NULL);
             display_lock(-1);
             if (!play_timer) show_live();
-            if (!play_pending) lv_obj_add_flag(lbl_status, LV_OBJ_FLAG_HIDDEN);
+            if (!play_pending && !playing) lv_obj_add_flag(lbl_status, LV_OBJ_FLAG_HIDDEN);
             display_unlock();
         }
 
-        // History frames for the animation, newest first (only while the radar is on screen)
+        // History frames for the animation, newest first (oldest first while it plays; only while the radar is on
+        // screen)
         if (visible || play_pending) pipe_load();
         if (play_pending && frames_ready() >= NFRAMES - 2) {
             display_lock(-1);
