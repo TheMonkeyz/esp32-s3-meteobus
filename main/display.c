@@ -11,6 +11,10 @@
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include "esp_log.h"
+#include "sdkconfig.h"
+#if CONFIG_PM_ENABLE
+#include "esp_pm.h"
+#endif
 
 /* ---- diagnostics: lock contention and frame timing (read by diag.c) ---- */
 static display_stats_t st, tst;          // st: diag.c's 60 s reports; tst: the test console's "fps" (its own, so a
@@ -111,11 +115,22 @@ static bool on_trans_done(esp_lcd_panel_io_handle_t h, esp_lcd_panel_io_event_da
 
 /* A whole frame without LVGL (see display.h): bands of BUF_LINES rows, filled by the caller into one buffer while
  * the other one is being sent. The caller holds the display lock, so LVGL isn't using the buffers. */
+static display_raw_timing_t raw_t;     // display_raw_timing(): where a raw frame's time goes besides the fill
+
 static bool raw_wait(void)
 {
-    if (xSemaphoreTake(raw_done, pdMS_TO_TICKS(200)) == pdTRUE) return true;
+    int64_t t0 = esp_timer_get_time();
+    bool ok = xSemaphoreTake(raw_done, pdMS_TO_TICKS(200)) == pdTRUE;
+    raw_t.wait_us += esp_timer_get_time() - t0;
+    if (ok) return true;
     ESP_LOGE(TAG, "raw frame: a band transfer did not finish");   // never hang the display (lock held)
     return false;
+}
+
+void display_raw_timing(display_raw_timing_t *out, bool reset)   // with the lock held (raw frames' caller)
+{
+    if (out) *out = raw_t;
+    if (reset) memset(&raw_t, 0, sizeof(raw_t));
 }
 
 void display_raw_area(int x0, int y0, int x1, int y1, bool bottom_up, display_area_fill_cb_t fill, void *user)
@@ -147,8 +162,10 @@ void display_raw_area(int x0, int y0, int x1, int y1, bool bottom_up, display_ar
         int cx1 = x0 + X_GAP, cx2 = x1 + X_GAP, y2 = y + n - 1;
         uint8_t col[4] = {cx1 >> 8, cx1 & 0xFF, cx2 >> 8, cx2 & 0xFF};
         uint8_t row[4] = {y >> 8, y & 0xFF, y2 >> 8, y2 & 0xFF};
+        int64_t tc = esp_timer_get_time();
         lcd_cmd(0x2A, col, 4);
         lcd_cmd(0x2B, row, 4);
+        raw_t.cmd_us += esp_timer_get_time() - tc;
         raw_phase = 4;
         esp_lcd_panel_io_tx_color(io, PIXELS, bufs[k], w * n * 2);
         raw_phase = 5;
@@ -270,17 +287,89 @@ void display_get_test_stats(display_stats_t *out, bool reset)
     display_unlock();
 }
 
+/* The panel asleep while presence has the screen off (display_sleep). Going to sleep is two commands from the
+ * presence task (core 0), as display_brightness(). Coming back is split: the presence task sends SLPOUT (one command,
+ * the same rule), and the LVGL task finishes on core 1 (wake_at): the 120 ms the DCS asks for after SLPOUT, a whole
+ * frame into the panel's memory, then DISPON. A whole refresh from core 0 would be the cross-core race of lesson
+ * 21(a) (the transfer-done interrupt is on core 1). */
+static volatile bool asleep;
+static volatile int64_t wake_at;         // SLPOUT sent: DISPON after this time (esp_timer µs), 0 = nothing pending
+// Held while the panel is awake or waking: the CPU stays at 240 MHz even when idle (main.c configures 80..240 MHz).
+// Released while it sleeps: an idle core drops to 80 MHz (a running task still gets 240, ESP-IDF's "rtos" locks).
+#if CONFIG_PM_ENABLE
+static esp_pm_lock_handle_t cpu_lock;
+#endif
+static bool cpu_held;                    // (the lock counts acquires: one each way)
+
+static void cpu_full_speed(bool on)
+{
+    if (on == cpu_held) return;
+#if CONFIG_PM_ENABLE
+    if (!cpu_lock && esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "screen", &cpu_lock) != ESP_OK) return;
+    if (on) esp_pm_lock_acquire(cpu_lock); else esp_pm_lock_release(cpu_lock);
+#endif
+    cpu_held = on;
+}
+
+static void wake_finish(void)            // LVGL task, lock held
+{
+    int64_t left = wake_at - esp_timer_get_time();
+    if (left > 0) vTaskDelay(pdMS_TO_TICKS(left / 1000 + 1));
+    lv_obj_invalidate(lv_screen_active());              // a whole frame into the panel's memory before it shows
+    lv_refr_now(NULL);
+    raw_phase = 7;
+    for (int i = 0; i < 100 && __atomic_load_n(&lvgl_inflight, __ATOMIC_ACQUIRE) > 0; i++) vTaskDelay(1);
+    raw_phase = 8;
+    lcd_cmd(0x29, NULL, 0);                             // DISPON
+    raw_phase = 0;
+    wake_at = 0;
+    asleep = false;
+    ESP_LOGI(TAG, "panel awake");
+}
+
 static void lvgl_task(void *arg)
 {
     while (1) {
         uint32_t wait = 10;
-        if (display_lock(-1)) { wait = lv_timer_handler(); display_unlock(); }
+        if (display_lock(-1)) {
+            if (wake_at) wake_finish();
+            wait = lv_timer_handler();
+            display_unlock();
+        }
         // 1 ms minimum: enough to let other tasks run, and at 60 fps (16.7 ms a frame) the old 5 ms was 30 %
         if (wait < 1) wait = 1;
         if (wait > 50) wait = 50;
+        if (asleep && wait < 100) wait = 100;   // the panel asleep: 10 rounds a second (the touch that wakes it is read here)
         vTaskDelay(pdMS_TO_TICKS(wait));
     }
 }
+
+void display_sleep(bool on)
+{
+    // Called with the display lock held (main.c's presence hook, core 0). As display_brightness(): no esp_lcd call
+    // while LVGL's last band is still going out.
+    if (on == asleep && !wake_at) return;
+    raw_phase = 7;
+    for (int i = 0; i < 100 && __atomic_load_n(&lvgl_inflight, __ATOMIC_ACQUIRE) > 0; i++) vTaskDelay(1);
+    raw_phase = 8;
+    if (on) {
+        wake_at = 0;                                    // (a wake not finished yet: the panel goes back to sleep)
+        lcd_cmd(0x28, NULL, 0);                         // DISPOFF
+        lcd_cmd(0x10, NULL, 0);                         // SLPIN: the panel's oscillator and drivers stop
+        asleep = true;
+        cpu_full_speed(false);
+        ESP_LOGI(TAG, "panel asleep");
+    } else if (!wake_at) {
+        cpu_full_speed(true);
+        lcd_cmd(0x11, NULL, 0);                         // SLPOUT: the DCS minimum before the next command is 120 ms
+        wake_at = esp_timer_get_time() + 120000;        // the LVGL task takes it from here (wake_finish)
+    }
+    raw_phase = 0;
+}
+
+bool display_asleep(void) { return asleep; }
+
+bool display_cpu_full_speed(void) { return cpu_held; }   // the "screen" lock held (console "power")
 
 void display_init(void)
 {
@@ -335,6 +424,7 @@ void display_init(void)
     lv_display_add_event_cb(disp, render_evt, LV_EVENT_RENDER_READY, NULL);
 
     lvgl_mux = xSemaphoreCreateRecursiveMutex();
+    cpu_full_speed(true);                               // the panel is awake: 240 MHz until it sleeps
     xTaskCreatePinnedToCore(lvgl_task, "lvgl", 8192, NULL, 4, &lvgl_th, 1);
     ESP_LOGI(TAG, "Display ready (%dx%d)", DISP_W, DISP_H);
 }

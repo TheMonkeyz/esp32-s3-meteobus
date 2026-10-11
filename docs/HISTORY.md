@@ -137,6 +137,23 @@ What it taught: a screen opened on top has no cached picture ready; every new ta
 download is internal RAM, the scarcest; A/B the old firmware (and time the request from the PC) before blaming a
 change.
 
+### October 10-11: frame rate and power (v0.2.0, then v0.2.1)
+
+- **v0.2.0** (2026-10-10, stable): rc.6 unchanged after its update test (17/17 on the board).
+- **The review** (docs/EVALUATION-2026-10-10-perf-power.md): a knowledge graph of the code and docs (graphify) and
+  the harness's numbers. Drags and page changes were already at 60-70 fps; the zooms were at 42-43; "screen off" was
+  only brightness 0, with the panel refreshing and the CPU at 240 MHz for hours.
+- **v0.2.1** (test builds v0.2.1-power.1 to .11, each flashed and run through the harness): the zoom's fill in one
+  pass with the overlays as runs (54-58 fps), 64-byte data cache lines (every PSRAM-bound frame a little faster), the
+  panel asleep while presence has the screen off and the CPU idling at 80 MHz then (72 % of the time, profiled), the
+  stop on view polled every 5 min instead of 30 s meanwhile. The owner asked to check the weather display's history
+  first: nobody had tried panel sleep or power management before, and the display lessons (L81-L83) shaped the wake
+  path.
+
+What it taught: time the parts before optimising one (a cycle counter found the overlay blend at 40 % of the fill,
+while three plausible speed-ups measured nothing), and a check can be wrong in the test (a console command asking the
+CPU's clock always runs at full speed).
+
 ## How the work is done now
 
 1. **Change, then a test build** labelled above the current release (`vX.Y.Z-name.N` in `version.txt`; the
@@ -205,6 +222,9 @@ change.
 MeteoBus (2026-10-10):
 
 - **First stable release:** v0.2.0 (2026-10-10, rc.6 unchanged, its update test 17/17 on the board).
+- **Zooms at 54-58 fps, not 60** (v0.2.1): a frame is ~11 ms of PSRAM reads overlapping ~11 ms on the bus. Next to
+  try: one window command per frame instead of two per band (needs eyes on a zoom: the harness can't see its frames),
+  PSRAM at 120 MHz (experimental). Internal RAM's low point sat at its floor (25 KB) in v0.2.1's last run.
 - **Inuktitut for the bus texts are drafts** (low confidence, docs/translations/iu.tsv) and no Inuktitut snapshot fit
   check of the bus screens is recorded (docs/translations/README.md has the weather screens'); every new page text needs an Inuktitut line, or the
   page's Inuktitut test fails on English left over (CLAUDE.md, MeteoBus lesson 6).

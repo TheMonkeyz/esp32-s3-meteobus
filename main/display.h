@@ -10,6 +10,12 @@ void display_init(void);
 bool display_lock(int timeout_ms);
 void display_unlock(void);
 void display_brightness(uint8_t level);
+// The panel in sleep while presence says the screen is off (DISPOFF + SLPIN; SLPOUT, a whole frame, DISPON on the
+// way back, ~200 ms). With the lock held. LVGL keeps running meanwhile, 10 rounds a second (the touch that wakes it).
+// Asleep, it also lets the CPU idle at 80 MHz (power management's "screen" lock, held while the panel is awake).
+void display_sleep(bool on);
+bool display_asleep(void);
+bool display_cpu_full_speed(void);       // the "screen" lock held
 
 // Diagnostics (accumulated since the last reset)
 typedef struct {
@@ -36,6 +42,9 @@ void display_raw_frame(display_fill_cb_t fill, void *user);
 // bottom_up: the bands from the bottom one up (a fill that moves rows down in its source, in place).
 typedef void (*display_area_fill_cb_t)(int x0, int w, int y0, int n, void *dst, void *user);
 void display_raw_area(int x0, int y0, int x1, int y1, bool bottom_up, display_area_fill_cb_t fill, void *user);
+// Raw frames' time besides the fill since the last reset: waiting for a band's transfer, the window commands
+typedef struct { int64_t wait_us, cmd_us; } display_raw_timing_t;
+void display_raw_timing(display_raw_timing_t *out, bool reset);
 
 // Called with every area LVGL sends to the panel, before the byte swap (RGB565 as LVGL draws it, w x h pixels), in the
 // LVGL task: slide.c copies it into its picture of the screen shown, which then always matches the panel.

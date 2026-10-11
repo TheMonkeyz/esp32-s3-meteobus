@@ -7,9 +7,15 @@ CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+# Power management for dynamic frequency scaling only (display.c's "screen" lock: 240 MHz while the screen is on; an
+# idle core may drop to 80 MHz while presence has it off). No light sleep, no tickless idle: the 15 ms touch / LVGL loop and the panel's DMA need the clock.
+CONFIG_PM_ENABLE=y
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y
+# 64-byte data cache lines (32 by default, same cache size): sequential reads from PSRAM fetch twice the bytes per
+# line fill. slide.c reads whole pictures from PSRAM for every frame of a zoom (fill-bound at 46 fps with 32).
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
 CONFIG_FREERTOS_HZ=1000
 # Main task: the forecast loop, and the alert region map (TLS tile downloads + inflate when the basemap isn't cached,
 # the path the radar task gets 10 KB for): 6 KB left 1.7-3 KB free before the map was added. Internal RAM allows it
