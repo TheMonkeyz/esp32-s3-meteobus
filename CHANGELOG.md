@@ -9,6 +9,20 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 their own `## vX.Y.Z-rc.N` section. Those are shown only to Beta users, while the final release's section should
 list everything again.
 
+## v0.2.0 - 2026-10-10
+- MeteoBus: the weather display and the RTC bus display in one. Everything the weather display (v1.15.0) does is
+  here, with its own update site.
+- Buses: swipe left from the weather for your RTC stops' next departures, one stop per page (drag up or down). The
+  next bus in big, real time or scheduled, the three after it, and the route's notices in an orange pill (tap it).
+- Add your stops on the phone's settings page, in the new "My stops" card: the stop number, the route, then pick the
+  direction. Move them up or remove them there too.
+- Tap a stop's route badge for the bus map: the stop, the route's path and its buses on the way. Swipe down or up to
+  zoom, like the radar; swipe sideways to go back.
+- The radar now opens with a tap on the weather icon (it has a small radar badge), and its last 3 hours load faster
+  (3-4 s instead of 5-7). Going back is a sideways swipe everywhere: from the radar, the bus map and the alert screen.
+- Weather alerts moved to the bottom of the weather screen, so the place name always shows. With an update waiting
+  too, the alert pill has a blue dot, and the alert screen ends with "Update available".
+
 ## v0.2.0-rc.6 - 2026-10-10
 - My stops (phone settings page): removing a stop right after moving one no longer removes the wrong stop; the buttons
   wait until the new order is saved.

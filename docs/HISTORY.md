@@ -204,8 +204,7 @@ change.
 
 MeteoBus (2026-10-10):
 
-- **No stable release yet:** v0.2.0-rc.4 is the newest, on the Beta channel (the flasher site offers Beta while
-  there is no stable one).
+- **First stable release:** v0.2.0 (2026-10-10, rc.6 unchanged, its update test 17/17 on the board).
 - **Inuktitut for the bus texts are drafts** (low confidence, docs/translations/iu.tsv) and no Inuktitut snapshot fit
   check of the bus screens is recorded (docs/translations/README.md has the weather screens'); every new page text needs an Inuktitut line, or the
   page's Inuktitut test fails on English left over (CLAUDE.md, MeteoBus lesson 6).

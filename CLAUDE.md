@@ -7,7 +7,7 @@ as a copy of its v1.15.0, with a fresh history) and the RTC bus display
 agreed design (UI flow, harmonized page template, memory budget, step order) is in **`docs/MERGE-PLAN.md`**; read it
 before working on the merge. Everything below came with the weather display, and its lessons still hold here.
 
-### MeteoBus so far (v0.2.0-rc.3, 2026-10-10)
+### MeteoBus so far (v0.2.0, 2026-10-10)
 
 - **Done, as docs/MERGE-PLAN.md says:** row status | extras | weather | buses; the radar opens from the weather icon
   (badge), the bus map from a stop's route badge (pin); alerts in the bottom pill (alert first, a dot when an update
