@@ -18,6 +18,7 @@
 #include "svc.h"
 #include "net.h"
 #include "netq.h"
+#include "presence.h"                    // presence_screen_off(): the stop on view polled as a hidden one
 
 static const char *TAG = "deps";
 #define RX_CAP 4096                     // a reply is ~1.1 KB (5 departures)
@@ -226,10 +227,12 @@ static int ask_route(const char *route, rtc_route_t *out, char *buf)
 
 /* ---------- the task ---------- */
 
-// The favourite to fetch now, -1 if none is due. The one on view first.
+// The favourite to fetch now, -1 if none is due. The one on view first (as a hidden one while the screen is off:
+// nobody is looking; main.c kicks the next round when it wakes).
 static int due(int64_t now)
 {
-    if (shown >= 0 && shown < n_ent && (!tried[shown] || now - tried[shown] >= DEPS_SHOWN_S * 1000000LL)) return shown;
+    int64_t shown_s = presence_screen_off() ? DEPS_HIDDEN_S : DEPS_SHOWN_S;
+    if (shown >= 0 && shown < n_ent && (!tried[shown] || now - tried[shown] >= shown_s * 1000000LL)) return shown;
     for (int i = 0; i < n_ent; i++)
         if (!tried[i] || now - tried[i] >= DEPS_HIDDEN_S * 1000000LL) return i;
     return -1;
@@ -291,7 +294,8 @@ bool deps_step(void)
 
     // The map's buses first: someone is looking at them
     xSemaphoreTake(mu, portMAX_DELAY);
-    bool buses = track >= 0 && (!bus_tried || esp_timer_get_time() - bus_tried >= DEPS_BUSES_S * 1000000LL);
+    bool buses = track >= 0 && !presence_screen_off() &&
+                 (!bus_tried || esp_timer_get_time() - bus_tried >= DEPS_BUSES_S * 1000000LL);
     rtc_fav_t tf = track_fav;
     if (buses) bus_tried = esp_timer_get_time();
     xSemaphoreGive(mu);

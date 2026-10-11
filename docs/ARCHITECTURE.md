@@ -120,7 +120,21 @@ LVGL timer and event callbacks already run inside the lock.
   v1.12.0 it wrote the brightness command while LVGL's last band could still be on the bus, from the other core
   (`raw_phase` 7 = waiting, 8 = sending).
 - `display_raw_area()`: the same for a rectangle only (a list's), several rows per band when it is narrow, bands top
-  down or bottom up (a fill that moves rows down in place needs the bottom ones first).
+  down or bottom up (a fill that moves rows down in place needs the bottom ones first). `display_raw_timing()` adds
+  up the time spent waiting for a band's transfer and in the window commands (the zoom's log line).
+- **Panel sleep** (`display_sleep()`, MeteoBus v0.2.1): when presence turns the screen off (its last fade step, 0 %),
+  `main.c`'s `set_brightness` hook puts the panel to sleep: DISPOFF and SLPIN from the presence task, after LVGL's
+  last band as above. Coming back is split across the cores: the presence task sends SLPOUT at the first step of the
+  fade up, then the LVGL task (core 1, the transfer-done interrupt's core) waits the 120 ms the panel asks for, draws
+  a whole frame and sends DISPON (`wake_finish`). A whole refresh from core 0 would be the cross-core race above.
+  While asleep, the LVGL task runs 10 rounds a second (it still reads the touch that wakes it) instead of up to 67.
+  The brightness slider never sends 0 (5 % minimum), so only presence can put the panel to sleep.
+- **CPU frequency** (`CONFIG_PM_ENABLE`, `esp_pm_configure()` in `main.c`, 80..240 MHz, no light sleep: it would
+  break the 15 ms touch / LVGL loop and the panel's DMA): a core runs at 240 MHz while a task runs on it (ESP-IDF's
+  own per-core locks) and may idle at 80 MHz. `display.c` holds an `ESP_PM_CPU_FREQ_MAX` lock named "screen" while the
+  panel is awake, so with the screen on nothing waits for the clock; asleep, it lets go. Profiled (a throwaway build
+  with `CONFIG_PM_PROFILING`, 60 s each): screen on 100 % at 240 MHz, screen off 72 % at 80 MHz. The console's
+  `power` reports the panel and the lock (`cpu_mhz` is always 240 there: the command itself runs).
 - **Flush hook** (`display_set_flush_hook()`): every area LVGL sends is also handed, before the byte swap, to
   `slide.c`, which copies it into its picture of the screen shown (see Moves, Cache).
 - Fonts: Montserrat TTF embedded and rendered by TinyTTF at 15–96 px, so accents and "°" render correctly.
@@ -378,8 +392,18 @@ order, and ~11 ms on the bus.
   - LVGL doesn't read the touch during the zoom: the zoom reads it, and a swipe made meanwhile goes to the radar at
     the end (`zoom_swipe` -> the next zoom). A touch already down at the start is the swipe that triggered it (LVGL's
     gesture fires before the finger lifts) and is ignored until it lifts: counted, one swipe zoomed twice.
-  - 40–43 fps (harness `radar_zoom_fps`). Tables in PSRAM (`EXT_RAM_BSS_ATTR`): as static internal arrays they took
-    3.8 KB of internal RAM and its low point fell to 3 KB.
+  - 54–58 fps (harness `radar_zoom_fps`, `bus_map_zoom_fps`; 40–43 until MeteoBus v0.2.1). `zoom_fill()` does one
+    pass per pixel: two pixels gathered into a word and swapped to the panel's byte order there (a `copy_swap()` over
+    the band again is gone), and a row whose source row is the one above is copied from it. The overlays are kept as
+    runs of one colour and alpha along a row (~5k runs for ~16-21k pixels: the pill's background is uniform), blended
+    with one multiply a pixel (RGB565 spread over 32 bits, alpha in 5 bits: at most one colour step off an exact
+    blend; LVGL redraws the last frame exactly). Checked on the PC against the old code at 110 scales: map pixels
+    identical. The blend was ~40 % of the fill before. The log line splits a zoom: `fill N ms (blend N)`, `bus wait`,
+    `commands`. What is left is PSRAM reads (~11 ms a frame) overlapping the bus (~11 ms) in two 32-row buffers.
+    Measured and dropped: the column table in internal RAM and an unrolled loop (no change), holding the other core's
+    downloads until the zoom ends (no change).
+  - Tables in PSRAM (`EXT_RAM_BSS_ATTR`): as static internal arrays they took 3.8 KB of internal RAM and its low point
+    fell to 3 KB.
 - **Ready to open:** on the weather screen, spare cache slots keep today's hourly page and Settings (with 2 places
   there's room for the hourly page only: 4 + 1). `drag_paint` first puts a hidden screen in the state it opens in
   (`fill_page` + list at the top for an hourly page, as `main_tap` does; `cfg_open_state()` for Settings), so the
@@ -627,7 +651,9 @@ order, and ~11 ms on the bus.
   logs "buses: the RTC fetch task has been stuck for N s" and the harness fails on it. The rules: the stop on view
   every 30 s while the buses screen (or its map, or its notices) is shown, every other stop at most every 5 min,
   each favourite route's notices every 10 min, the map's buses every 20 s while it is open, 2 s between requests,
-  nothing while offline or before SNTP. Its endpoints and fields: esp32-s3-rtcquebec's docs/ARCHITECTURE.md, "Data
+  nothing while offline or before SNTP. While presence has the screen off (v0.2.1): the stop on view as any other
+  (5 min), the map's buses not at all, and the radar task's idle round every 10 s instead of 1; the first step of the
+  fade up wakes it (`radar_side_wake()`). Its endpoints and fields: esp32-s3-rtcquebec's docs/ARCHITECTURE.md, "Data
   sources"; `rtc_api.c` holds all of it (pure C, host-tested: `tests/host/test_rtc_api.c` with the replies in
   `tests/host/data/`). The service is "RTC" in the health list.
 - **Favourites:** NVS namespace `favs` (`n`, then `f0`..`f7` = `stop/route/dir`, typed keys), at most 8. The settings
@@ -887,7 +913,7 @@ reference). It started as this display's `presence.c` and knows no board: `main.
 | `mic_open` / `mic_read` | `audio_mic_open(30)` / `audio_mic_read()` (`audio.c`: ES7210 through `esp_codec_dev`, I2C on the touch controller's bus via `touch_i2c_bus()`, I2S0 RX, 16 kHz, 2 channels, 16-bit, 30 dB gain) |
 | `accel_open` / `accel_read` | `imu_init(touch_i2c_bus())` / `imu_read()` |
 | `touch_idle_ms` | `touch_idle_ms()` (a finger down, or lifted within 150 ms, counts as activity) |
-| `set_brightness` | `display_brightness()` under `display_lock()` (it waits for LVGL's last band, CLAUDE.md 22(c)) |
+| `set_brightness` | `display_brightness()` under `display_lock()` (it waits for LVGL's last band, CLAUDE.md 22(c)); at 0 % with the state OFF, `display_sleep(true)`, and `display_sleep(false)` at the first step back (Display pipeline, Panel sleep) |
 | `settings_changed` | `ui_settings_changed()` (the page changed them: the Settings screen's picture is redrawn) |
 
 `touch.c` still calls `presence_touch()` when a finger comes down: it wakes the screen, and the touch that wakes a dark
@@ -927,7 +953,8 @@ screen is swallowed. `presence_start(&hooks)` loads the settings, registers the 
   (`_Static_assert` on its size and offsets) and checks the import gives the same values.
 - **Brightness:** CO5300 command `0x51`, faded in 10% steps per tick (about 1 s full ↔ off), through the
   `set_brightness` hook. A brightness slider being dragged (`presence_preview_brightness()`, Settings screen) is shown
-  at once, with no fade for 300 ms after the last call. Rendering continues while the screen is off.
+  at once, with no fade for 300 ms after the last call. Rendering continues while the screen is off, 10 rounds a
+  second, into the sleeping panel's memory (Display pipeline, Panel sleep).
 - **API** (`presence_web.c`): `GET /api/presence` (`ok`, config and live status: level, threshold, state,
   wake_progress, quiet_s, calibrating, calib_left_s, `cal`, `cal_spread_db`, brightness, `imu_ok`, `motion_g` (recent
   peak, decays in ~1 s, for the page's meter), `motion_thr`, `motion_wake`), `POST /api/presence` (config, including

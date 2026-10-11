@@ -59,6 +59,13 @@ void display_raw_frame(display_fill_cb_t fill, void *user)
     emscripten_sleep(0);                                   // let the page show it (the browser paints between frames)
 }
 
+// No bus here: nothing to wait for (slide.c's zoom logs it)
+void display_raw_timing(display_raw_timing_t *out, bool reset)
+{
+    (void)reset;
+    if (out) *out = (display_raw_timing_t){0};
+}
+
 void display_raw_area(int x0, int y0, int x1, int y1, bool bottom_up, display_area_fill_cb_t fill, void *user)
 {
     static uint16_t band[DISP_W * 32];

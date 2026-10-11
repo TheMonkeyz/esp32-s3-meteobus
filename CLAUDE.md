@@ -46,6 +46,20 @@ before working on the merge. Everything below came with the weather display, and
      next gain would be in decoding. Slow requests: compare the board with the PC before blaming the server.
   6. Inuktitut for the bus texts are drafts (low confidence, docs/translations/iu.tsv): the page's Inuktitut test
      fails on English left over, so every new page text needs an Inuktitut line.
+- **v0.2.1 (2026-10-11): frame rate and power** (docs/EVALUATION-2026-10-10-perf-power.md): zooms 42 -> 54-58 fps
+  (`zoom_fill()`, overlay runs, 64-byte cache lines), a real screen off (`display_sleep()`: the panel asleep, the CPU
+  idling at 80 MHz through power management, the stop on view polled every 5 min). Lessons:
+  7. **Time the parts before optimising one.** The zoom's log line splits a frame (fill, blend, bus wait, commands);
+     a cycle counter found the overlay blend at 40 % of the fill. Three plausible fixes measured nothing (the column
+     table in internal RAM, an unrolled loop, holding the other core's downloads during the zoom): take them out.
+  8. **With power management, a running task always sees 240 MHz** (ESP-IDF's per-core locks): a console command
+     that reads the clock can't show the idle 80. Check the "screen" lock (console `power`), and measure the time per
+     mode with a throwaway `CONFIG_PM_PROFILING` build. The panel's wake is split across cores: SLPOUT from the
+     presence task, the frame and DISPON from the LVGL task (lesson 21(a), espforge L81-L83).
+  9. **Before a firmware change in a new area, read the weather display's history for it** (`git log --grep` in
+     weather_amoled, espforge LESSONS): the owner's ask (2026-10-11).
+  10. Edits made with Python's `read_text()` / `write_text()` on Windows turned LF files into CRLF (git showed every
+     line changed): read and write bytes, or `newline=''`.
 - **Tools that are git-ignored** and had to be copied from weather_amoled for a fresh folder: `tools/esptool.exe` and
   its `tools/LICENSE`, `tools/webtest/.browsers` (Playwright's Chromium), `node_modules` (`npm ci`).
 

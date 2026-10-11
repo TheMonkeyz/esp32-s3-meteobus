@@ -15,6 +15,7 @@ MeteoBus's are v0.x.
 | [MACOS.md](MACOS.md) | Working on a Mac: setup, the daily loop, the emulator, troubleshooting |
 | [guide.fr.md](guide.fr.md) | The owner's guide in French |
 | [translations/README.md](translations/README.md) | The Inuktitut draft: how it is made, generated and checked; [iu-review.md](translations/iu-review.md) is the reviewer's sheet |
+| [EVALUATION-2026-10-10-perf-power.md](EVALUATION-2026-10-10-perf-power.md) | MeteoBus's frame rate and power review (October 10) and what v0.2.1 did about it: faster zooms, a real screen off |
 | [EVALUATION-2026-10-02.md](EVALUATION-2026-10-02.md), [FIX-PLAN-2026-10-02.md](FIX-PLAN-2026-10-02.md) | The weather display's October 2-3 review and its fix plan (history; done) |
 
 Elsewhere: [CLAUDE.md](../CLAUDE.md) (lessons and working notes for AI-assisted sessions),

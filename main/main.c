@@ -34,6 +34,10 @@
 #include "console.h"
 #include "cJSON.h"
 #include "esp_heap_caps.h"
+#include "sdkconfig.h"
+#if CONFIG_PM_ENABLE
+#include "esp_pm.h"                      // esp_pm_configure(); the "screen" lock is display.c's
+#endif
 
 static const char *TAG = "app";
 #define BOOT_BTN        GPIO_NUM_0
@@ -58,11 +62,20 @@ static bool boot_button_held(void)
 static bool mic_open(void) { return audio_mic_open(30); }        // 30 dB gain: a room's background noise
 static bool accel_open(void) { return imu_init(touch_i2c_bus()); }
 
+/* The screen "off" (presence's last fade step, 0 %) is a real off: the panel sleeps and the CPU may idle at 80 MHz
+ * (display_sleep), the stop on view is polled as a hidden one (departures.c), the radar's idle round waits 10 s
+ * instead of 1 (radar.c). Until v0.2.0 "off" was brightness 0 with everything else as when on.
+ * The slider's preview never reaches 0 (5 % minimum), so a finger on the brightness arc can't put the panel to
+ * sleep; only presence's own state can. */
 static void set_brightness(int pct)
 {
+    bool off = pct == 0 && presence_screen_off();
     display_lock(-1);                     // display_brightness() waits for LVGL's last band (CLAUDE.md 22(c))
+    if (!off && display_asleep()) display_sleep(false);   // the first step of the fade up: the panel first
     display_brightness((uint8_t)(pct * 255 / 100));
+    if (off && !display_asleep()) display_sleep(true);
     display_unlock();
+    if (!off) radar_side_wake();          // the stop on view is due again: fetch it now, not at the next idle round
 }
 
 static const presence_hooks_t presence_hooks = {
@@ -285,6 +298,13 @@ void app_main(void)
     diag_mark("net init");
     diag_start(60);             // "diag:" lines in the log every 60 s (heap, frames, CPU/stack per task)
     audio_init();               // I2S0 both ways: the microphones (presence) and the speaker (sound)
+#if CONFIG_PM_ENABLE
+    // Dynamic frequency scaling: a core runs at 240 MHz while a task runs on it (ESP-IDF's own "rtos" locks) and may
+    // idle at 80 MHz; display.c's "screen" lock keeps 240 even when idle while the screen is on, so nothing the user
+    // sees waits for the clock to come back up. No light sleep: it would break the 15 ms touch / LVGL loop and the
+    // panel's DMA timing. 80 MHz keeps the PLL, so APB (SPI, I2S for the microphones, UART) stays at 80 MHz.
+    ESP_ERROR_CHECK(esp_pm_configure(&(esp_pm_config_t){ .max_freq_mhz = 240, .min_freq_mhz = 80, .light_sleep_enable = false }));
+#endif
     presence_start(&presence_hooks);   // microphones, motion, touch -> screen brightness (NVS; console presence, wake)
     sound_start();              // alert chimes (speaker shares the microphones' I2S bus)
     diag_mark("presence");

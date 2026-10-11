@@ -1248,14 +1248,35 @@ def dim_off_wake(ctx):
         go_weather(ctx)
         at = len(ctx.log.lines())
         ctx.log.wait(r'presence: DIM -> OFF', 20, 'off after 3 + 4 s of quiet', start=at)
+        # Since v0.2.1: off is a real off (the panel asleep, the CPU may idle at 80 MHz); the fade's last step puts it to sleep
+        try:
+            ctx.log.wait(r'display: panel asleep', 5, 'the panel asleep once the fade is over', start=at)
+            asleep = True
+        except Fail:
+            asleep = False
         time.sleep(1.5)
         m = state()
         check(m.group(1) == '2' and m.group(2) == '0', f'not off: state {m.group(1)}, brightness {m.group(2)}')
+        w = b.cmd('where', r'test: where (.*)').group(1)
+        check('raw_phase=0' in w, f'display busy with the panel asleep: {w}')
+        if asleep:                                   # v0.2.1: the CPU may idle at 80 MHz while off (display.c's lock)
+            p = b.cmd('power', r'test: power cpu_mhz=\d+ panel=(\w+) screen_lock=(\d)')
+            check(p.group(1) == 'asleep', f'screen off but the panel {p.group(1)}')
+            check(p.group(2) == '0', 'screen off but the CPU held at 240 MHz (the "screen" lock)')
+        at = len(ctx.log.lines())
         b.cmd('wake')
+        if asleep:
+            ctx.log.wait(r'display: panel awake', 5, 'the panel awake on the first step of the fade up', start=at)
         time.sleep(1.5)
         m = state()
         check(m.group(1) == '0' and int(m.group(2)) > 0, f'not awake: state {m.group(1)}, brightness {m.group(2)}')
-        ctx.note('dim -> off -> wake; three fades during moves, display never stuck')
+        if asleep:
+            p = b.cmd('power', r'test: power cpu_mhz=\d+ panel=(\w+) screen_lock=(\d)')
+            check(p.group(1) == 'awake' and p.group(2) == '1',
+                  f'awake but the panel {p.group(1)}, the "screen" lock {p.group(2)} (1 expected: 240 MHz)')
+            pictest(ctx, 'weather screen after the panel slept')    # the frame sent before DISPON equals the screen
+        ctx.note('dim -> off -> wake; three fades during moves, display never stuck'
+                 + ('; panel asleep and back' if asleep else '; firmware without panel sleep (before v0.2.1)'))
     finally:
         b.api('/api/presence', orig)
         b.cmd('wake')

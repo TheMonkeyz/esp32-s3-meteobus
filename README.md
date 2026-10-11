@@ -326,6 +326,8 @@ touch, or picking the display up (motion sensor) → back on. It's set on the ph
 The two onboard microphones measure the room's sound level every 0.1 s.
 
 - **Quiet** for *Dim after* → the screen dims. Quiet for *Turn off after* (total quiet time) → the screen turns off.
+  Off is a real off: the panel sleeps and the processor slows down, and the bus stop on view refreshes every 5 min
+  instead of every 30 s. It comes back in about 0.2 s.
 - **Waking** from dim/off needs *Wake after* seconds of **sustained** sound. Sound fills a wake meter and silence
   drains it at half speed, so talking with pauses wakes it but a door slam doesn't. Touching the screen always wakes
   it; the touch that wakes a dark screen is ignored, so it doesn't also swipe or tap.

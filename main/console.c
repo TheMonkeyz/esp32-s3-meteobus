@@ -11,6 +11,11 @@
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
+#include "esp_private/esp_clk.h"              // esp_clk_cpu_freq(): "power"
+#include "sdkconfig.h"
+#if CONFIG_PM_PROFILING
+#include "esp_pm.h"                                   // esp_pm_dump_locks(): "power"
+#endif
 #include "testcon.h"
 #include "diag.h"
 #include "display.h"
@@ -55,6 +60,18 @@ static int ms_arg(const char *s)                          // 0..10000 ms
 }
 
 /* ---------- commands ---------- */
+
+// "power": the panel's state and display.c's "screen" lock (held: 240 MHz even when idle; free: an idle core may
+// drop to 80 MHz). cpu_mhz is the clock while this command runs: always the maximum, a running task holds ESP-IDF's
+// own lock (harness presence.dim_off_wake; with CONFIG_PM_PROFILING, the time spent in each mode follows)
+static void cmd_power(int argc, char **argv)
+{
+    ESP_LOGI(TAG, "power cpu_mhz=%d panel=%s screen_lock=%d", esp_clk_cpu_freq() / 1000000,
+             display_asleep() ? "asleep" : "awake", display_cpu_full_speed());
+#if CONFIG_PM_PROFILING
+    esp_pm_dump_locks(stdout);
+#endif
+}
 
 static void cmd_screen(int argc, char **argv)
 {
@@ -364,6 +381,7 @@ static void diag_display(void)
 void console_init(void)
 {
     testcon_register("screen", "screen", cmd_screen);
+    testcon_register("power", "power", cmd_power);
     testcon_register("page", "page", cmd_page);
     testcon_register("tap", "tap X Y", cmd_tap);
     testcon_register("press", "press X Y [ms]", cmd_press);

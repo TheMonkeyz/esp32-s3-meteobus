@@ -1,4 +1,4 @@
-<!-- source: README.md @ ad04dede698940cabd986f6cb48f748272f95057; sections: What you need, Install, First-time setup, Using it, Settings, Presence dimming, Languages, Updates over Wi-Fi, Data sources -->
+<!-- source: README.md @ 3d232e5b07b2f1474c3c66239b150c12b19e49b2; sections: What you need, Install, First-time setup, Using it, Settings, Presence dimming, Languages, Updates over Wi-Fi, Data sources -->
 
 <p align="center">
   <img src="img/hero.png" width="720" alt="Trois écrans ronds de l'afficheur : la page d'un arrêt d'autobus, l'écran météo et le radar de pluie">
@@ -350,7 +350,8 @@ interrupteurs et les délais).
 Les deux microphones intégrés mesurent le niveau sonore de la pièce toutes les 0,1 s.
 
 - **Calme** pendant *Tamiser après* → l'écran est tamisé. Calme pendant *Éteindre après* (durée totale de calme) →
-  l'écran s'éteint.
+  l'écran s'éteint. Il s'éteint vraiment : l'écran se met en veille et le processeur ralentit, et l'arrêt affiché
+  est mis à jour toutes les 5 min au lieu de toutes les 30 s. Il se rallume en 0,2 s environ.
 - Pour que l'écran tamisé ou éteint **se rallume**, il faut *Rallumer après* secondes de son **soutenu**. Le son
   remplit une jauge de réveil et le silence la vide deux fois moins vite; ainsi, une conversation avec des pauses
   le rallume, mais pas une porte qui claque. Toucher l'écran le rallume toujours; le toucher qui rallume un écran

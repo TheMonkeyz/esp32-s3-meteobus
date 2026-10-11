@@ -26,6 +26,7 @@
 #include "services.h"
 #include "i18n.h"
 #include "esp_timer.h"
+#include "presence.h"                    // presence_screen_off(): slower idle rounds
 
 static const char *TAG = "radar";
 
@@ -1078,8 +1079,9 @@ static void radar_task(void *arg)
         if (!prefetch && !relocate_pending) {
             netq_set(NETQ_RADAR, false);
             if (!visible && side_work) {
-                // Idle: the other work a second at a time (the buses, the bus map), until the radar is wanted again
-                bool woken = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000)) != 0;
+                // Idle: the other work a second at a time (the buses, the bus map), until the radar is wanted again;
+                // every 10 s with the screen off (presence), woken at once when it comes back on (main.c)
+                bool woken = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(presence_screen_off() ? 10000 : 1000)) != 0;
                 if (!visible && !preload_req && zoom_target == zoom && !relocate_pending) {
                     if (side_work()) xTaskNotifyGive(task);          // more may be due: look again at once
                     continue;

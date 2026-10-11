@@ -8,6 +8,7 @@
 #include "esp_timer.h"
 #include "esp_heap_caps.h"
 #include "esp_attr.h"
+#include "esp_cpu.h"                        // esp_cpu_get_cycle_count: the zoom fill's split
 #include "i18n.h"                         // LANG_IU: how far a scrolled list's text reaches
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -1186,12 +1187,15 @@ lv_draw_buf_t *slide_picture_copy(void)
  * transparency (the radar's pill, labels, ring and dot are 30-70 % opaque over the map) into a list of the pixels
  * they cover. At the end LVGL's own scale is set and it redraws the same picture (its flush updates slide.c's). */
 
-// The pixels the overlays cover: position (y * DISP_W + x, 18 bits) and alpha (top 8 bits) in one word, colour apart:
-// 6 bytes each, ~16k for the radar (pill, labels, ring, dot)
-#define OVL_CAP 24000
-static uint32_t *ovl;                    // pos | alpha << 24
-static uint16_t *ovl_c;                  // RGB565
-static int ovl_n;
+// The pixels the overlays cover, as runs of one colour and alpha along a row: the radar's ~16-21k pixels (pill,
+// labels, ring, dot) are mostly the pill's uniform background. One pixel per entry (6 bytes, 2 multiplies a channel)
+// was ~40 % of a zoom frame's fill (5 ms: 42-48 fps); a run is blended with one multiply a pixel (RGB565 spread over
+// 32 bits, alpha in 5 bits: at most one step off per channel against an exact 8-bit blend, checked on 400k random
+// cases; only the frames in between, LVGL redraws the last one).
+#define OVL_CAP 16000                    // runs, 8 bytes each
+typedef struct { uint16_t x, len, c; uint8_t a5, pad; } ovl_run_t;   // c: RGB565, a5: alpha 1..32
+static ovl_run_t *ovl;
+static int ovl_n, ovl_px;
 static EXT_RAM_BSS_ATTR int ovl_row[DISP_H + 1];   // (PSRAM: internal RAM is short, its low point fell to 3 KB)
 
 static inline uint16_t rgb565_of(uint8_t r, uint8_t g, uint8_t b) { return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3); }
@@ -1203,17 +1207,14 @@ static inline uint16_t rgb565_of(uint8_t r, uint8_t g, uint8_t b) { return ((r &
 static bool overlay_build(lv_obj_t *scr, lv_obj_t *img)
 {
     ovl = heap_caps_malloc(OVL_CAP * sizeof(*ovl), MALLOC_CAP_SPIRAM);
-    ovl_c = heap_caps_malloc(OVL_CAP * sizeof(*ovl_c), MALLOC_CAP_SPIRAM);
     lv_draw_buf_t *strip = lv_draw_buf_create(DISP_W, OVL_ROWS, LV_COLOR_FORMAT_ARGB8888, 0);
-    if (!ovl || !ovl_c || !strip) {
+    if (!ovl || !strip) {
         free(ovl);
-        free(ovl_c);
         ovl = NULL;
-        ovl_c = NULL;
         if (strip) lv_draw_buf_destroy(strip);
         return false;
     }
-    ovl_n = 0;
+    ovl_n = ovl_px = 0;
     lv_obj_update_layout(scr);
     lv_display_t *d = lv_obj_get_display(scr), *old = lv_refr_get_disp_refreshing();
     lv_layer_t *old_head = d->layer_head;
@@ -1263,9 +1264,14 @@ static bool overlay_build(lv_obj_t *scr, lv_obj_t *img)
             const uint32_t *p = (const uint32_t *)(strip->data + (y - y0) * strip->header.stride);   // A R G B
             for (int x = bx1; x <= bx2; x++) {
                 uint32_t v = p[x];
-                if (!(v >> 24) || ovl_n == OVL_CAP) continue;
-                ovl_c[ovl_n] = rgb565_of(v >> 16, v >> 8, v);
-                ovl[ovl_n++] = (uint32_t)(y * DISP_W + x) | (v & 0xFF000000u);
+                uint8_t a5 = ((v >> 24) + 4) >> 3;           // 0..32 (1..3 of 255: nothing to see)
+                if (!a5) continue;
+                uint16_t c = rgb565_of(v >> 16, v >> 8, v);
+                ovl_run_t *r = ovl_n > ovl_row[y] ? &ovl[ovl_n - 1] : NULL;   // this row's last run
+                if (r && r->x + r->len == x && r->c == c && r->a5 == a5) r->len++;
+                else if (ovl_n < OVL_CAP) ovl[ovl_n++] = (ovl_run_t){ .x = x, .len = 1, .c = c, .a5 = a5 };
+                else continue;
+                ovl_px++;
             }
         }
     }
@@ -1274,41 +1280,66 @@ static bool overlay_build(lv_obj_t *scr, lv_obj_t *img)
     return true;
 }
 
-static inline uint16_t blend565(uint16_t c, uint16_t m, int a)
-{
-    int r = (((c >> 11) & 31) * a + ((m >> 11) & 31) * (256 - a)) >> 8;
-    int g = (((c >> 5) & 63) * a + ((m >> 5) & 63) * (256 - a)) >> 8;
-    int b = ((c & 31) * a + (m & 31) * (256 - a)) >> 8;
-    return (r << 11) | (g << 5) | b;
-}
-
 typedef struct { const uint16_t *src; int16_t col[DISP_W], row[DISP_H]; } zframe_t;
+
+// One pass per pixel: two pixels are gathered into a word and swapped to the panel's byte order as they go (the
+// gather, the overlay blend and a copy_swap() over the band again were ~1.5 ms a band: 42 fps, the bus alone would
+// allow ~90). A row whose source row is the one just above (zoomed in: half the rows at 2x) is copied from it.
+static int64_t zoom_fill_us;                             // the frames' fill time (the zoom log line: fill vs bus)
+static uint32_t zoom_ovl_cyc;                            // of which the overlays' blend (CPU cycles)
 
 static void zoom_fill(int y0, int n, void *dst, void *user)
 {
+    int64_t t0 = esp_timer_get_time();
     const zframe_t *z = user;
     uint16_t *d = dst;
+    int prev = -1;                                       // the row above's source row, if no overlay touched it
     for (int y = y0; y < y0 + n; y++, d += DISP_W) {
-        const uint16_t *s = z->src + z->row[y] * DISP_W;
-        for (int x = 0; x < DISP_W; x++) d[x] = s[z->col[x]];
-        for (int k = ovl_row[y]; k < ovl_row[y + 1]; k++) {
-            int x = (int)(ovl[k] & 0xFFFFFF) - y * DISP_W, a = ovl[k] >> 24;
-            d[x] = blend565(ovl_c[k], d[x], a + (a >> 7));                // alpha 0..255 -> 0..256
+        const int sy = z->row[y];
+        const bool plain = ovl_row[y] == ovl_row[y + 1];
+        if (plain && sy == prev) { memcpy(d, d - DISP_W, DISP_W * 2); continue; }
+        const uint16_t *s = z->src + sy * DISP_W;
+        // (memory-bound: the column table in internal RAM and the loop unrolled gained nothing, fill 185 vs 188 ms)
+        const int16_t *col = z->col;
+        uint32_t *d32 = (uint32_t *)d;
+        for (int x = 0; x < DISP_W; x += 2) {            // DISP_W is even; a row is 4-byte aligned (DISP_W * 2)
+            uint32_t v = s[col[x]] | ((uint32_t)s[col[x + 1]] << 16);
+            d32[x >> 1] = ((v & 0x00FF00FFu) << 8) | ((v >> 8) & 0x00FF00FFu);
         }
-        copy_swap(d, d, DISP_W);                         // panel byte order, in place
+        uint32_t c0 = esp_cpu_get_cycle_count();
+        for (int k = ovl_row[y]; k < ovl_row[y + 1]; k++) {
+            const ovl_run_t r = ovl[k];
+            uint16_t *q = d + r.x;                       // (d is already in the panel's byte order)
+            if (r.a5 == 32) {                            // opaque
+                const uint16_t sw = __builtin_bswap16(r.c);
+                for (int i = 0; i < r.len; i++) q[i] = sw;
+                continue;
+            }
+            const uint32_t f = ((uint32_t)r.c | ((uint32_t)r.c << 16)) & 0x07E0F81Fu, a = r.a5;
+            for (int i = 0; i < r.len; i++) {
+                uint32_t m = __builtin_bswap16(q[i]);
+                m = (m | (m << 16)) & 0x07E0F81Fu;
+                uint32_t v = ((((f - m) * a) >> 5) + m) & 0x07E0F81Fu;
+                q[i] = __builtin_bswap16((uint16_t)(v | (v >> 16)));
+            }
+        }
+        zoom_ovl_cyc += esp_cpu_get_cycle_count() - c0;
+        prev = plain ? sy : -1;
     }
+    zoom_fill_us += esp_timer_get_time() - t0;
 }
 
 // Source pixel of each screen column / row at scale s (256 = 1x), pivot = the image's centre, as LVGL draws it
 static void zoom_maps(zframe_t *z, int32_t s)
 {
     const int px = DISP_W / 2, py = DISP_H / 2;
+    // 32-bit: |x - px| * 256 < 2^16 (a 64-bit division is a library call here, ~930 of them a frame)
     for (int x = 0; x < DISP_W; x++) {
-        int v = px + (int)(((int64_t)(x - px) * 256) / s);
+        int v = px + (int)(((int32_t)(x - px) * 256) / s);
         z->col[x] = v < 0 ? 0 : v > DISP_W - 1 ? DISP_W - 1 : v;
     }
     for (int y = 0; y < DISP_H; y++) {
-        int v = py + (int)(((int64_t)(y - py) * 256) / s);
+        int v = py + (int)(((int32_t)(y - py) * 256) / s);
         z->row[y] = v < 0 ? 0 : v > DISP_H - 1 ? DISP_H - 1 : v;
     }
 }
@@ -1330,6 +1361,9 @@ static void zoom_run(void *unused)
     z.src = zoomq.src;
     int frames = 0, x, y, x0 = 0, y0 = 0, xl = 0, yl = 0;
     bool down = false, touched = false;
+    zoom_fill_us = 0;
+    zoom_ovl_cyc = 0;
+    display_raw_timing(NULL, true);
     // The swipe that started this zoom may still be going on (LVGL's gesture fires before the finger lifts): not a
     // new one, or one swipe zoomed twice. It ends on a release or on the chip's silence (finger(): 5 failed reads);
     // a failed read alone kept it "on" and a second swipe during the zoom was taken for the first one (ignored).
@@ -1357,14 +1391,17 @@ static void zoom_run(void *unused)
     }
     int64_t t2 = esp_timer_get_time();
     free(ovl);
-    free(ovl_c);
     ovl = NULL;
-    ovl_c = NULL;
     lv_image_set_scale(img, to);                         // LVGL's state: it redraws the same last frame
     lv_obj_invalidate(scr);
     if (touched) touch_resync(!down);                    // LVGL starts afresh (no stray tap from that touch)
-    ESP_LOGI(TAG, "zoom %ld -> %ld: overlays %d px in %lld ms, %d frames in %lld ms (%.0f fps)", (long)from, (long)to,
-             ovl_n, (t1 - t0) / 1000, frames, (t2 - t1) / 1000, frames * 1e6f / (t2 - t1));
+    display_raw_timing_t rt;
+    display_raw_timing(&rt, false);
+    ESP_LOGI(TAG, "zoom %ld -> %ld: overlays %d px in %lld ms, %d frames in %lld ms (%.0f fps), fill %lld ms "
+             "(blend %lu), %d runs; bus wait %lu ms, commands %lu ms", (long)from, (long)to, ovl_px, (t1 - t0) / 1000,
+             frames, (t2 - t1) / 1000, frames * 1e6f / (t2 - t1), zoom_fill_us / 1000,
+             (unsigned long)(zoom_ovl_cyc / 240000), ovl_n, (unsigned long)(rt.wait_us / 1000),
+             (unsigned long)(rt.cmd_us / 1000));
     zoomq.queued = false;
     slide_phase = 0;
     if (touched && !down && zoomq.swipe) zoomq.swipe(xl - x0, yl - y0);   // e.g. the next zoom
