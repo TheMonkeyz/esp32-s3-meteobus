@@ -9,6 +9,12 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 their own `## vX.Y.Z-rc.N` section. Those are shown only to Beta users, while the final release's section should
 list everything again.
 
+## v0.2.1-rc.1 - 2026-10-11
+- The radar and bus map zooms are smoother (about 57 and 54 frames a second instead of 43).
+- When the room has been quiet long enough to turn the screen off, it is now really off: the screen goes to sleep and
+  the processor slows down, so the display uses less power at night. Your stop's departures refresh every 5 minutes
+  meanwhile instead of every 30 seconds. A touch, a sound or picking it up wakes it as before.
+
 ## v0.2.0 - 2026-10-10
 - MeteoBus: the weather display and the RTC bus display in one. Everything the weather display (v1.15.0) does is
   here, with its own update site.
