@@ -629,8 +629,28 @@ def radar_timing(ctx):
     ctx.metric('radar_zoom_start_ms', int(m.group(2)))
     ctx.note(f'radar zoom: {m.group(3)} frames in {m.group(4)} ms, overlays ({m.group(1)} px) in {m.group(2)} ms')
     time.sleep(5)
-    b.cmd('swipe up')                                # back to the zoom level the user had
-    time.sleep(5)
+    at = len(ctx.log.lines())
+    b.cmd('swipe up')                                # back to the zoom level the user had: its frames load again
+    # A tap while the past frames are still loading plays at once (v0.2.1): oldest first, the loading switched to
+    # oldest first, waiting at a frame still on its way. Before, it waited for 13 of the 15 frames (~3-4 s)
+    ctx.log.wait(r'slide: zoom \d+ -> \d+:', 15, 'the zoom out drawn', start=at)
+    at = len(ctx.log.lines())
+    b.cmd('tap 233 233')
+    try:
+        m = ctx.log.wait(r'radar: Playback: first frame after (\d+) ms \((\d+) of', 15, 'the animation started', start=at)
+        if int(m.group(2)) < 13:
+            ctx.metric('radar_play_start_ms', int(m.group(1)))
+            ctx.note(f'tap while loading ({m.group(2)} of 15 ready): first frame after {m.group(1)} ms')
+        else:
+            ctx.skip('radar_play_start_ms', f'{m.group(2)} of 15 frames were ready at the tap: nothing to wait for')
+    except Fail:
+        ctx.skip('radar_play_start_ms', 'no "Playback: first frame" line (firmware before v0.2.1)')
+    time.sleep(8)
+    b.cmd('tap 233 233')                             # stop
+    held = ctx.log.wait(r'radar: Playback: (held \d+ time\(s\).*)', 2, start=at) if ctx.log.count(
+        r'radar: Playback: held', start=at) else None
+    ctx.note('animation while loading: ' + (held.group(1) if held else 'never waited for a frame'))
+    time.sleep(1)
     b.cmd('swipe right')
 
 

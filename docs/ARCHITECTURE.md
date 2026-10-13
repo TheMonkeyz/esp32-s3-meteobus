@@ -791,7 +791,17 @@ order, and ~11 ms on the bus.
   would be in decoding.
 - **Animation:** 15 frames. The latest frame, plus 14 history frames on a fixed 12-minute grid (so refreshes reuse
   most of them). They download newest first while the radar screen is visible. A tap plays at 3 fps via an LVGL timer,
-  holds the last frame about 1 s and loops for `PLAY_LOOP_MS` (60 s), then returns to live. A tap while playing
+  holds the last frame about 1 s and loops for `PLAY_LOOP_MS` (60 s), then returns to live.
+  Since MeteoBus v0.2.1 a tap plays at once, even with frames still loading (until then it waited for 13 of the 15,
+  "Loading past 3 h... n/15", ~4-6 s): `pipe_load()` picks its next frame each time, the newest while they load in
+  the background and the oldest once the animation plays (`playing`), so the next frame the animation needs is the
+  next one fetched. `play_step()` holds the picture at a frame still on its way (`frame_coming()`: not loaded, and
+  this pass of `pipe_load()` not done with it: `pipe_done[]`, `pipe_busy`, and `pipe_planned` from `plan_frames()`
+  for a tap before the pass has started) and polls every 40 ms meanwhile, so a frame shows the moment it is decoded;
+  a frame that failed, and the live one, are skipped. "Loading past 3 h... n/15" stays up while frames are coming.
+  A frame takes ~0.25-0.45 s to load (more rain, larger images), so the first loop may still wait briefly between
+  frames. Log: `radar: Playback: first frame after N ms (M of 15 frames ready at the tap)`, and at the stop
+  `Playback: held N time(s) ..., N ms in all` (harness `radar_play_start_ms`: ~1.0-1.3 s with none ready). A tap while playing
   stops it, and so does a zoom or location change. A new radar time doesn't: `plan_frames()` swaps the list under
   the display lock, playback skips frames not loaded yet, and the new frame joins the loop once downloaded.
   The live view (`show_live()`) shows the newest frame that loaded, so a failed download keeps the previous image
