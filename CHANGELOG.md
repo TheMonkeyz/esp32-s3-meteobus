@@ -9,7 +9,7 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 their own `## vX.Y.Z-rc.N` section. Those are shown only to Beta users, while the final release's section should
 list everything again.
 
-## v0.2.1-rc.2 - 2026-10-11
+## v0.2.1-rc.2 - 2026-10-13
 - The radar's last 3 hours play as soon as you tap, even while the images are still loading: each one shows as soon as
   it arrives, instead of waiting for all of them.
 
