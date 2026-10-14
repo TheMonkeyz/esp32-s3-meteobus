@@ -5,7 +5,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import BAD, compare, propose  # noqa: E402
-from board import kv  # noqa: E402
+from board import Board, Fail, kv  # noqa: E402
 
 BASE = {
     'render_ms.weather': {'max': 50, 'ref': 45, 'note': 'kept'},
@@ -69,3 +69,26 @@ class ConsoleReplies(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class Install(unittest.TestCase):
+    """Board.install(): the display's own updater, driven through /api/update (no board: answers scripted)."""
+
+    def board(self, answers):
+        b = Board.__new__(Board)                         # no log, no address: only api() is used before the offer
+        it = iter(answers)
+        b.api = lambda path, data=None, timeout=10: next(it)
+        return b
+
+    def test_a_newer_build_running_fails_at_once(self):
+        # 2026-10-13: v0.2.2-play.2 on the board, v0.2.1-rc.2 on the Beta channel: it waited 30 min for nothing
+        b = self.board([{'state': 'up_to_date', 'channel': 'beta', 'latest': 'v0.2.1-rc.2',
+                         'current': 'v0.2.2-play.2'}])
+        with self.assertRaises(Fail) as e:
+            b.install('v0.2.1-rc.2', wait_min=30)
+        self.assertIn('counts as newer', str(e.exception))
+
+    def test_already_running_returns(self):
+        b = self.board([{'state': 'up_to_date', 'channel': 'beta', 'latest': 'v0.2.1-rc.2',
+                         'current': 'v0.2.1-rc.2'}])
+        self.assertIsNone(b.install('v0.2.1-rc.2'))
