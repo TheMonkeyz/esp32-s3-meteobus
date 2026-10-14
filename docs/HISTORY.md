@@ -146,7 +146,8 @@ change.
 - **v0.2.1** (test builds v0.2.1-power.1 to .11, each flashed and run through the harness): the zoom's fill in one
   pass with the overlays as runs (54-58 fps), 64-byte data cache lines (every PSRAM-bound frame a little faster), the
   panel asleep while presence has the screen off and the CPU idling at 80 MHz then (72 % of the time, profiled), the
-  stop on view polled every 5 min instead of 30 s meanwhile. Published as v0.2.1-rc.1 (its update test 19/19).
+  stop on view polled every 5 min instead of 30 s meanwhile. Published as v0.2.1-rc.1 (its update test 19/19),
+  then rc.2 (October 13, the radar below) and the stable v0.2.1 the same day.
 - **The radar plays at the tap** (the owner's ask, October 11): frames show as soon as they are downloaded, the
   downloads switch to oldest first once it plays; the first frame ~1.3 s after a tap with none loaded (it waited
   ~4-6 s for 13 of 15 before). The owner asked to check the weather display's history
@@ -224,7 +225,9 @@ CPU's clock always runs at full speed).
 
 MeteoBus (2026-10-10):
 
-- **First stable release:** v0.2.0 (2026-10-10, rc.6 unchanged, its update test 17/17 on the board).
+- **Latest stable release:** v0.2.1 (2026-10-13, rc.2's firmware unchanged; its update test 19/19 on the board,
+  the radar's two timings over their limits in heavy rain, rc.1's code slower the same night). The first was v0.2.0
+  (2026-10-10).
 - **Zooms at 54-58 fps, not 60** (v0.2.1): a frame is ~11 ms of PSRAM reads overlapping ~11 ms on the bus. Next to
   try: one window command per frame instead of two per band (needs eyes on a zoom: the harness can't see its frames),
   PSRAM at 120 MHz (experimental). Internal RAM's low point sat at its floor (25 KB) in v0.2.1's last run.
