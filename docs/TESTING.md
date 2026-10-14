@@ -34,7 +34,9 @@ idf.py -B build\v55 -D SDKCONFIG=build\v55\sdkconfig build
   October 5). Label it `v1.14.3-ram.N`; for an over-the-air test of the next rc, flash an older build first.
 - **To test a release candidate over Wi-Fi,** the board must run something *below* it. After a test build labelled
   higher (e.g. `v1.5.0-graph.3` vs `v1.4.0-rc.2`), flash an older test build from `firmware\in\` first (with a new
-  unique name) and let the board offer the rc.
+  unique name) and let the board offer the rc. Since 2026-10-13 `harness.py --ota` stops at once when the channel
+  lists the rc but the board, running a newer label, says it is up to date (it waited 30 min for nothing, with
+  `v0.2.2-play.2` on the board and `v0.2.1-rc.2` published).
 - **Settings can be driven from the PC** for tests, e.g.
   `curl -sk -X POST -H 'Content-Type: application/json' -H "X-Key: $KEY" -d '{"temp":"f"}' https://<ip>/api/units`,
   then snapshot. Since v1.12.0 a change needs the display's key: `echo key > serial.send` and read `test: key …` in

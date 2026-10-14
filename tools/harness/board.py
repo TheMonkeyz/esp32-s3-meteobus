@@ -290,6 +290,12 @@ class Board:
                 return
             if u.get('latest') == want and u.get('state') == 'available':
                 break
+            if u.get('latest') == want and u.get('state') == 'up_to_date':
+                # The channel lists it, yet the display doesn't offer it: what runs counts as newer (a test build
+                # labelled above it, e.g. v0.2.2-play.2 against v0.2.1-rc.2, 2026-10-13: 30 min of waiting for
+                # nothing). It never will: say so now.
+                raise Fail(f'the {u.get("channel")} channel offers {want}, but the display runs {u.get("current")}, '
+                           f'which counts as newer: flash a build labelled below {want} first (docs/TESTING.md)')
             offer = f'the {u.get("channel")} channel offers {u.get("latest") or "nothing newer"}'
             if time.time() > end:
                 raise Fail(f'{offer}, not {want}, after {wait_min} min (CI failed, or {want} needs the Beta channel?)')
