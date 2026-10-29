@@ -41,7 +41,7 @@
 
 static const char *TAG = "app";
 #if CONFIG_IDF_TARGET_ESP32P4
-#define BOOT_BTN        GPIO_NUM_35          // ESP32-P4-Function-EV-Board's BOOT
+#define BOOT_BTN        GPIO_NUM_35          // the P4's BOOT strapping pin
 #else
 #define BOOT_BTN        GPIO_NUM_0
 #endif

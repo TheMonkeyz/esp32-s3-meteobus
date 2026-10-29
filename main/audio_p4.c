@@ -1,5 +1,5 @@
-// ESP32-P4-Function-EV-Board audio (audio.h): I2S0 out to the ES8311 (speaker, sound.c; I2C 0x18 on touch's bus,
-// amplifier enable on GPIO 53). MCLK 13, BCLK 12, WS 10, DOUT 9, DIN 11 (Espressif's BSP). No microphones here for
+// Guition JC1060P470C audio (audio.h): I2S0 out to the ES8311 (speaker, sound.c; I2C 0x18 on touch's bus, NS4150
+// amplifier enable on GPIO 20). MCLK 13, BCLK 12, WS 10, DOUT 9, DIN 11. No microphones here for
 // presence: audio_mic_open() says "not available" and forge_presence goes by touch.
 #include "audio.h"
 #include "driver/i2s_std.h"

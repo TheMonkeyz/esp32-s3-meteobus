@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <string.h>
-// ESP32-P4-Function-EV-Board: EK79007 1024x600 over MIPI-DSI (2 lanes) + LVGL v9 port. The panel scans a frame buffer
+// Guition JC1060P470C (ESP32-P4 + ESP32-C6, 7" 1024x600): JD9165 over MIPI-DSI (2 lanes) + LVGL v9 port. The panel scans a frame buffer
 // in PSRAM on its own (DPI): a "transfer" here is a copy into that buffer and a cache write-back, done at once, so
 // there is no transfer-done interrupt and nothing in flight (display_lvgl_inflight() is always 0). Same API as the
 // AMOLED's display.c (display.h). The LVGL screen is DISP_W x DISP_H at (DISP_OX, DISP_OY) in the panel.
@@ -12,7 +12,7 @@
 #include "driver/ledc.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_mipi_dsi.h"
-#include "esp_lcd_ek79007.h"
+#include "esp_lcd_jd9165.h"
 #include "esp_ldo_regulator.h"
 #include "esp_cache.h"
 #include "esp_heap_caps.h"
@@ -22,8 +22,15 @@
 
 static const char *TAG = "display";
 
-#define PIN_BL        26              // backlight (LEDC PWM), CONFIG_BSP_LCD_TYPE_1024_600 in Espressif's BSP
+#define PIN_BL        23              // backlight (LEDC PWM, active high)
+// The panel's reset also powers the GT911 touch controller (AVDD): it must be the real reset pin.
+#if CONFIG_METEOBUS_P4_PANEL_V2
+#define PANEL_V2      1
+#define PIN_RST       0               // the 2026 "V2" panel
+#else
+#define PANEL_V2      0
 #define PIN_RST       27
+#endif
 #define BL_CH         LEDC_CHANNEL_0
 #define BL_TIMER      LEDC_TIMER_1
 #define DSI_LDO_CHAN  3               // LDO_VO3 feeds the MIPI D-PHY
@@ -243,9 +250,13 @@ void display_sleep(bool on)
 bool display_asleep(void) { return asleep; }
 bool display_cpu_full_speed(void) { return true; }       // no power management on this board (yet)
 
+static char init_note[96];             // repeated 8 s after start: the boot's first ~3 s miss the USB log
+
 static void lvgl_task(void *arg)
 {
+    bool noted = false;
     while (1) {
+        if (!noted && esp_timer_get_time() > 8000000) { noted = true; ESP_LOGI(TAG, "%s", init_note); }
         uint32_t wait = 10;
         if (display_lock(-1)) {
             wait = lv_timer_handler();
@@ -258,12 +269,82 @@ static void lvgl_task(void *arg)
     }
 }
 
+/* JD9165 init tables and timings for the two panels Guition has shipped on this board, from Gil Tal's
+ * ESP32-P4-Internet-Radio (MIT licence, github.com/giltal/ESP32-P4-Internet-Radio, main/board.c), which took them from
+ * Guition's reference drivers. V2: the 2026 batch, "V2" after the material number on the back label. */
+#define CMD(c, ...) { (c), (uint8_t[]){ __VA_ARGS__ }, sizeof((uint8_t[]){ __VA_ARGS__ }), 0 }
+#define CMD_DELAY(c, ms) { (c), (uint8_t[]){ 0x00 }, 0, (ms) }
+
+#if CONFIG_METEOBUS_P4_PANEL_V2
+static const jd9165_lcd_init_cmd_t s_panel_init[] = {
+    CMD(0x30, 0x00), CMD(0xF7, 0x49, 0x61, 0x02, 0x00), CMD(0x30, 0x01), CMD(0x04, 0x0C), CMD(0x05, 0x08),
+    CMD(0x0B, 0x11), CMD(0x20, 0x04), CMD(0x1F, 0x05), CMD(0x23, 0x38), CMD(0x28, 0x18), CMD(0x29, 0x29),
+    CMD(0x2A, 0x01), CMD(0x2B, 0x29), CMD(0x2C, 0x01), CMD(0x30, 0x02), CMD(0x00, 0x05), CMD(0x01, 0x22),
+    CMD(0x02, 0x08), CMD(0x03, 0x12), CMD(0x04, 0x16), CMD(0x05, 0x64), CMD(0x06, 0x00), CMD(0x07, 0x00),
+    CMD(0x08, 0x78), CMD(0x09, 0x00), CMD(0x0A, 0x04),
+    CMD(0x0B, 0x16, 0x17, 0x0B, 0x0D, 0x0D, 0x0D, 0x11, 0x10, 0x07, 0x07, 0x09),
+    CMD(0x0C, 0x09, 0x1E, 0x1E, 0x1C, 0x1C, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D),
+    CMD(0x0D, 0x0A, 0x05, 0x0B, 0x0D, 0x0D, 0x0D, 0x11, 0x10, 0x06, 0x06, 0x08),
+    CMD(0x0E, 0x08, 0x1F, 0x1F, 0x1D, 0x1D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D),
+    CMD(0x0F, 0x0A, 0x05, 0x0D, 0x0B, 0x0D, 0x0D, 0x11, 0x10, 0x1D, 0x1D, 0x1F),
+    CMD(0x10, 0x1F, 0x08, 0x08, 0x06, 0x06, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D),
+    CMD(0x11, 0x16, 0x17, 0x0D, 0x0B, 0x0D, 0x0D, 0x11, 0x10, 0x1C, 0x1C, 0x1E),
+    CMD(0x12, 0x1E, 0x09, 0x09, 0x07, 0x07, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D),
+    CMD(0x13, 0x00, 0x00, 0x00, 0x00), CMD(0x14, 0x00, 0x00, 0x41, 0x41), CMD(0x15, 0x00, 0x00, 0x00, 0x00),
+    CMD(0x17, 0x00), CMD(0x18, 0x85), CMD(0x19, 0x06, 0x09), CMD(0x1A, 0x05, 0x08), CMD(0x1B, 0x0A, 0x04),
+    CMD(0x26, 0x00), CMD(0x27, 0x00), CMD(0x30, 0x06),
+    CMD(0x12, 0x3F, 0x25, 0x27, 0x35, 0x1D, 0x1B, 0x1B, 0x1A, 0x18, 0x0A, 0x2A, 0x21, 0x19, 0x30),
+    CMD(0x13, 0x3F, 0x26, 0x27, 0x35, 0x1E, 0x1C, 0x1C, 0x1A, 0x18, 0x0B, 0x2A, 0x21, 0x19, 0x30),
+    CMD(0x30, 0x0A), CMD(0x02, 0x4F), CMD(0x0B, 0x40), CMD(0x30, 0x0D), CMD(0x0D, 0x04), CMD(0x10, 0x05),
+    CMD(0x11, 0x0C), CMD(0x12, 0x05), CMD(0x13, 0x0C), CMD(0x30, 0x00),
+    CMD_DELAY(0x11, 120),   /* SLPOUT */
+    CMD_DELAY(0x29, 20),    /* DISPON */
+};
+#define PANEL_PCLK_MHZ  52
+#define PANEL_HPW       24
+#define PANEL_HBP       136
+#define PANEL_HFP       160
+#define PANEL_VPW       2
+#define PANEL_VBP       21
+#define PANEL_VFP       12
+#else
+static const jd9165_lcd_init_cmd_t s_panel_init[] = {
+    CMD(0x30, 0x00), CMD(0xF7, 0x49, 0x61, 0x02, 0x00), CMD(0x30, 0x01), CMD(0x04, 0x0C), CMD(0x05, 0x00),
+    CMD(0x06, 0x00), CMD(0x0B, 0x11), CMD(0x17, 0x00), CMD(0x20, 0x04), CMD(0x1F, 0x05), CMD(0x23, 0x00),
+    CMD(0x25, 0x19), CMD(0x28, 0x18), CMD(0x29, 0x04), CMD(0x2A, 0x01), CMD(0x2B, 0x04), CMD(0x2C, 0x01),
+    CMD(0x30, 0x02), CMD(0x01, 0x22), CMD(0x03, 0x12), CMD(0x04, 0x00), CMD(0x05, 0x64), CMD(0x0A, 0x08),
+    CMD(0x0B, 0x0A, 0x1A, 0x0B, 0x0D, 0x0D, 0x11, 0x10, 0x06, 0x08, 0x1F, 0x1D),
+    CMD(0x0C, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D),
+    CMD(0x0D, 0x16, 0x1B, 0x0B, 0x0D, 0x0D, 0x11, 0x10, 0x07, 0x09, 0x1E, 0x1C),
+    CMD(0x0E, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D),
+    CMD(0x0F, 0x16, 0x1B, 0x0D, 0x0B, 0x0D, 0x11, 0x10, 0x1C, 0x1E, 0x09, 0x07),
+    CMD(0x10, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D),
+    CMD(0x11, 0x0A, 0x1A, 0x0D, 0x0B, 0x0D, 0x11, 0x10, 0x1D, 0x1F, 0x08, 0x06),
+    CMD(0x12, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D, 0x0D),
+    CMD(0x14, 0x00, 0x00, 0x11, 0x11), CMD(0x18, 0x99), CMD(0x30, 0x06),
+    CMD(0x12, 0x36, 0x2C, 0x2E, 0x3C, 0x38, 0x35, 0x35, 0x32, 0x2E, 0x1D, 0x2B, 0x21, 0x16, 0x29),
+    CMD(0x13, 0x36, 0x2C, 0x2E, 0x3C, 0x38, 0x35, 0x35, 0x32, 0x2E, 0x1D, 0x2B, 0x21, 0x16, 0x29),
+    CMD(0x30, 0x0A), CMD(0x02, 0x4F), CMD(0x0B, 0x40), CMD(0x12, 0x3E), CMD(0x13, 0x78), CMD(0x30, 0x0D),
+    CMD(0x0D, 0x04), CMD(0x10, 0x0C), CMD(0x11, 0x0C), CMD(0x12, 0x0C), CMD(0x13, 0x0C), CMD(0x30, 0x00),
+    CMD_DELAY(0x11, 120),   /* SLPOUT */
+    CMD_DELAY(0x29, 20),    /* DISPON */
+};
+#define PANEL_PCLK_MHZ  54
+#define PANEL_HPW       40
+#define PANEL_HBP       160
+#define PANEL_HFP       160
+#define PANEL_VPW       10
+#define PANEL_VBP       23
+#define PANEL_VFP       12
+#endif
+
+
 void display_init(void)
 {
-    ESP_LOGI(TAG, "Init MIPI-DSI + EK79007 (%dx%d), LVGL screen %dx%d at %d,%d", PANEL_W, PANEL_H, DISP_W, DISP_H,
+    ESP_LOGI(TAG, "Init MIPI-DSI + JD9165 (%dx%d), LVGL screen %dx%d at %d,%d", PANEL_W, PANEL_H, DISP_W, DISP_H,
              DISP_OX, DISP_OY);
     ledc_timer_config_t lt = { .speed_mode = LEDC_LOW_SPEED_MODE, .duty_resolution = LEDC_TIMER_10_BIT,
-                               .timer_num = BL_TIMER, .freq_hz = 5000, .clk_cfg = LEDC_AUTO_CLK };
+                               .timer_num = BL_TIMER, .freq_hz = 20000, .clk_cfg = LEDC_AUTO_CLK };
     ESP_ERROR_CHECK(ledc_timer_config(&lt));
     ledc_channel_config_t lc = { .gpio_num = PIN_BL, .speed_mode = LEDC_LOW_SPEED_MODE, .channel = BL_CH,
                                  .timer_sel = BL_TIMER, .duty = 0 };
@@ -274,20 +355,37 @@ void display_init(void)
     ESP_ERROR_CHECK(esp_ldo_acquire_channel(&ldo_cfg, &ldo));
 
     esp_lcd_dsi_bus_handle_t dsi;
-    esp_lcd_dsi_bus_config_t bc = { .bus_id = 0, .num_data_lanes = 2, .phy_clk_src = MIPI_DSI_PHY_CLK_SRC_DEFAULT,
-                                    .lane_bit_rate_mbps = 1000 };
+    esp_lcd_dsi_bus_config_t bc = JD9165_PANEL_BUS_DSI_2CH_CONFIG();
     ESP_ERROR_CHECK(esp_lcd_new_dsi_bus(&bc, &dsi));
     esp_lcd_panel_io_handle_t io;
-    esp_lcd_dbi_io_config_t dbi = { .virtual_channel = 0, .lcd_cmd_bits = 8, .lcd_param_bits = 8 };
+    esp_lcd_dbi_io_config_t dbi = JD9165_PANEL_IO_DBI_CONFIG();
     ESP_ERROR_CHECK(esp_lcd_new_panel_io_dbi(dsi, &dbi, &io));
-    esp_lcd_dpi_panel_config_t dpi = EK79007_1024_600_PANEL_60HZ_CONFIG_CF(LCD_COLOR_FMT_RGB565);
-    dpi.num_fbs = 1;
-    ek79007_vendor_config_t vc = { .mipi_config = { .dsi_bus = dsi, .dpi_config = &dpi } };
+    esp_lcd_dpi_panel_config_t dpi = {
+        .dpi_clk_src = MIPI_DSI_DPI_CLK_SRC_DEFAULT,
+        .dpi_clock_freq_mhz = PANEL_PCLK_MHZ,
+        .virtual_channel = 0,
+        .pixel_format = LCD_COLOR_PIXEL_FORMAT_RGB565,
+        .num_fbs = 1,
+        .video_timing = {
+            .h_size = PANEL_W, .v_size = PANEL_H,
+            .hsync_pulse_width = PANEL_HPW, .hsync_back_porch = PANEL_HBP, .hsync_front_porch = PANEL_HFP,
+            .vsync_pulse_width = PANEL_VPW, .vsync_back_porch = PANEL_VBP, .vsync_front_porch = PANEL_VFP,
+        },
+    };
+    jd9165_vendor_config_t vc = {
+        .init_cmds = s_panel_init,
+        .init_cmds_size = sizeof(s_panel_init) / sizeof(s_panel_init[0]),
+        .mipi_config = { .dsi_bus = dsi, .dpi_config = &dpi },
+    };
     esp_lcd_panel_dev_config_t dc = { .bits_per_pixel = 16, .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
                                       .reset_gpio_num = PIN_RST, .vendor_config = &vc };
-    ESP_ERROR_CHECK(esp_lcd_new_panel_ek79007(io, &dc, &panel));
+    ESP_ERROR_CHECK(esp_lcd_new_panel_jd9165(io, &dc, &panel));
     ESP_ERROR_CHECK(esp_lcd_panel_reset(panel));
+    vTaskDelay(pdMS_TO_TICKS(120));                      // the JD9165 needs 120 ms after reset before its table
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel));
+    snprintf(init_note, sizeof(init_note), "JD9165 panel up (%s, reset GPIO %d, backlight GPIO %d)",
+             PANEL_V2 ? "V2" : "V1", PIN_RST, PIN_BL);
+    ESP_LOGI(TAG, "%s", init_note);
     void *f = NULL;
     ESP_ERROR_CHECK(esp_lcd_dpi_panel_get_frame_buffer(panel, 1, &f));
     fb = f;

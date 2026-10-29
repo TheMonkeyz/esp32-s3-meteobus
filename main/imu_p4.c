@@ -1,4 +1,4 @@
-// ESP32-P4-Function-EV-Board: no motion sensor. forge_presence's accelerometer hooks report "not available".
+// Guition JC1060P470C: no motion sensor. forge_presence's accelerometer hooks report "not available".
 #include "imu.h"
 
 bool imu_init(i2c_master_bus_handle_t bus) { (void)bus; return false; }

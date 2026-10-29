@@ -1,4 +1,6 @@
-// ESP32-P4-Function-EV-Board: GT911 capacitive touch (I2C 0x5D or 0x14, SDA 7 / SCL 8) -> LVGL pointer input.
+// Guition JC1060P470C: GT911 capacitive touch (I2C 0x5D or 0x14, SDA 7 / SCL 8) -> LVGL pointer input. Its RST and
+// INT lines aren't the P4's to drive (its power comes with the panel's reset, display_p4.c), and it reports in its own
+// 800x480 (read from its config, then scaled to the panel).
 // Same API and behaviour as the AMOLED's touch.c (CST9217): the panel's 1024x600 points are mapped into the LVGL
 // screen (DISP_W x DISP_H at DISP_OX, DISP_OY; outside it, clamped to its edge).
 #include "touch.h"
@@ -54,16 +56,17 @@ void touch_init(void)
         .flags.enable_internal_pullup = true,
     };
     if (i2c_new_master_bus(&bc, &bus) != ESP_OK) { ESP_LOGE(TAG, "I2C bus init failed"); return; }
-    uint8_t addr = 0;
+    // No bare address probe: right after the panel's reset it upsets the controller (Gil Tal's board.c). Read its
+    // product id at either address instead.
+    uint8_t addr = 0, id[4] = {0}, cfg[4] = {0};
     for (int i = 0; i < 2 && !addr; i++) {
         uint8_t a = i ? 0x14 : 0x5D;
-        if (i2c_master_probe(bus, a, 50) == ESP_OK) addr = a;
+        i2c_device_config_t dc = { .dev_addr_length = I2C_ADDR_BIT_LEN_7, .device_address = a, .scl_speed_hz = 400000 };
+        if (i2c_master_bus_add_device(bus, &dc, &dev) != ESP_OK) continue;
+        if (gt_read(0x8140, id, 4) == ESP_OK) addr = a;
+        else { i2c_master_bus_rm_device(dev); dev = NULL; }
     }
     if (!addr) { ESP_LOGE(TAG, "GT911 NOT found (0x5D, 0x14)"); return; }
-    i2c_device_config_t dc = { .dev_addr_length = I2C_ADDR_BIT_LEN_7, .device_address = addr, .scl_speed_hz = 400000 };
-    ESP_ERROR_CHECK(i2c_master_bus_add_device(bus, &dc, &dev));
-    uint8_t id[4] = {0}, cfg[4] = {0};
-    gt_read(0x8140, id, 4);                              // product id, ASCII ("911")
     if (gt_read(0x8048, cfg, 4) == ESP_OK) {             // the resolution the controller reports in
         int x = cfg[0] | cfg[1] << 8, y = cfg[2] | cfg[3] << 8;
         if (x > 0 && y > 0) { max_x = x; max_y = y; }
@@ -98,8 +101,6 @@ static int touch_read_chip(int *x, int *y)
         int rx = d[0] | d[1] << 8, ry = d[2] | d[3] << 8;
         rx = rx * PANEL_W / max_x;
         ry = ry * PANEL_H / max_y;
-        rx = PANEL_W - 1 - rx;                           // mounted rotated 180° (Espressif's BSP: mirror x and y)
-        ry = PANEL_H - 1 - ry;
         lr_x = clampi(rx - DISP_OX, 0, DISP_W - 1);
         lr_y = clampi(ry - DISP_OY, 0, DISP_H - 1);
         lr_state = 1;

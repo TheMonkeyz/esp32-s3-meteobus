@@ -1,9 +1,9 @@
 # The board's own code: the Waveshare ESP32-S3-Touch-AMOLED-1.75 (display.c, touch.c, audio.c, imu.c) or the
-# ESP32-P4-Function-EV-Board (the *_p4.c files: MIPI-DSI EK79007, GT911, ES8311 only, no motion sensor; Wi-Fi through
-# its ESP32-C6 with esp_hosted / esp_wifi_remote)
+# Guition JC1060P470C, ESP32-P4 + 7" 1024x600 (the *_p4.c files: MIPI-DSI JD9165, GT911, ES8311 only, no motion
+# sensor; Wi-Fi through its ESP32-C6 with esp_hosted / esp_wifi_remote)
 if(IDF_TARGET STREQUAL "esp32p4")
     set(board_srcs "display_p4.c" "touch_p4.c" "audio_p4.c" "imu_p4.c")
-    set(board_reqs esp_lcd esp_lcd_ek79007 esp_driver_ledc esp_hw_support esp_mm esp_wifi_remote esp_hosted)
+    set(board_reqs esp_lcd esp_lcd_jd9165 esp_driver_ledc esp_hw_support esp_mm esp_wifi_remote esp_hosted)
 else()
     set(board_srcs "display.c" "touch.c" "audio.c" "imu.c")
     set(board_reqs esp_lcd esp_driver_spi)

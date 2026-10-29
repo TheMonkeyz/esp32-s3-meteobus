@@ -22,7 +22,7 @@
 static const char *TAG = "sound";
 #define RATE        16000                 // same as the microphones (one I2S clock for both)
 #if CONFIG_IDF_TARGET_ESP32P4
-#define PIN_PA      53                    // ESP32-P4-Function-EV-Board's amplifier enable
+#define PIN_PA      20                    // Guition JC1060P470C's NS4150 amplifier enable
 #else
 #define PIN_PA      46
 #endif
