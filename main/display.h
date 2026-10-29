@@ -3,8 +3,17 @@
 #include <stdint.h>
 #include "lvgl.h"
 
+#include "sdkconfig.h"
+
 #define DISP_W 466
 #define DISP_H 466
+#if CONFIG_IDF_TARGET_ESP32P4
+// ESP32-P4-Function-EV-Board: the LVGL screen (DISP_W x DISP_H) is drawn at (DISP_OX, DISP_OY) in the 1024x600 panel
+#define PANEL_W 1024
+#define PANEL_H 600
+#define DISP_OX ((PANEL_W - DISP_W) / 2)
+#define DISP_OY ((PANEL_H - DISP_H) / 2)
+#endif
 
 void display_init(void);
 bool display_lock(int timeout_ms);

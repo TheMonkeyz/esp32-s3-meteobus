@@ -1,0 +1,77 @@
+diff --git a/components/forge_core/diag.c b/components/forge_core/diag.c
+index f9d3482..e2a9527 100644
+--- a/components/forge_core/diag.c
++++ b/components/forge_core/diag.c
+@@ -84,11 +84,17 @@ static void startup_info(void)
+         }
+     }
+     if (cd && chk == ESP_OK && esp_core_dump_get_summary(cd) == ESP_OK) {
++#if __XTENSA__
+         char bt[16 * 11 + 1] = "";
+         for (uint32_t i = 0, n = 0; i < cd->exc_bt_info.depth && i < 16; i++)
+             n += snprintf(bt + n, sizeof(bt) - n, " 0x%08lx", (unsigned long)cd->exc_bt_info.bt[i]);
+         ESP_LOGW(TAG, "coredump: last crash in task %s, PC 0x%08lx, backtrace%s%s", cd->exc_task,
+                  (unsigned long)cd->exc_pc, bt, cd->exc_bt_info.corrupted ? " (corrupted)" : "");
++#else   // RISC-V (ESP32-P4): no backtrace in the summary, only the registers (riscv32-esp-elf-addr2line PC and RA)
++        ESP_LOGW(TAG, "coredump: last crash in task %s, PC 0x%08lx, RA 0x%08lx, mcause 0x%lx, mtval 0x%08lx",
++                 cd->exc_task, (unsigned long)cd->exc_pc, (unsigned long)cd->ex_info.ra,
++                 (unsigned long)cd->ex_info.mcause, (unsigned long)cd->ex_info.mtval);
++#endif
+         esp_core_dump_image_erase();
+     }
+     free(cd);
+diff --git a/components/forge_net/include/net.h b/components/forge_net/include/net.h
+index fbf9cca..eb1644e 100644
+--- a/components/forge_net/include/net.h
++++ b/components/forge_net/include/net.h
+@@ -43,6 +43,7 @@ typedef void (*net_dpp_done_cb_t)(bool ok, const char *ssid);
+ bool net_dpp_start(net_dpp_uri_cb_t on_uri, net_dpp_done_cb_t on_done);
+ void net_dpp_stop(void);
+ bool net_dpp_active(void);
++bool net_dpp_supported(void);   // false: no Easy Connect here (esp_wifi_remote: Wi-Fi through a co-processor)
+ // Test console ("wifi ..." commands): pretend the saved network is unreachable, without changing the saved credentials
+ void net_test_offline(void);             // now (until net_test_online or a restart)
+ void net_test_offline_next_boot(bool short_setup);   // next boot only (RTC flag); short: auto setup for 60 s only
+diff --git a/components/forge_net/net.c b/components/forge_net/net.c
+index 3e24fb0..137bbd8 100644
+--- a/components/forge_net/net.c
++++ b/components/forge_net/net.c
+@@ -20,7 +20,13 @@
+ #include "esp_log.h"
+ #include "esp_timer.h"
+ #include "dns_server.h"
++#include "sdkconfig.h"
++// Easy Connect needs the supplicant's DPP, which only exists with the Wi-Fi radio on this chip: not with esp_wifi_remote
++// (an ESP32-P4 reaching Wi-Fi through a co-processor). Then net_dpp_supported() is false and net_dpp_start() fails.
++#define FORGE_DPP (!CONFIG_ESP_WIFI_REMOTE_ENABLED)
++#if FORGE_DPP
+ #include "esp_dpp.h"
++#endif
+ #include "esp_idf_version.h"
+ #include "esp_attr.h"
+ #include "esp_random.h"
+@@ -468,6 +474,7 @@ void net_set_restart(void (*fn)(void)) { restart_fn = fn ? fn : esp_restart; }
+ void net_restart(void) { restart_fn(); }
+ static void restart_cb(void *arg) { restart_fn(); }   // forge_ota: not in an update's first minute
+ 
++#if FORGE_DPP
+ static void dpp_event(esp_supp_dpp_event_t evt, void *data)
+ {
+     switch (evt) {
+@@ -569,6 +576,16 @@ void net_dpp_stop(void)
+     resume_saved();
+ }
+ 
++#else
++bool net_dpp_start(net_dpp_uri_cb_t on_uri, net_dpp_done_cb_t on_done)
++{
++    (void)on_uri; (void)on_done; (void)dpp_pick_channel; (void)dpp_hold_channel;
++    ESP_LOGW(TAG, "Easy Connect: not available on this board (Wi-Fi through a co-processor)");
++    return false;
++}
++void net_dpp_stop(void) {}
++#endif
++bool net_dpp_supported(void) { return FORGE_DPP; }
+ bool net_dpp_active(void) { return dpp_active; }
+ 
+ bool net_setup_ap_active(void) { return ap_active; }

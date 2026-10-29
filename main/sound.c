@@ -1,3 +1,4 @@
+#include "sdkconfig.h"
 // Alert chimes through the speaker (see sound.h).
 // The ES8311 shares the I2S bus with the microphones: audio.c opens it in both directions (audio_init(), from app_main
 // before this task starts) and hands over the data interface (audio_data_if()). The speaker device is opened only
@@ -20,7 +21,11 @@
 
 static const char *TAG = "sound";
 #define RATE        16000                 // same as the microphones (one I2S clock for both)
+#if CONFIG_IDF_TARGET_ESP32P4
+#define PIN_PA      53                    // ESP32-P4-Function-EV-Board's amplifier enable
+#else
 #define PIN_PA      46
+#endif
 #define ES8311_ADDR 0x30                  // 8-bit, as esp_codec_dev expects
 
 static sound_cfg_t cfg = { .level = 2, .volume = 60, .quiet_from = 22 * 60, .quiet_to = 7 * 60 };

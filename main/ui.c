@@ -1478,7 +1478,7 @@ static void su_gesture(lv_event_t *e)
     lv_indev_t *in = lv_indev_active();
     if (!in) return;
     lv_dir_t dir = lv_indev_get_gesture_dir(in);
-    if (dir == LV_DIR_LEFT && su_page == 0) su_show_page(1);
+    if (dir == LV_DIR_LEFT && su_page == 0 && net_dpp_supported()) su_show_page(1);   // no Easy Connect page without it
     else if (dir == LV_DIR_RIGHT && su_page == 1) su_show_page(0);
     lv_indev_wait_release(in);
 }
@@ -1504,6 +1504,7 @@ static void setup_create(void)
         lv_obj_set_style_radius(su_dot[i], 4, 0);
         lv_obj_set_style_bg_opa(su_dot[i], LV_OPA_COVER, 0);
         lv_obj_align(su_dot[i], LV_ALIGN_BOTTOM_MID, i == 0 ? -10 : 10, -16);
+        if (!net_dpp_supported()) lv_obj_add_flag(su_dot[i], LV_OBJ_FLAG_HIDDEN);   // one page: no dots
     }
     lv_obj_add_event_cb(scr_setup, su_gesture, LV_EVENT_GESTURE, NULL);
     lv_obj_add_event_cb(scr_setup, su_tap, LV_EVENT_SHORT_CLICKED, NULL);
