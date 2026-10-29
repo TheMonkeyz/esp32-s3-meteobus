@@ -693,7 +693,19 @@ static void drag_run(void *unused)
                 if (ahead > 80000) ahead = 80000;
                 raw = pos_last + (int)((pos_last - pos_prev) * (float)ahead / (t_last - t_prev));
             }
-        } else hold_since = 0;
+        } else {
+            hold_since = 0;
+#if !DISP_ROUND
+            // Between two touch reports (the P4 board's GT911: every 20 ms, frames every 16): a repeated point would hold
+            // the page still for a frame, then jump ("stuttering", the user, 2026-10-29). It goes on at the finger's
+            // last speed instead, at most one report's worth past the last point.
+            if (r > 0 && !touch_fresh() && t_last > t_prev && raw == pos_last) {
+                int64_t ahead = tnow - t_last;
+                if (ahead > 20000) ahead = 20000;
+                raw = pos_last + (int)((pos_last - pos_prev) * (float)ahead / (t_last - t_prev));
+            }
+#endif
+        }
         int side = raw > 0 ? -1 : raw < 0 ? 1 : 0, i = side < 0 ? 0 : 1;
         if (side && !tried[i]) {                             // the neighbour on this side, the first time it's needed
             tried[i] = true;
@@ -895,6 +907,33 @@ static void scroll_move_fill(int x0, int w, int y0, int n, void *dst, void *user
     }
 }
 
+#if !DISP_SWAP
+/* scroll_move_fill's frame by the 2D-DMA (the P4): the frame is built in the frame buffer not shown, from blocks of
+ * the picture (= the screen before this frame): outside the list as it is, the list's rows moved by d, and the rows
+ * from the strip (scroll_move_fill's s0..s1); then it is shown, and the picture's list area follows from the screen.
+ * The CPU's path (move the rows within the picture in PSRAM, then copy them out) took 24-27 ms a frame at 1024x600. */
+static bool scroll_frame_dma(scroller_t *s, int d)
+{
+    const lv_area_t *r = &s->r;
+    const int W = DISP_W, H = DISP_H, x1 = r->x1, lw = lv_area_get_width(r), h = lv_area_get_height(r);
+    if (s->pic->header.stride != W * 2 || s->strip->header.stride != W * 2) return false;
+    const void *pic = s->pic->data;
+    int s0 = s->in0 - s->up, s1 = s->in1 + s->down;
+    if (s0 < r->y1) s0 = r->y1;
+    if (s1 > r->y2) s1 = r->y2;
+    display_frame_begin();
+    bool ok = display_blit(pic, W, H, 0, 0, W, r->y1, 0, 0) &&                                    // above the list
+              display_blit(pic, W, H, 0, r->y2 + 1, W, H - 1 - r->y2, 0, r->y2 + 1) &&             // below
+              display_blit(pic, W, H, 0, r->y1, x1, h, 0, r->y1) &&                                // left of it
+              display_blit(pic, W, H, r->x2 + 1, r->y1, W - 1 - r->x2, h, r->x2 + 1, r->y1) &&     // right of it
+              display_blit(pic, W, H, x1, r->y1 + d, lw, s0 - r->y1, x1, r->y1) &&                 // moved rows
+              display_blit(pic, W, H, x1, s1 + 1 + d, lw, r->y2 - s1, x1, s1 + 1) &&
+              display_blit(s->strip->data, W, s->strip->header.h, x1, s0 - s->in0 + ROW_MARGIN, lw, s1 - s0 + 1, x1, s0);
+    display_frame_done();
+    return display_read(s->pic->data, W, H, x1, r->y1, lw, h) && ok;   // the picture = the screen again
+}
+#endif
+
 // Scroll to position `want`: LVGL's state, the picture (moved rows + rendered new ones), the panel
 static void scroll_step(scroller_t *s, int want)
 {
@@ -915,6 +954,9 @@ static void scroll_step(scroller_t *s, int want)
         s->in1 = d > 0 ? r->y2 : r->y1 - d - 1;
         render_rows_reach(s->scr, s->strip, s->in0 - ROW_MARGIN, s->in0, s->in1, s->up, s->down);   // (+ margins)
         t2 = esp_timer_get_time();
+#if !DISP_SWAP
+        if (!scroll_frame_dma(s, d))
+#endif
         display_raw_area(r->x1, r->y1, r->x2, r->y2, d < 0, scroll_move_fill, s);
     } else {                                             // a jump (or no strip): the whole list, then send
         if (abs(d) >= h) render_rows_reach(s->scr, s->pic, 0, r->y1, r->y2, s->up, s->down);

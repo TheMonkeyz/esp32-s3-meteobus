@@ -15,6 +15,7 @@
 #include "esp_lcd_jd9165.h"
 #include "esp_ldo_regulator.h"
 #include "esp_cache.h"
+#include "hal/axi_icm_ll.h"                   // the panel's DMA first on the memory bus (display_init)
 #include "driver/ppa.h"
 #include "esp_async_memcpy.h"
 #include "esp_async_fbcpy.h"                 // esp_lcd's 2D-DMA copy (its priv_include: main/CMakeLists.txt)
@@ -163,51 +164,73 @@ static bool fbcpy_cb(esp_async_fbcpy_handle_t h, esp_async_fbcpy_event_data_t *e
     return w == pdTRUE;
 }
 
+static bool dma_init(void)
+{
+    esp_async_fbcpy_config_t c = {};
+    ppa_client_config_t f = { .oper_type = PPA_OPERATION_FILL };
+    fbcpy_done = xSemaphoreCreateBinary();
+    if (!fbcpy_done || esp_async_fbcpy_install(&c, &fbcpy) != ESP_OK || ppa_register_client(&f, &ppa_fill) != ESP_OK) {
+        ESP_LOGE(TAG, "2D-DMA copy not available");
+        return false;
+    }
+    return true;
+}
+
+// One 2D-DMA copy: a w x h block at sx, sy of src (src_w x src_h, rows of src_w pixels) to dx, dy in dst. The source
+// is written back from the cache first (clean lines cost nothing). The destination's rows are written back too, then
+// invalidated after (the DMA wrote behind the cache): a picture may hold the CPU's dirty lines, and the edges of the
+// block's rows share cache lines with pixels outside it.
+static bool dma_copy(const void *src, int src_w, int src_h, int sx, int sy, void *dst, int dst_w, int dst_h, int dx,
+                     int dy, int w, int h)
+{
+    if (!fbcpy && !dma_init()) return false;
+    uint8_t *drow = (uint8_t *)dst + (size_t)dy * dst_w * 2;
+    size_t dlen = (size_t)h * dst_w * 2;
+    esp_cache_msync((uint8_t *)src + (size_t)sy * src_w * 2, (size_t)h * src_w * 2,
+                    ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
+    esp_cache_msync(drow, dlen, ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
+    esp_async_fbcpy_trans_desc_t t = {
+        .src_buffer = src, .dst_buffer = dst,
+        .src_buffer_size_x = src_w, .src_buffer_size_y = src_h, .dst_buffer_size_x = dst_w, .dst_buffer_size_y = dst_h,
+        .src_offset_x = sx, .src_offset_y = sy, .dst_offset_x = dx, .dst_offset_y = dy,
+        .copy_size_x = w, .copy_size_y = h,
+        .pixel_format_unique_id = { .color_type_id = COLOR_TYPE_ID(COLOR_SPACE_RGB, COLOR_PIXEL_RGB565) },
+    };
+    esp_err_t e = esp_async_fbcpy(fbcpy, &t, fbcpy_cb, NULL);
+    if (e == ESP_OK && xSemaphoreTake(fbcpy_done, pdMS_TO_TICKS(200)) != pdTRUE) e = ESP_ERR_TIMEOUT;
+    if (e != ESP_OK) { ESP_LOGE(TAG, "2D copy: %s", esp_err_to_name(e)); return false; }
+    uintptr_t a0 = (uintptr_t)drow & ~(uintptr_t)63, a1 = ((uintptr_t)drow + dlen + 63) & ~(uintptr_t)63;
+    esp_cache_msync((void *)a0, a1 - a0, ESP_CACHE_MSYNC_FLAG_DIR_M2C);
+    return true;
+}
+
 bool display_blit(const void *pic, int pic_w, int pic_h, int sx, int sy, int w, int h, int dx, int dy)
 {
     if (w <= 0 || h <= 0) return true;
     int64_t t0 = esp_timer_get_time();
-    if (!fbcpy) {
-        esp_async_fbcpy_config_t c = {};
-        ppa_client_config_t f = { .oper_type = PPA_OPERATION_FILL };
-        fbcpy_done = xSemaphoreCreateBinary();
-        if (!fbcpy_done || esp_async_fbcpy_install(&c, &fbcpy) != ESP_OK || ppa_register_client(&f, &ppa_fill) != ESP_OK) {
-            ESP_LOGE(TAG, "2D-DMA copy not available");
-            return false;
-        }
-    }
-    esp_err_t e;
+    uint16_t *to = tgt ? tgt : fb;
     if (!pic) {
+        if (!ppa_fill && !dma_init()) return false;
         ppa_fill_oper_config_t f = {
-            .out = { .buffer = tgt ? tgt : fb, .buffer_size = (uint32_t)PANEL_W * PANEL_H * 2, .pic_w = PANEL_W, .pic_h = PANEL_H,
+            .out = { .buffer = to, .buffer_size = (uint32_t)PANEL_W * PANEL_H * 2, .pic_w = PANEL_W, .pic_h = PANEL_H,
                      .block_offset_x = DISP_OX + dx, .block_offset_y = DISP_OY + dy,
                      .fill_cm = PPA_FILL_COLOR_MODE_RGB565 },
             .fill_block_w = w, .fill_block_h = h, .fill_argb_color = { .val = 0xFF000000 }, .mode = PPA_TRANS_MODE_BLOCKING,
         };
-        e = ppa_do_fill(ppa_fill, &f);
-    } else {
-        // the source rows the block is in, written back (clean lines cost nothing: 0.0 ms for a whole clean frame)
-        esp_cache_msync((uint8_t *)pic + (size_t)sy * pic_w * 2, (size_t)h * pic_w * 2,
-                        ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
-        esp_async_fbcpy_trans_desc_t t = {
-            .src_buffer = pic, .dst_buffer = tgt ? tgt : fb,
-            .src_buffer_size_x = pic_w, .src_buffer_size_y = pic_h,
-            .dst_buffer_size_x = PANEL_W, .dst_buffer_size_y = PANEL_H,
-            .src_offset_x = sx, .src_offset_y = sy, .dst_offset_x = DISP_OX + dx, .dst_offset_y = DISP_OY + dy,
-            .copy_size_x = w, .copy_size_y = h,
-            .pixel_format_unique_id = { .color_type_id = COLOR_TYPE_ID(COLOR_SPACE_RGB, COLOR_PIXEL_RGB565) },
-        };
-        e = esp_async_fbcpy(fbcpy, &t, fbcpy_cb, NULL);
-        if (e == ESP_OK && xSemaphoreTake(fbcpy_done, pdMS_TO_TICKS(200)) != pdTRUE) e = ESP_ERR_TIMEOUT;
-        if (e == ESP_OK)       // the rows written: the cache's copies of them are stale (rows are 2 KB: aligned)
-            esp_cache_msync((tgt ? tgt : fb) + (size_t)(DISP_OY + dy) * PANEL_W, (size_t)h * PANEL_W * 2, ESP_CACHE_MSYNC_FLAG_DIR_M2C);
-    }
-    if (e != ESP_OK) { ESP_LOGE(TAG, "2D %s: %s", pic ? "copy" : "fill", esp_err_to_name(e)); return false; }
+        esp_err_t e = ppa_do_fill(ppa_fill, &f);
+        if (e != ESP_OK) { ESP_LOGE(TAG, "2D fill: %s", esp_err_to_name(e)); return false; }
+    } else if (!dma_copy(pic, pic_w, pic_h, sx, sy, to, PANEL_W, PANEL_H, DISP_OX + dx, DISP_OY + dy, w, h)) return false;
     blit_us += esp_timer_get_time() - t0;
     blit_px += w * h;
     st.pixels += w * h;
     tst.pixels += w * h;
     return true;
+}
+
+bool display_read(void *pic, int pic_w, int pic_h, int x, int y, int w, int h)
+{
+    if (w <= 0 || h <= 0) return true;
+    return dma_copy(fb, PANEL_W, PANEL_H, DISP_OX + x, DISP_OY + y, pic, pic_w, pic_h, x, y, w, h);
 }
 
 static bool bench_dma_done(async_memcpy_handle_t m, async_memcpy_event_t *e, void *arg)
@@ -276,14 +299,25 @@ out:
     free(pic); free(pic2); free(in);
 }
 
-void display_frame_begin(void) { tgt = fbs[!front]; }
+// A frame shown (display_frame_done) takes over at the end of the panel's refresh under way: until then the other
+// buffer is still on screen. The next frame waits for that here, so whatever the caller does meanwhile (a list's
+// picture follows the screen, the next rows render) overlaps the wait.
+static bool swap_pending;
+
+static void swap_wait(void)
+{
+    if (swap_pending) xSemaphoreTake(vsync, pdMS_TO_TICKS(40));
+    swap_pending = false;
+}
+
+void display_frame_begin(void) { swap_wait(); tgt = fbs[!front]; }
 
 void display_frame_done(void)
 {
-    if (tgt) {                                       // show it: the DMA takes it at the end of the refresh under way
+    if (tgt) {
         while (xSemaphoreTake(vsync, 0) == pdTRUE) {}
         esp_lcd_panel_draw_bitmap(panel, 0, 0, PANEL_W, PANEL_H, tgt);
-        xSemaphoreTake(vsync, pdMS_TO_TICKS(40));    // ...and after it, the other one is free to be written
+        swap_pending = true;
         front = !front;
         fb = tgt;
         tgt = NULL;
@@ -427,8 +461,10 @@ static char init_note[96];             // repeated 8 s after start: the boot's f
 
 static void lvgl_task(void *arg)
 {
-    bool noted = false;
+    bool noted = false, lit = false;
     while (1) {
+        // The backlight once LVGL's first frame is in the frame buffer: before it the panel showed a cyan field at boot
+        if (!lit && st.frames) { lit = true; vTaskDelay(pdMS_TO_TICKS(20)); bl_set(asleep ? 0 : level_set); }
         if (!noted && esp_timer_get_time() > 8000000) { noted = true; ESP_LOGI(TAG, "%s", init_note); }
         uint32_t wait = 10;
         if (display_lock(-1)) {
@@ -574,6 +610,12 @@ void display_init(void)
         memset(fbs[i], 0, (size_t)PANEL_W * PANEL_H * 2);
         esp_cache_msync(fbs[i], (size_t)PANEL_W * PANEL_H * 2, ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
     }
+    // The DSI's frame DMA (DW-GDMA) reads PSRAM 74 MB/s and must never wait: an underrun shows a blue/cyan screen
+    // ("can't fetch data from external memory fast enough", a ROM print to the UART only). Its reads get the highest
+    // priority on the memory bus, above the cache (CPU), the 2D-DMA copies and the AXI-GDMA (flashes on the weather
+    // screen while the radar decoded and cached its maps, 2026-10-29).
+    axi_icm_ll_set_dw_gdma_qos_arbiter_prio(0, 15, 15);
+    axi_icm_ll_set_dw_gdma_qos_arbiter_prio(1, 15, 15);
     vsync = xSemaphoreCreateBinary();
     esp_lcd_dpi_panel_event_callbacks_t cbs = { .on_refresh_done = on_refresh };
     ESP_ERROR_CHECK(esp_lcd_dpi_panel_register_event_callbacks(panel, &cbs, NULL));
@@ -593,6 +635,5 @@ void display_init(void)
 
     lvgl_mux = xSemaphoreCreateRecursiveMutex();
     xTaskCreatePinnedToCore(lvgl_task, "lvgl", 8192, NULL, 4, &lvgl_th, 1);
-    bl_set(level_set);
     ESP_LOGI(TAG, "Display ready");
 }

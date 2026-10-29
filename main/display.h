@@ -68,7 +68,10 @@ typedef struct { int64_t wait_us, cmd_us; } display_raw_timing_t;
 bool display_blit(const void *pic, int pic_w, int pic_h, int sx, int sy, int w, int h, int dx, int dy);
 void display_frame_begin(void);                  // the blocks that follow make a new frame, shown at done (tear-free)
 void display_frame_done(void);
-void display_blit_bench(void);                    // console "blitbench": where a frame's time goes (log)
+void display_blit_bench(void);
+// The other way: a w x h block of the screen at x, y into a picture at the same place (2D-DMA). A list's picture
+// follows the screen after a scroll frame (slide.c).
+bool display_read(void *pic, int pic_w, int pic_h, int x, int y, int w, int h);                    // console "blitbench": where a frame's time goes (log)
 #endif
 void display_raw_timing(display_raw_timing_t *out, bool reset);
 

@@ -1505,7 +1505,8 @@ static void su_show_page(int page)
         lv_label_set_text(su_title, tr(T_WIFI_SETUP));
         snprintf(su_ap_qr, sizeof(su_ap_qr), "WIFI:T:WPA;S:" SETUP_AP_SSID ";P:%s;;", net_setup_ap_pass());
         qr_show(su_ap_qr, false);
-        lv_label_set_text_fmt(su_body, tr(T_WIFI_JOIN), SETUP_AP_SSID, net_setup_ap_pass());
+        lv_label_set_text_fmt(su_body, tr(net_dpp_supported() ? T_WIFI_JOIN : T_WIFI_JOIN_PW), SETUP_AP_SSID,
+                              net_setup_ap_pass());
         su_radio(RADIO_AP);
     } else {
         lv_label_set_text(su_title, tr(T_WIFI_DPP_TITLE));
@@ -4509,7 +4510,8 @@ lv_draw_buf_t *ui_snapshot(const char *screen)
         } else {
             snprintf(su_ap_qr, sizeof(su_ap_qr), "WIFI:T:WPA;S:" SETUP_AP_SSID ";P:%s;;", net_setup_ap_pass());
             qr_show(su_ap_qr, false);
-            lv_label_set_text_fmt(su_body, tr(T_WIFI_JOIN), SETUP_AP_SSID, net_setup_ap_pass());
+            lv_label_set_text_fmt(su_body, tr(net_dpp_supported() ? T_WIFI_JOIN : T_WIFI_JOIN_PW), SETUP_AP_SSID,
+                              net_setup_ap_pass());
         }
     }
     int stop = !strncmp(screen, "stop", 4) ? (screen[4] ? atoi(screen + 4) - 1 : 0) : -1, stop_was = cur_stop;

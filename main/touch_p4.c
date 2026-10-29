@@ -1,3 +1,4 @@
+#include <string.h>
 // Guition JC1060P470C: GT911 capacitive touch (I2C 0x5D or 0x14, SDA 7 / SCL 8) -> LVGL pointer input. Its RST and
 // INT lines aren't the P4's to drive (its power comes with the panel's reset, display_p4.c), and it reports in its own
 // 800x480 (read from its config, then scaled to the panel).
@@ -48,6 +49,38 @@ static esp_err_t gt_write8(uint16_t reg, uint8_t v)
     return i2c_master_transmit(dev, w, 3, 20);
 }
 
+/* The GT911 reports every 5 + N ms (its config's 0x8056, low 4 bits). Shipped here at a rate that gave a new point
+ * only every ~35-40 ms during drags: at 64 frames a second the page moved in steps of 2-3 frames (the user's
+ * "stuttering", 2026-10-29). Set N = 0 (5 ms): the whole config read, that byte changed, the checksum (0x80FF: two's
+ * complement of the sum of 0x8047..0x80FE) and the "new config" flag (0x8100) written. Once: the chip keeps it. */
+static int gt_period = -1;                       // ms between reports (the 15 s log line: start-up lines are lost)
+static char gt_note[64] = "config not read";
+
+static void gt_fast_reports(void)
+{
+    uint8_t cfg[186];                                    // 0x8047..0x80FE, the checksum, the flag
+    if (gt_read(0x8047, cfg, 185) != ESP_OK) { ESP_LOGW(TAG, "GT911 config not read"); return; }
+    uint8_t sum = 0;
+    for (int i = 0; i < 184; i++) sum += cfg[i];
+    int n = cfg[0x8056 - 0x8047] & 0x0F;
+    gt_period = 5 + n;
+    snprintf(gt_note, sizeof(gt_note), "config v%d, checksum %02X vs %02X", cfg[0], cfg[184], (uint8_t)(~sum + 1));
+    ESP_LOGI(TAG, "GT911 %s: a report every %d ms", gt_note, 5 + n);
+    if (!n || (uint8_t)(~sum + 1) != cfg[184]) return;    // already fast, or a config we don't understand: leave it
+    cfg[0x8056 - 0x8047] &= 0xF0;
+    sum = 0;
+    for (int i = 0; i < 184; i++) sum += cfg[i];
+    cfg[184] = (uint8_t)(~sum + 1);
+    cfg[185] = 1;
+    uint8_t w[2 + 186] = { 0x80, 0x47 };
+    memcpy(w + 2, cfg, 186);
+    esp_err_t e = i2c_master_transmit(dev, w, sizeof(w), 100);
+    vTaskDelay(pdMS_TO_TICKS(100));
+    ESP_LOGI(TAG, "GT911: a report every 5 ms now (%s)", esp_err_to_name(e));
+    if (e == ESP_OK) gt_period = 5;
+    strlcat(gt_note, e == ESP_OK ? ", set to 5 ms" : ", write failed", sizeof(gt_note));
+}
+
 void touch_init(void)
 {
     i2c_master_bus_config_t bc = {
@@ -73,6 +106,7 @@ void touch_init(void)
     }
     ok = true;
     ESP_LOGI(TAG, "GT%.4s found at 0x%02X, %dx%d", (char *)id, addr, max_x, max_y);
+    gt_fast_reports();
 }
 
 static volatile int64_t last_down_us;
@@ -131,7 +165,8 @@ static void read_core(lv_indev_t *indev, lv_indev_data_t *data)
     if (forget) { forget = false; was = false; errs = 0; }
     uint32_t now = lv_tick_get();
     if (now - last_log > 15000) {
-        ESP_LOGI(TAG, "reads ok=%d err=%d, no finger %d, not ready %d", n_ok, n_err, n_nofinger, n_notready);
+        ESP_LOGI(TAG, "reads ok=%d err=%d, no finger %d, not ready %d (a report every %d ms; %s)", n_ok, n_err,
+                 n_nofinger, n_notready, gt_period, gt_note);
         last_log = now;
     }
     int x, y;
