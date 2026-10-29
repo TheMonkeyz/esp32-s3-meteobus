@@ -29,10 +29,15 @@ typedef struct {
                                         // > 0 moved right / down (prev shows); even
 } frame_t;
 
-// n pixels, little-endian RGB565 -> panel byte order, two at a time (rows and offsets are even, so 4-byte aligned)
+// n pixels, little-endian RGB565 -> panel byte order, two at a time (rows and offsets are even, so 4-byte aligned).
+// A plain copy where the panel takes LVGL's order (DISP_SWAP 0: the P4's DPI frame buffer).
 static inline void copy_swap(void *dst, const void *src, int n)
 {
     uint32_t *d = dst;
+#if !DISP_SWAP
+    if (src) memcpy(dst, src, n * 2); else memset(dst, 0, n * 2);
+    return;
+#endif
     if (!src) { for (int i = 0; i < n / 2; i++) d[i] = 0; return; }
     const uint32_t *s = src;
     for (int i = 0; i < n / 2; i++) {
@@ -72,6 +77,23 @@ static void fill(int y0, int n, void *dst, void *user)
 static void show(frame_t *f, int off)
 {
     f->off = off & ~1;
+#if !DISP_SWAP
+    // The 2D engine: the frame is two blocks, the end of one picture and the start of the other (fill(), as copies)
+    const int W = DISP_W, H = DISP_H, o = f->off, sw = f->stride / 2;
+    if (f->stride == W * 2) {
+        bool ok;
+        display_frame_begin();
+        if (!f->vertical) ok = o <= 0 ? display_blit(f->cur, sw, H, -o, 0, W + o, H, 0, 0) &&
+                                        display_blit(f->next, sw, H, 0, 0, -o, H, W + o, 0)
+                                      : display_blit(f->prev, sw, H, W - o, 0, o, H, 0, 0) &&
+                                        display_blit(f->cur, sw, H, 0, 0, W - o, H, o, 0);
+        else ok = o <= 0 ? display_blit(f->cur, sw, H, 0, -o, W, H + o, 0, 0) &&
+                           display_blit(f->next, sw, H, 0, 0, W, -o, 0, H + o)
+                         : display_blit(f->prev, sw, H, 0, H - o, W, o, 0, 0) &&
+                           display_blit(f->cur, sw, H, 0, 0, W, H - o, 0, o);
+        if (ok) { display_frame_done(); return; }
+    }
+#endif
     display_raw_frame(fill, f);
 }
 
@@ -1304,23 +1326,23 @@ static void zoom_fill(int y0, int n, void *dst, void *user)
         uint32_t *d32 = (uint32_t *)d;
         for (int x = 0; x < DISP_W; x += 2) {            // DISP_W is even; a row is 4-byte aligned (DISP_W * 2)
             uint32_t v = s[col[x]] | ((uint32_t)s[col[x + 1]] << 16);
-            d32[x >> 1] = ((v & 0x00FF00FFu) << 8) | ((v >> 8) & 0x00FF00FFu);
+            d32[x >> 1] = DISP_SWAP ? ((v & 0x00FF00FFu) << 8) | ((v >> 8) & 0x00FF00FFu) : v;
         }
         uint32_t c0 = esp_cpu_get_cycle_count();
         for (int k = ovl_row[y]; k < ovl_row[y + 1]; k++) {
             const ovl_run_t r = ovl[k];
             uint16_t *q = d + r.x;                       // (d is already in the panel's byte order)
             if (r.a5 == 32) {                            // opaque
-                const uint16_t sw = __builtin_bswap16(r.c);
+                const uint16_t sw = DISP_SWAP ? __builtin_bswap16(r.c) : r.c;
                 for (int i = 0; i < r.len; i++) q[i] = sw;
                 continue;
             }
             const uint32_t f = ((uint32_t)r.c | ((uint32_t)r.c << 16)) & 0x07E0F81Fu, a = r.a5;
             for (int i = 0; i < r.len; i++) {
-                uint32_t m = __builtin_bswap16(q[i]);
+                uint32_t m = DISP_SWAP ? __builtin_bswap16(q[i]) : q[i];
                 m = (m | (m << 16)) & 0x07E0F81Fu;
                 uint32_t v = ((((f - m) * a) >> 5) + m) & 0x07E0F81Fu;
-                q[i] = __builtin_bswap16((uint16_t)(v | (v >> 16)));
+                q[i] = DISP_SWAP ? __builtin_bswap16((uint16_t)(v | (v >> 16))) : (uint16_t)(v | (v >> 16));
             }
         }
         zoom_ovl_cyc += esp_cpu_get_cycle_count() - c0;

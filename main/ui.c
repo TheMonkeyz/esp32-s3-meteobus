@@ -88,8 +88,17 @@ static const void *stop_neighbour(int side, void *user);
 static void stop_commit(int side, void *user);
 static void weather_alert_render(void);
 // Weather screen: one page per place in a vertical pager (pager.c); pills, page dots and place dots stay on top.
+// Forecast days on the weather page: 3 across the round screen, 5 as rows down the landscape one's right side
+#if DISP_ROUND
+#define FC_DAYS 3
+#else
+#define FC_DAYS 5
+#define FC_X0  580                     // the forecast rows: right of the divider, from y FC_Y0, FC_ROW apart
+#define FC_Y0  76
+#define FC_ROW 90
+#endif
 typedef struct {
-    lv_obj_t *time, *city, *icon, *temp, *cond, *nowcast, *fc_day[3], *fc_temp[3], *fc_icon[3];
+    lv_obj_t *time, *city, *icon, *temp, *cond, *nowcast, *fc_day[FC_DAYS], *fc_temp[FC_DAYS], *fc_icon[FC_DAYS];
     lv_obj_t *detail, *feels, *hum, *wind;      // "Feels 8°  ·  (drop) 86 %  ·  (wind) 8 km/h" (a row)
     char name[48];
     int utc_offset;
@@ -249,7 +258,7 @@ static void cloud(lv_obj_t *p, int x, int y, lv_color_t c)
     blob(p, x, y + 40, 112, 34, c, 17);
 }
 
-static lv_point_precise_t bolt_pts[MAX_PLACES * 4][4];   // per icon object: 4 per place page
+static lv_point_precise_t bolt_pts[MAX_PLACES * (FC_DAYS + 1)][4];   // per icon object: the hero + days, per place
 
 // Icon design space is 130x122; pct scales it. slot = unique index per icon (for bolt points)
 static void draw_icon(lv_obj_t *box, wx_kind_t k, bool day, int pct, int slot)
@@ -312,7 +321,7 @@ static void draw_icon(lv_obj_t *box, wx_kind_t k, bool day, int pct, int slot)
 #define ICON_FC   36
 #else
 #define ICON_HERO 128
-#define ICON_FC   60
+#define ICON_FC   50
 #endif
 
 static lv_obj_t *icon_box_create(lv_obj_t *parent, int pct)
@@ -965,8 +974,13 @@ static void main_tap(lv_event_t *e)
         return;
     }
     if (on_hero_icon(p)) { radar_open(); return; }
+#if DISP_ROUND
     if (p.y < 296) return;                              // only the forecast row
     int col = p.x < DISP_W / 2 - 49 ? 0 : p.x > DISP_W / 2 + 49 ? 2 : 1;
+#else
+    if (p.x < FC_X0 || p.y < FC_Y0 || p.y >= FC_Y0 + FC_DAYS * FC_ROW) return;   // only the forecast rows
+    int col = (p.y - FC_Y0) / FC_ROW;
+#endif
     if (col >= wx.ndays) return;
     printf("ui: tap forecast day %d\n", col);
     for (int i = 0; i < WX_DAYS; i++) {
@@ -2616,24 +2630,23 @@ static void place_page_create(int i, lv_obj_t *pg)
     lv_obj_add_flag(p->nowcast, LV_OBJ_FLAG_HIDDEN);
     lv_obj_t *div = lv_obj_create(pg);                         // the column divider
     lv_obj_remove_style_all(div);
-    lv_obj_set_size(div, 2, 380);
+    lv_obj_set_size(div, 2, FC_DAYS * FC_ROW);
     lv_obj_set_style_bg_color(div, lv_color_hex(0x2A3138), 0);
     lv_obj_set_style_bg_opa(div, LV_OPA_COVER, 0);
-    lv_obj_set_pos(div, 572, 84);
-    for (int k = 0; k < 3; k++) {                              // a row per day: day | icon | high / low
-        int y = 96 + k * 124;
-        p->fc_day[k] = label(pg, f_cond, C_ACCENT, 0);
-        lv_obj_set_width(p->fc_day[k], 200);
+    lv_obj_set_pos(div, 572, FC_Y0);
+    for (int k = 0; k < FC_DAYS; k++) {                        // a row per day: day | icon | high / low
+        int y = FC_Y0 + k * FC_ROW;
+        p->fc_day[k] = label(pg, f_small, C_ACCENT, 0);
+        lv_obj_set_width(p->fc_day[k], 190);
         lv_obj_set_style_text_align(p->fc_day[k], LV_TEXT_ALIGN_LEFT, 0);
         lv_label_set_long_mode(p->fc_day[k], LV_LABEL_LONG_DOT);
-        lv_obj_align(p->fc_day[k], LV_ALIGN_TOP_LEFT, 616, y + 30);
+        lv_obj_align(p->fc_day[k], LV_ALIGN_TOP_LEFT, 612, y + (FC_ROW - 32) / 2);
         p->fc_icon[k] = icon_box_create(pg, ICON_FC);
-        lv_obj_align(p->fc_icon[k], LV_ALIGN_TOP_LEFT, 818, y + 10);
-        p->fc_temp[k] = label(pg, f_cond, C_TEXT, 0);
+        lv_obj_align(p->fc_icon[k], LV_ALIGN_TOP_LEFT, 800, y + (FC_ROW - 124 * ICON_FC / 100) / 2);
+        p->fc_temp[k] = label(pg, f_small, C_TEXT, 0);
         lv_obj_set_width(p->fc_temp[k], 150);
-        lv_obj_set_style_text_align(p->fc_temp[k], LV_TEXT_ALIGN_LEFT, 0);
-        lv_obj_align(p->fc_temp[k], LV_ALIGN_TOP_LEFT, 616, y + 72);
-        lv_obj_set_style_text_font(p->fc_temp[k], f_small, 0);
+        lv_obj_set_style_text_align(p->fc_temp[k], LV_TEXT_ALIGN_RIGHT, 0);
+        lv_obj_align(p->fc_temp[k], LV_ALIGN_TOP_LEFT, 840, y + (FC_ROW - 32) / 2);
     }
 }
 #else
@@ -4162,7 +4175,7 @@ static void day_name(const char *date, int idx, char *out, size_t n)
     if (sscanf(date, "%d-%d-%d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday) == 3) {
         tm.tm_year -= 1900; tm.tm_mon -= 1; tm.tm_hour = 12;
         mktime(&tm);
-        snprintf(out, n, "%s", tr_weekday(tm.tm_wday, false));
+        snprintf(out, n, "%s", tr_weekday(tm.tm_wday, !DISP_ROUND));   // landscape: room for "Wednesday"
     } else snprintf(out, n, "-");
 }
 
@@ -4304,7 +4317,7 @@ void ui_place(int i, const char *name, const weather_t *w)
         lv_obj_add_flag(p->detail, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(p->nowcast, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(p->icon, LV_OBJ_FLAG_HIDDEN);
-        for (int k = 0; k < 3; k++) {
+        for (int k = 0; k < FC_DAYS; k++) {
             lv_label_set_text(p->fc_day[k], "");
             lv_label_set_text(p->fc_temp[k], "");
             lv_obj_add_flag(p->fc_icon[k], LV_OBJ_FLAG_HIDDEN);
@@ -4330,7 +4343,7 @@ void ui_place(int i, const char *name, const weather_t *w)
     lv_label_set_text_fmt(p->hum, tr(T_PERCENT), w->humidity);
     lv_label_set_text(p->wind, wind);
     lv_obj_remove_flag(p->detail, LV_OBJ_FLAG_HIDDEN);
-    draw_icon(p->icon, weather_kind(w->code), w->is_day, ICON_HERO, i * 4);
+    draw_icon(p->icon, weather_kind(w->code), w->is_day, ICON_HERO, i * (FC_DAYS + 1));
     lv_obj_remove_flag(p->icon, LV_OBJ_FLAG_HIDDEN);
     if (w->nc_kind == NC_NONE) lv_obj_add_flag(p->nowcast, LV_OBJ_FLAG_HIDDEN);
     else {
@@ -4340,13 +4353,13 @@ void ui_place(int i, const char *name, const weather_t *w)
                                                         : (w->nc_kind == NC_STARTS ? T_RAIN_AROUND : T_RAIN_UNTIL)), hm);
         lv_obj_remove_flag(p->nowcast, LV_OBJ_FLAG_HIDDEN);
     }
-    for (int k = 0; k < 3; k++) {
+    for (int k = 0; k < FC_DAYS; k++) {
         if (k < w->ndays) {
             day_name(w->day[k].date, k, buf, sizeof(buf));
             lv_label_set_text(p->fc_day[k], buf);
             snprintf(buf, sizeof(buf), "%d° / %d°", config_temp(w->day[k].tmax), config_temp(w->day[k].tmin));
             lv_label_set_text(p->fc_temp[k], buf);
-            draw_icon(p->fc_icon[k], weather_kind(w->day[k].code), true, ICON_FC, i * 4 + k + 1);
+            draw_icon(p->fc_icon[k], weather_kind(w->day[k].code), true, ICON_FC, i * (FC_DAYS + 1) + k + 1);
             lv_obj_remove_flag(p->fc_icon[k], LV_OBJ_FLAG_HIDDEN);
         }
     }

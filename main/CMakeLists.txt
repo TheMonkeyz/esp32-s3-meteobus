@@ -3,7 +3,7 @@
 # sensor; Wi-Fi through its ESP32-C6 with esp_hosted / esp_wifi_remote)
 if(IDF_TARGET STREQUAL "esp32p4")
     set(board_srcs "display_p4.c" "touch_p4.c" "audio_p4.c" "imu_p4.c")
-    set(board_reqs esp_lcd esp_lcd_jd9165 esp_driver_ledc esp_hw_support esp_mm esp_wifi_remote esp_hosted)
+    set(board_reqs esp_lcd esp_lcd_jd9165 esp_driver_ledc esp_driver_ppa esp_hw_support esp_mm esp_wifi_remote esp_hosted)
 else()
     set(board_srcs "display.c" "touch.c" "audio.c" "imu.c")
     set(board_reqs esp_lcd esp_driver_spi)
@@ -21,4 +21,8 @@ idf_component_register(
 
 # lvgl_mem.c provides LVGL's allocator (CONFIG_LV_USE_CUSTOM_MALLOC). Nothing in main references it,
 # so force the linker to keep it (liblvgl is scanned before libmain resolves these).
+if(IDF_TARGET STREQUAL "esp32p4")
+    # display_p4.c's frame copies use esp_lcd's 2D-DMA copy (esp_async_fbcpy), whose header is esp_lcd's own
+    target_include_directories(${COMPONENT_LIB} PRIVATE "$ENV{IDF_PATH}/components/esp_lcd/priv_include")
+endif()
 target_link_libraries(${COMPONENT_LIB} INTERFACE "-u lv_mem_init" "-u lv_malloc_core" "-u lv_realloc_core" "-u lv_free_core")

@@ -15,10 +15,12 @@
 #define DISP_OX ((PANEL_W - DISP_W) / 2)
 #define DISP_OY ((PANEL_H - DISP_H) / 2)
 #define DISP_ROUND 0       // a rectangle: content may use the corners
+#define DISP_SWAP  0       // raw frames (display_raw_area) in LVGL's own RGB565 byte order: the DPI frame buffer's
 #else
 #define DISP_W 466
 #define DISP_H 466
 #define DISP_ROUND 1       // the round AMOLED: the corners are outside the glass
+#define DISP_SWAP  1       // raw frames in the panel's byte order (RGB565 byte-swapped, the CO5300's QSPI order)
 #endif
 
 void display_init(void);
@@ -47,8 +49,8 @@ void display_get_stats(display_stats_t *out, bool reset);        // diag.c
 void display_get_test_stats(display_stats_t *out, bool reset);   // the test console's "fps" (own counters)
 void display_bench_no_panel(bool on);             // diag bench only
 
-// A frame drawn without LVGL (slide.c): fill() writes rows y0..y0+n-1, full width, RGB565 *byte-swapped* (panel
-// order), into dst; display_raw_frame() sends each band while the next one is filled. Display lock held; afterwards
+// A frame drawn without LVGL (slide.c): fill() writes rows y0..y0+n-1, full width, RGB565 in the panel's order
+// (byte-swapped where DISP_SWAP), into dst; display_raw_frame() sends each band while the next one is filled. Display lock held; afterwards
 // LVGL must redraw before it flushes again (lv_obj_invalidate).
 typedef void (*display_fill_cb_t)(int y0, int n, void *dst, void *user);
 void display_raw_frame(display_fill_cb_t fill, void *user);
@@ -59,6 +61,15 @@ typedef void (*display_area_fill_cb_t)(int x0, int w, int y0, int n, void *dst, 
 void display_raw_area(int x0, int y0, int x1, int y1, bool bottom_up, display_area_fill_cb_t fill, void *user);
 // Raw frames' time besides the fill since the last reset: waiting for a band's transfer, the window commands
 typedef struct { int64_t wait_us, cmd_us; } display_raw_timing_t;
+#if !DISP_SWAP
+// Frames as block copies by the 2D engine (the P4's PPA, DMA: no CPU copy, no cache write-back): display_blit()
+// copies a w x h block at sx, sy of a picture (RGB565, LVGL's order, pic_w x pic_h, rows of pic_w pixels) to dx, dy on
+// screen; NULL = black. display_frame_done() after a frame's blocks (the diagnostics' frame count). Display lock held.
+bool display_blit(const void *pic, int pic_w, int pic_h, int sx, int sy, int w, int h, int dx, int dy);
+void display_frame_begin(void);                  // the blocks that follow make a new frame, shown at done (tear-free)
+void display_frame_done(void);
+void display_blit_bench(void);                    // console "blitbench": where a frame's time goes (log)
+#endif
 void display_raw_timing(display_raw_timing_t *out, bool reset);
 
 // Called with every area LVGL sends to the panel, before the byte swap (RGB565 as LVGL draws it, w x h pixels), in the

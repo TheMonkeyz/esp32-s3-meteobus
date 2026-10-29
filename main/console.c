@@ -112,12 +112,14 @@ static void cmd_press(int argc, char **argv)            // long-press: press X Y
 
 static void cmd_swipe(int argc, char **argv)
 {
-    int d = 150, x0 = CX, y0 = CY, x1 = CX, y1 = CY;
+    // 150 px each way on the round screen; on a landscape one past a third of its width / height (a drag commits there)
+    int dh = DISP_ROUND ? 150 : DISP_W * 22 / 100, dv = DISP_ROUND ? 150 : DISP_H * 22 / 100;
+    int x0 = CX, y0 = CY, x1 = CX, y1 = CY;
     const char *dir = argc == 2 ? argv[1] : "";
-    if (!strcmp(dir, "left"))       { x0 = CX + d; x1 = CX - d; }
-    else if (!strcmp(dir, "right")) { x0 = CX - d; x1 = CX + d; }
-    else if (!strcmp(dir, "up"))    { y0 = CY + d; y1 = CY - d; }
-    else if (!strcmp(dir, "down"))  { y0 = CY - d; y1 = CY + d; }
+    if (!strcmp(dir, "left"))       { x0 = CX + dh; x1 = CX - dh; }
+    else if (!strcmp(dir, "right")) { x0 = CX - dh; x1 = CX + dh; }
+    else if (!strcmp(dir, "up"))    { y0 = CY + dv; y1 = CY - dv; }
+    else if (!strcmp(dir, "down"))  { y0 = CY - dv; y1 = CY + dv; }
     else { ESP_LOGW(TAG, "error swipe: left, right, up or down"); return; }
     finger_path(x0, y0, x1, y1, 200);
     finger_up(x1, y1);
@@ -264,6 +266,10 @@ static void shot_task(void *arg)
     ESP_LOGI(TAG, "ok shot %s %dx%d", name, w, h);
     vTaskDelete(NULL);
 }
+
+#if !DISP_SWAP
+static void cmd_blitbench(int argc, char **argv) { display_blit_bench(); }
+#endif
 
 static void cmd_pictest(int argc, char **argv)          // the picture of the screen shown = the screen? (slide.c)
 {
@@ -467,6 +473,9 @@ void console_init(void)
 #endif
     testcon_register("pictest", "pictest", cmd_pictest);
     testcon_register("shot", "shot SCREEN [DIV]", cmd_shot);
+#if !DISP_SWAP
+    testcon_register("blitbench", "blitbench", cmd_blitbench);
+#endif
     testcon_register("alert", "alert sample en|fr|max|off, alert at LAT LON|off", cmd_alert);
     testcon_register("setup", "setup fail", cmd_setup);
     testcon_register("memlow", "memlow start|stop", cmd_memlow);
