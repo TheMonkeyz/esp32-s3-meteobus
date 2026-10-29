@@ -306,6 +306,15 @@ static void draw_icon(lv_obj_t *box, wx_kind_t k, bool day, int pct, int slot)
     }
 }
 
+// The weather page's icons (percent of the 130x124 design): the current conditions, the forecast days
+#if DISP_ROUND
+#define ICON_HERO 80
+#define ICON_FC   36
+#else
+#define ICON_HERO 128
+#define ICON_FC   60
+#endif
+
 static lv_obj_t *icon_box_create(lv_obj_t *parent, int pct)
 {
     lv_obj_t *b = lv_obj_create(parent);
@@ -516,10 +525,40 @@ static void page_dots(lv_obj_t *scr, int active)   // 0 status, 1 extras, 2 weat
  * column headers, so they scroll away with it. The graph is drawn once into a canvas per day (about 200 shapes,
  * too many to redraw on every scroll frame) and redrawn only for a new forecast or a new hour. */
 
+#if DISP_ROUND
 #define ROW_H   46
 #define LIST_W  316
 #define GRAPH_H 120                  // temperature graph at the top of each day's list
 #define HDR_H   24                   // column headers under it
+// The row's columns: hour (x, w), icon x, temperature, chance of rain, wind (right-aligned in x..x+w)
+#define HC_HR_X 10
+#define HC_HR_W 64
+#define HC_IC_X 76
+#define HC_T_X  118
+#define HC_T_W  56
+#define HC_P_X  180
+#define HC_P_W  54
+#define HC_W_X  236
+#define HC_W_W  72
+#define LIST_Y  96
+#define LIST_H  314
+#else       // landscape: a wide list, the same columns spread out
+#define ROW_H   58
+#define LIST_W  820
+#define GRAPH_H 160
+#define HDR_H   30
+#define HC_HR_X 24
+#define HC_HR_W 120
+#define HC_IC_X 190
+#define HC_T_X  300
+#define HC_T_W  110
+#define HC_P_X  460
+#define HC_P_W  110
+#define HC_W_X  600
+#define HC_W_W  190
+#define LIST_Y  104
+#define LIST_H  440
+#endif
 #define TOP_H   (GRAPH_H + HDR_H)    // rows start here
 typedef struct {
     lv_obj_t *page, *title, *sum, *list, *content, *graph;
@@ -569,7 +608,7 @@ static void draw_text_top(lv_layer_t *layer, lv_font_t *f, lv_color_t c, int x, 
 #define G_X0  28                     // plot area inside the block
 #define G_W   (LIST_W - 56)
 #define G_Y0  26
-#define G_H   50
+#define G_H   (GRAPH_H - 70)
 static void graph_draw(lv_layer_t *layer, const day_page_t *dp, int x0, int y0)
 {
     int base = dp->day * 24, n = wx.nhours - base;              // points: hours 0..24
@@ -680,7 +719,15 @@ static void graph_render(day_page_t *dp)
 /* The hourly rows' icons, each drawn once into a small picture (by kind, day or night, and the row's background) and
  * copied into the rows: drawn from rounded shapes in every row of every frame, they were much of a list scroll's
  * rendering. Made when a day's page is filled (fill_page: not during a render); a missing one is drawn as shapes. */
+#if DISP_ROUND
 #define HR_ICON 40                                   // 130 x 122 design space at 30 % (39 x 37), with a margin
+#define HR_PCT  30
+#define HR_IC_H 37
+#else
+#define HR_ICON 54                                   // at 40 % (52 x 49)
+#define HR_PCT  40
+#define HR_IC_H 49
+#endif
 #define HR_NOW_BG 0x16283A                           // the "Now" row's background
 static lv_draw_buf_t *hr_icons[WX_STORM + 1][2][2];  // [kind][day][now row]
 static lv_obj_t *hr_icon_canvas;                     // hidden: draws them (LVGL's canvas layer)
@@ -699,7 +746,7 @@ static void hr_icon_make(wx_kind_t k, bool day, bool now)
     P_layer = &layer;
     P_x = P_y = 0;
     icon_bg = bg;
-    draw_icon(NULL, k, day, 30, 0);
+    draw_icon(NULL, k, day, HR_PCT, 0);
     P_layer = NULL;
     lv_canvas_finish_layer(hr_icon_canvas, &layer);
     *slot = b;
@@ -717,7 +764,7 @@ static void hr_draw(lv_event_t *e)
     char buf[16];
     if (c.y1 + TOP_H > clip->y1) {
         static const struct { int x, w; tid_t t; } hdr[] = {         // aligned with the columns below
-            { 118, 56, T_HDR_TEMP }, { 180, 54, T_HDR_RAIN }, { 236, 72, T_HDR_WIND },
+            { HC_T_X, HC_T_W, T_HDR_TEMP }, { HC_P_X, HC_P_W, T_HDR_RAIN }, { HC_W_X, HC_W_W, T_HDR_WIND },
         };
         for (int i = 0; i < 3; i++)
             draw_text_top(layer, f_micro, i == 1 ? C_ACCENT : C_DIM, c.x1 + hdr[i].x, c.y1 + GRAPH_H + 4, hdr[i].w,
@@ -739,28 +786,29 @@ static void hr_draw(lv_event_t *e)
             lv_draw_rect(layer, &d, &a);
         }
         if (now) strlcpy(buf, tr(T_NOW), sizeof(buf)); else config_fmt_hour(i % 24, buf, sizeof(buf));
-        draw_text(layer, f_tiny, now ? C_ACCENT : C_DIM, c.x1 + 10, y, 64, LV_TEXT_ALIGN_LEFT, buf);
+        draw_text(layer, f_tiny, now ? C_ACCENT : C_DIM, c.x1 + HC_HR_X, y, HC_HR_W, LV_TEXT_ALIGN_LEFT, buf);
         lv_draw_buf_t *ic = hr_icons[weather_kind(h->code)][h->is_day ? 1 : 0][now];
         if (ic) {
             lv_draw_image_dsc_t d;
             lv_draw_image_dsc_init(&d);
             d.src = ic;
-            lv_area_t a = { c.x1 + 76, y + (ROW_H - 37) / 2, c.x1 + 76 + HR_ICON - 1, y + (ROW_H - 37) / 2 + HR_ICON - 1 };
+            lv_area_t a = { c.x1 + HC_IC_X, y + (ROW_H - HR_IC_H) / 2, c.x1 + HC_IC_X + HR_ICON - 1,
+                            y + (ROW_H - HR_IC_H) / 2 + HR_ICON - 1 };
             lv_draw_image(layer, &d, &a);
         } else {
-            P_layer = layer; P_x = c.x1 + 76; P_y = y + (ROW_H - 37) / 2;
-            draw_icon(NULL, weather_kind(h->code), h->is_day, 30, 0);
+            P_layer = layer; P_x = c.x1 + HC_IC_X; P_y = y + (ROW_H - HR_IC_H) / 2;
+            draw_icon(NULL, weather_kind(h->code), h->is_day, HR_PCT, 0);
             P_layer = NULL;
         }
         if (isnan(h->temp)) strcpy(buf, "--");                  // no value in the forecast (null)
         else snprintf(buf, sizeof(buf), "%d°", config_temp(h->temp));
-        draw_text(layer, f_small, C_TEXT, c.x1 + 118, y, 56, LV_TEXT_ALIGN_RIGHT, buf);
+        draw_text(layer, f_small, C_TEXT, c.x1 + HC_T_X, y, HC_T_W, LV_TEXT_ALIGN_RIGHT, buf);
         if (h->pop == WX_POP_NONE) strcpy(buf, "--");
         else snprintf(buf, sizeof(buf), "%d%%", h->pop);
-        draw_text(layer, f_tiny, h->pop >= 30 && h->pop != WX_POP_NONE ? C_ACCENT : C_DIM, c.x1 + 180, y, 54,
+        draw_text(layer, f_tiny, h->pop >= 30 && h->pop != WX_POP_NONE ? C_ACCENT : C_DIM, c.x1 + HC_P_X, y, HC_P_W,
                   LV_TEXT_ALIGN_RIGHT, buf);
         config_fmt_wind(h->wind, buf, sizeof(buf));
-        draw_text(layer, f_micro, C_DIM, c.x1 + 236, y, 72, LV_TEXT_ALIGN_RIGHT, buf);
+        draw_text(layer, f_micro, C_DIM, c.x1 + HC_W_X, y, HC_W_W, LV_TEXT_ALIGN_RIGHT, buf);
     }
 }
 
@@ -962,15 +1010,15 @@ static void hour_create(void)
         day_page_t *dp = &pg[d];
         dp->day = d;
         dp->page = pager_page(hr_pager, d);
-        dp->title = label(dp->page, f_city, C_ACCENT, 34);
-        dp->sum = label(dp->page, f_tiny, C_DIM, 68);
-        lv_obj_set_width(dp->sum, 340);
+        dp->title = label(dp->page, f_city, C_ACCENT, DISP_ROUND ? 34 : 18);
+        dp->sum = label(dp->page, f_tiny, C_DIM, DISP_ROUND ? 68 : 66);
+        lv_obj_set_width(dp->sum, DISP_ROUND ? 340 : 820);
         lv_label_set_long_mode(dp->sum, LV_LABEL_LONG_DOT);
 
         dp->list = lv_obj_create(dp->page);                    // graph + headers + hour rows (hr_draw)
         lv_obj_remove_style_all(dp->list);
-        lv_obj_set_size(dp->list, LIST_W, 314);
-        lv_obj_align(dp->list, LV_ALIGN_TOP_MID, 0, 96);
+        lv_obj_set_size(dp->list, LIST_W, LIST_H);
+        lv_obj_align(dp->list, LV_ALIGN_TOP_MID, 0, LIST_Y);
         lv_obj_set_scroll_dir(dp->list, LV_DIR_VER);
         lv_obj_set_scrollbar_mode(dp->list, LV_SCROLLBAR_MODE_OFF);
         lv_obj_add_flag(dp->list, LV_OBJ_FLAG_EVENT_BUBBLE | LV_OBJ_FLAG_GESTURE_BUBBLE);
@@ -1854,9 +1902,16 @@ bool ui_setup_fail_sample(int *lines, int *bottom)
 static lv_obj_t *ex_moon, *ex_date, *ex_arc, *ex_sun, *ex_rise, *ex_set, *ex_day, *ex_val[4], *ex_key[4];
 static air_t ex_air = { .us_aqi = -1, .pollen = { -1, -1, -1, -1 } };
 static bool have_air;
+#if DISP_ROUND
 #define ARC_R   120
 #define ARC_CX  (DISP_W / 2)
 #define ARC_CY  215
+#else           // landscape: the sun arc on the left, the values as rows on the right
+#define ARC_R   180
+#define ARC_CX  286
+#define ARC_CY  340
+#define EX_DX   (ARC_CX - DISP_W / 2)            // TOP_MID offsets of the left column
+#endif
 
 static float moon_k;           // cos(phase angle): 1 = new, -1 = full
 static bool moon_waxing;
@@ -1930,7 +1985,8 @@ static void extras_refresh(void)       // display lock held (LVGL task or caller
             float p = (float)(cur - rise) / len;
             lv_arc_set_value(ex_arc, (int)(p * 1000));
             float th = (180 + 180 * p) * M_PI / 180;
-            lv_obj_set_pos(ex_sun, ARC_CX + ARC_R * cosf(th) - 11, ARC_CY + ARC_R * sinf(th) - 11);
+            int sr = lv_obj_get_style_width(ex_sun, 0) / 2;          // (22 px round, 30 landscape)
+            lv_obj_set_pos(ex_sun, ARC_CX + ARC_R * cosf(th) - sr, ARC_CY + ARC_R * sinf(th) - sr);
             lv_obj_remove_flag(ex_sun, LV_OBJ_FLAG_HIDDEN);
             lv_label_set_text_fmt(ex_day, tr(T_DAYLIGHT), len / 60, len % 60);
         } else {
@@ -2030,6 +2086,42 @@ static void extras_create(void)
     lv_obj_set_style_shadow_width(ex_sun, 16, 0);
     lv_obj_add_flag(ex_sun, LV_OBJ_FLAG_HIDDEN);
 
+#if !DISP_ROUND
+    lv_obj_set_style_arc_width(ex_arc, 6, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(ex_arc, 6, LV_PART_INDICATOR);
+    lv_obj_set_size(ex_sun, 30, 30);
+    lv_obj_align(ex_date, LV_ALIGN_TOP_MID, 0, 40);
+    ex_day = label(scr_extras, f_cond, C_TEXT, 0);
+    lv_obj_align(ex_day, LV_ALIGN_TOP_MID, EX_DX, ARC_CY - 100);
+    ex_rise = label(scr_extras, f_small, C_DIM, 0);
+    lv_obj_set_width(ex_rise, 120);
+    lv_obj_align(ex_rise, LV_ALIGN_TOP_MID, EX_DX - ARC_R, ARC_CY + 12);
+    ex_set = label(scr_extras, f_small, C_DIM, 0);
+    lv_obj_set_width(ex_set, 120);
+    lv_obj_align(ex_set, LV_ALIGN_TOP_MID, EX_DX + ARC_R, ARC_CY + 12);
+    lv_obj_t *div = lv_obj_create(scr_extras);
+    lv_obj_remove_style_all(div);
+    lv_obj_set_size(div, 2, 380);
+    lv_obj_set_style_bg_color(div, lv_color_hex(0x2A3138), 0);
+    lv_obj_set_style_bg_opa(div, LV_OPA_COVER, 0);
+    lv_obj_set_pos(div, 572, 110);
+    for (int i = 0; i < 4; i++) {                             // key above its value, a row each
+        int y = 130 + i * 92;
+        ex_key[i] = label(scr_extras, f_small, C_DIM, 0);
+        lv_obj_set_width(ex_key[i], 360);
+        lv_obj_set_style_text_align(ex_key[i], LV_TEXT_ALIGN_LEFT, 0);
+        lv_obj_align(ex_key[i], LV_ALIGN_TOP_LEFT, 616, y);
+        ex_val[i] = label(scr_extras, f_cond, C_TEXT, 0);
+        lv_obj_set_width(ex_val[i], 360);
+        lv_obj_set_style_text_align(ex_val[i], LV_TEXT_ALIGN_LEFT, 0);
+        lv_obj_align(ex_val[i], LV_ALIGN_TOP_LEFT, 616, y + 32);
+    }
+    ex_moon = lv_obj_create(scr_extras);
+    lv_obj_remove_style_all(ex_moon);
+    lv_obj_set_size(ex_moon, 40, 40);
+    lv_obj_align(ex_moon, LV_ALIGN_TOP_LEFT, 940, 130 + 92 + 30);
+    lv_obj_add_event_cb(ex_moon, moon_draw, LV_EVENT_DRAW_MAIN, NULL);
+#else
     ex_day = label(scr_extras, f_small, C_TEXT, ARC_CY - 70);
     ex_rise = label(scr_extras, f_tiny, C_DIM, ARC_CY + 8);
     lv_obj_set_width(ex_rise, 90);
@@ -2055,6 +2147,7 @@ static void extras_create(void)
     lv_obj_set_size(ex_moon, 26, 26);
     lv_obj_align(ex_moon, LV_ALIGN_TOP_RIGHT, -72, 260 + 36 - 2);
     lv_obj_add_event_cb(ex_moon, moon_draw, LV_EVENT_DRAW_MAIN, NULL);
+#endif
     page_dots(scr_extras, 1);
     lv_obj_add_event_cb(scr_extras, gesture_cb, LV_EVENT_GESTURE, NULL);
     extras_refresh();
@@ -2158,18 +2251,35 @@ static lv_obj_t *st_label(lv_obj_t *parent, lv_font_t *f, lv_color_t c, int x, i
 static void status_create(void)
 {
     scr_status = base_screen();
-    tlabel(label(scr_status, f_small, C_ACCENT, 34), T_STATUS);
+    tlabel(label(scr_status, f_small, C_ACCENT, DISP_ROUND ? 34 : 36), T_STATUS);
     st_ver = label(scr_status, f_tiny, C_TEXT, 62);
     st_net = label(scr_status, f_micro, C_DIM, 88);
     lv_obj_set_width(st_net, 340);
 
+#if DISP_ROUND
     // The list scrolls inside a box that stays clear of the round edge and the page dots (y 120..400)
+    const int RW = 280, RH = 42, NX = 214, AW = 66, DW = 262, DY = 22;
     lv_obj_t *box = lv_obj_create(scr_status);
     lv_obj_remove_style_all(box);
     lv_obj_set_size(box, 280, 280);
     lv_obj_align(box, LV_ALIGN_TOP_MID, 0, 120);
     lv_obj_set_flex_flow(box, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(box, 8, 0);
+#else
+    // Landscape: the services in two columns, under the version and Wi-Fi lines (y 150..540)
+    lv_obj_align(st_ver, LV_ALIGN_TOP_MID, 0, 74);
+    lv_obj_set_width(st_ver, 900);
+    lv_obj_align(st_net, LV_ALIGN_TOP_MID, 0, 112);
+    lv_obj_set_width(st_net, 900);
+    const int RW = 420, RH = 64, NX = 300, AW = 100, DW = 380, DY = 30;
+    lv_obj_t *box = lv_obj_create(scr_status);
+    lv_obj_remove_style_all(box);
+    lv_obj_set_size(box, 2 * RW + 40, 390);
+    lv_obj_align(box, LV_ALIGN_TOP_MID, 0, 160);
+    lv_obj_set_flex_flow(box, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_style_pad_row(box, 12, 0);
+    lv_obj_set_style_pad_column(box, 40, 0);
+#endif
     lv_obj_set_scroll_dir(box, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(box, LV_SCROLLBAR_MODE_OFF);
     lv_obj_add_flag(box, LV_OBJ_FLAG_EVENT_BUBBLE | LV_OBJ_FLAG_GESTURE_BUBBLE);
@@ -2178,17 +2288,17 @@ static void status_create(void)
         svc_get(services_row(i), &s);
         lv_obj_t *row = lv_obj_create(box);
         lv_obj_remove_style_all(row);
-        lv_obj_set_size(row, 280, 42);
+        lv_obj_set_size(row, RW, RH);
         st_dot[i] = lv_obj_create(row);
         lv_obj_remove_style_all(st_dot[i]);
         lv_obj_set_size(st_dot[i], 10, 10);
-        lv_obj_set_pos(st_dot[i], 0, 6);
+        lv_obj_set_pos(st_dot[i], 0, DISP_ROUND ? 6 : 10);
         lv_obj_set_style_radius(st_dot[i], LV_RADIUS_CIRCLE, 0);
         lv_obj_set_style_bg_opa(st_dot[i], LV_OPA_COVER, 0);
-        lv_label_set_text(st_label(row, f_tiny, C_TEXT, 18, 0, 196), s.name);
-        st_age[i] = st_label(row, f_micro, C_DIM, 214, 2, 66);
+        lv_label_set_text(st_label(row, f_tiny, C_TEXT, 18, 0, NX - 18), s.name);
+        st_age[i] = st_label(row, f_micro, C_DIM, NX, 2, AW);
         lv_obj_set_style_text_align(st_age[i], LV_TEXT_ALIGN_RIGHT, 0);
-        st_detail[i] = st_label(row, f_micro, C_DIM, 18, 22, 262);
+        st_detail[i] = st_label(row, f_micro, C_DIM, 18, DY, DW);
     }
     passthrough(box);                                       // rows and labels: presses reach the box/screen
     page_dots(scr_status, 0);
@@ -2448,6 +2558,85 @@ static void row_icon(lv_obj_t *row, int w, int h, lv_event_cb_t draw)
     lv_obj_add_event_cb(o, draw, LV_EVENT_DRAW_MAIN, NULL);
 }
 
+#if !DISP_ROUND
+/* One place's weather page, landscape (1024x600): now on the left (clock, place, icon and temperature, conditions,
+ * details, nowcast), the next three days as rows on the right, a divider between. The same objects as the round
+ * layout below, so the rest of ui.c doesn't know which one it has. */
+#define WX_LX  (-226)                  // the left column's centre, from the screen's centre (x 286)
+#define WX_RX  0                       // the right column starts at x 600 (TOP_LEFT)
+static void place_page_create(int i, lv_obj_t *pg)
+{
+    place_page_t *p = &pp[i];
+    p->age = label(pg, f_micro, C_DIM, 14);
+    lv_obj_set_width(p->age, 460);
+    lv_label_set_long_mode(p->age, LV_LABEL_LONG_DOT);
+    lv_obj_align(p->age, LV_ALIGN_TOP_MID, WX_LX, 14);
+    p->time = label(pg, f_time, C_DIM, 0);
+    lv_obj_align(p->time, LV_ALIGN_TOP_MID, WX_LX, 40);
+    p->city = label(pg, f_city, C_TEXT, 0);
+    lv_obj_set_width(p->city, 500);
+    lv_label_set_long_mode(p->city, LV_LABEL_LONG_DOT);
+    lv_obj_align(p->city, LV_ALIGN_TOP_MID, WX_LX, 84);
+    lv_obj_t *hero = lv_obj_create(pg);
+    lv_obj_remove_style_all(hero);
+    lv_obj_set_size(hero, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(hero, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(hero, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(hero, 20, 0);
+    lv_obj_align(hero, LV_ALIGN_TOP_MID, WX_LX, 148);
+    p->icon = icon_box_create(hero, ICON_HERO);
+    lv_obj_add_event_cb(p->icon, badge_draw, LV_EVENT_DRAW_POST, NULL);      // tap: the radar (main_tap)
+    lv_obj_add_event_cb(p->icon, badge_ext, LV_EVENT_REFR_EXT_DRAW_SIZE, NULL);
+    lv_obj_refresh_ext_draw_size(p->icon);
+    p->temp = lv_label_create(hero);
+    lv_obj_set_style_text_font(p->temp, f_big, 0);
+    lv_obj_set_style_text_color(p->temp, C_TEXT, 0);
+    lv_label_set_text(p->temp, "");
+    p->cond = label(pg, f_cond, C_TEXT, 0);
+    lv_obj_set_width(p->cond, 500);
+    lv_obj_align(p->cond, LV_ALIGN_TOP_MID, WX_LX, 332);
+    p->detail = lv_obj_create(pg);
+    lv_obj_remove_style_all(p->detail);
+    lv_obj_set_size(p->detail, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(p->detail, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(p->detail, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(p->detail, 8, 0);
+    lv_obj_align(p->detail, LV_ALIGN_TOP_MID, WX_LX, 386);
+    p->feels = row_label(p->detail);
+    lv_label_set_text(row_label(p->detail), "·");
+    row_icon(p->detail, 12, 16, drop_draw);
+    p->hum = row_label(p->detail);
+    lv_label_set_text(row_label(p->detail), "·");
+    row_icon(p->detail, 18, 14, wind_draw);
+    p->wind = row_label(p->detail);
+    lv_obj_add_flag(p->detail, LV_OBJ_FLAG_HIDDEN);
+    p->nowcast = label(pg, f_tiny, C_ACCENT, 0);
+    lv_obj_set_width(p->nowcast, 500);
+    lv_obj_align(p->nowcast, LV_ALIGN_TOP_MID, WX_LX, 430);
+    lv_obj_add_flag(p->nowcast, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_t *div = lv_obj_create(pg);                         // the column divider
+    lv_obj_remove_style_all(div);
+    lv_obj_set_size(div, 2, 380);
+    lv_obj_set_style_bg_color(div, lv_color_hex(0x2A3138), 0);
+    lv_obj_set_style_bg_opa(div, LV_OPA_COVER, 0);
+    lv_obj_set_pos(div, 572, 84);
+    for (int k = 0; k < 3; k++) {                              // a row per day: day | icon | high / low
+        int y = 96 + k * 124;
+        p->fc_day[k] = label(pg, f_cond, C_ACCENT, 0);
+        lv_obj_set_width(p->fc_day[k], 200);
+        lv_obj_set_style_text_align(p->fc_day[k], LV_TEXT_ALIGN_LEFT, 0);
+        lv_label_set_long_mode(p->fc_day[k], LV_LABEL_LONG_DOT);
+        lv_obj_align(p->fc_day[k], LV_ALIGN_TOP_LEFT, 616, y + 30);
+        p->fc_icon[k] = icon_box_create(pg, ICON_FC);
+        lv_obj_align(p->fc_icon[k], LV_ALIGN_TOP_LEFT, 818, y + 10);
+        p->fc_temp[k] = label(pg, f_cond, C_TEXT, 0);
+        lv_obj_set_width(p->fc_temp[k], 150);
+        lv_obj_set_style_text_align(p->fc_temp[k], LV_TEXT_ALIGN_LEFT, 0);
+        lv_obj_align(p->fc_temp[k], LV_ALIGN_TOP_LEFT, 616, y + 72);
+        lv_obj_set_style_text_font(p->fc_temp[k], f_small, 0);
+    }
+}
+#else
 // One place's weather page: the layout the weather screen always had
 static void place_page_create(int i, lv_obj_t *pg)
 {
@@ -2509,6 +2698,8 @@ static void place_page_create(int i, lv_obj_t *pg)
     }
 }
 
+#endif
+
 static void place_dots(int active)
 {
     static int drawn_active = -1, drawn_n = -1;          // as drawn: setting the same styles again redraws them
@@ -2545,6 +2736,15 @@ static void place_settled(int i, void *user)
 enum { R_DIM, R_MOTION, R_TIMING, R_TEMP, R_WIND, R_CLOCK, R_LANG, R_CHIME, R_VOLUME, R_TEST, R_PHONE, R_WIFI, R_UPDATE,
        R_RESTART, CFG_ROWS };
 static lv_obj_t *cfg_row[CFG_ROWS], *cfg_val[CFG_ROWS], *cfg_arc, *cfg_bright, *cfg_zone;
+// The brightness shown: an arc along the round screen's bottom edge, a bar across the landscape screen's bottom
+static void cfg_bright_show(int v)
+{
+#if DISP_ROUND
+    lv_arc_set_value(cfg_arc, v);
+#else
+    if (lv_bar_get_value(cfg_arc) != v) lv_bar_set_value(cfg_arc, v, LV_ANIM_OFF);
+#endif
+}
 static uint32_t check_tapped;                      // tick of "Check now" (shows the result for a few seconds)
 static const struct { int dim, off, wake; tid_t name; } cfg_presets[] = {          // as the settings page's PRESETS
     { 120, 900, 2, T_T_SHORT }, { 600, 3600, 3, T_T_NORMAL }, { 1800, 10800, 3, T_T_LONG },   // off = total quiet
@@ -2615,7 +2815,7 @@ static void cfg_refresh(void)                      // display lock held
     bool armed = restart_armed && lv_tick_elaps(restart_armed) < 4000;
     set_text(cfg_val[R_RESTART], armed ? tr(T_TAP_AGAIN) : "");
     if (!lv_obj_has_state(cfg_zone, LV_STATE_PRESSED)) {
-        lv_arc_set_value(cfg_arc, c.bright_pct);                   // (returns at once when the value is the same)
+        cfg_bright_show(c.bright_pct);                               // (nothing when the value is the same)
         snprintf(b, sizeof(b), tr(T_BRIGHTNESS), c.bright_pct);
         set_text(cfg_bright, b);
     }
@@ -2692,8 +2892,13 @@ static void cfg_tap(lv_event_t *e)
 
 // Brightness: the band under the arc follows the finger's x (left 5 %, right 100 %); the arc only shows the value.
 // (A clickable full-size lv_arc caught every touch on the screen, rows and Done included.)
+#if DISP_ROUND
 #define BR_X0 60
 #define BR_X1 406
+#else
+#define BR_X0 112                          // the landscape bar's ends (cfg_create)
+#define BR_X1 912
+#endif
 static void cfg_bright_changed(lv_event_t *e)
 {
     lv_indev_t *in = lv_indev_active();
@@ -2702,7 +2907,7 @@ static void cfg_bright_changed(lv_event_t *e)
     lv_indev_get_point(in, &pt);
     int v = 5 + (pt.x - BR_X0) * 95 / (BR_X1 - BR_X0);
     v = v < 5 ? 5 : v > 100 ? 100 : v;
-    lv_arc_set_value(cfg_arc, v);
+    cfg_bright_show(v);
     lv_label_set_text_fmt(cfg_bright, tr(T_BRIGHTNESS), v);
     presence_preview_brightness(v);                           // the screen follows the finger
     lv_event_code_t code = lv_event_get_code(e);
@@ -2750,7 +2955,7 @@ static lv_obj_t *cfg_add_row(lv_obj_t *box, int r, tid_t name, bool is_switch)
 {
     lv_obj_t *row = cfg_row[r] = lv_obj_create(box);
     lv_obj_remove_style_all(row);
-    lv_obj_set_size(row, 300, 52);
+    lv_obj_set_size(row, DISP_ROUND ? 300 : 440, DISP_ROUND ? 52 : 64);
     lv_obj_set_style_radius(row, 12, 0);
     lv_obj_set_style_bg_color(row, lv_color_hex(0x1A2027), 0);
     lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_STATE_PRESSED);
@@ -2764,7 +2969,7 @@ static lv_obj_t *cfg_add_row(lv_obj_t *box, int r, tid_t name, bool is_switch)
     lv_obj_align(l, LV_ALIGN_LEFT_MID, 14, 0);
     if (is_switch) {
         lv_obj_t *sw = cfg_val[r] = lv_switch_create(row);
-        lv_obj_set_size(sw, 54, 30);
+        lv_obj_set_size(sw, DISP_ROUND ? 54 : 64, DISP_ROUND ? 30 : 36);
         lv_obj_set_style_bg_color(sw, lv_color_hex(0x2A3138), 0);
         lv_obj_set_style_bg_color(sw, C_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
         lv_obj_remove_flag(sw, LV_OBJ_FLAG_CLICKABLE);         // the whole row is the button
@@ -2785,7 +2990,7 @@ static void cfg_section(lv_obj_t *box, tid_t name)
     lv_obj_set_style_text_font(l, f_micro, 0);
     lv_obj_set_style_text_color(l, C_DIM, 0);
     lv_obj_set_style_pad_top(l, 6, 0);
-    lv_obj_set_width(l, 290);
+    lv_obj_set_width(l, DISP_ROUND ? 290 : 920);                 // landscape: a whole line of the two columns
     tlabel(l, name);
     lv_obj_add_flag(l, LV_OBJ_FLAG_GESTURE_BUBBLE);
 }
@@ -2807,10 +3012,18 @@ static void cfg_create(void)
 
     lv_obj_t *box = lv_obj_create(scr_cfg);                    // the rows scroll; Done and brightness stay
     lv_obj_remove_style_all(box);
+#if DISP_ROUND
     lv_obj_set_size(box, 300, 290);
     lv_obj_align(box, LV_ALIGN_TOP_MID, 0, 70);
     lv_obj_set_flex_flow(box, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(box, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+#else       // landscape: two columns of rows, each section on its own lines
+    lv_obj_set_size(box, 920, 400);
+    lv_obj_align(box, LV_ALIGN_TOP_MID, 0, 80);
+    lv_obj_set_flex_flow(box, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_flex_align(box, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_column(box, 40, 0);
+#endif
     lv_obj_set_style_pad_row(box, 6, 0);
     lv_obj_set_scroll_dir(box, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(box, LV_SCROLLBAR_MODE_OFF);
@@ -2837,6 +3050,19 @@ static void cfg_create(void)
     lv_label_set_text(cfg_val[R_WIFI], ">");
     lv_label_set_text(cfg_val[R_TEST], ">");
 
+#if !DISP_ROUND
+    cfg_bright = label(scr_cfg, f_tiny, C_DIM, 494);           // brightness: a bar across the bottom
+    cfg_arc = lv_bar_create(scr_cfg);
+    lv_obj_set_size(cfg_arc, BR_X1 - BR_X0, 12);
+    lv_obj_align(cfg_arc, LV_ALIGN_TOP_MID, 0, 538);
+    lv_bar_set_range(cfg_arc, 5, 100);
+    lv_obj_set_style_bg_color(cfg_arc, lv_color_hex(0x2A3138), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(cfg_arc, lv_color_hex(0xFFC83D), LV_PART_INDICATOR);
+    lv_obj_remove_flag(cfg_arc, LV_OBJ_FLAG_CLICKABLE);
+    cfg_zone = lv_obj_create(scr_cfg);                         // touch band: the bottom 120 px
+    lv_obj_remove_style_all(cfg_zone);
+    lv_obj_set_size(cfg_zone, DISP_W, 120);
+#else
     cfg_bright = label(scr_cfg, f_tiny, C_DIM, 372);           // brightness: an arc along the bottom edge
     cfg_arc = lv_arc_create(scr_cfg);
     lv_obj_set_size(cfg_arc, DISP_W - 14, DISP_W - 14);
@@ -2854,6 +3080,7 @@ static void cfg_create(void)
     cfg_zone = lv_obj_create(scr_cfg);                         // touch band: the bottom of the circle
     lv_obj_remove_style_all(cfg_zone);
     lv_obj_set_size(cfg_zone, DISP_W, DISP_H - 364);
+#endif
     lv_obj_align(cfg_zone, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_remove_flag(cfg_zone, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_add_event_cb(cfg_zone, cfg_bright_changed, LV_EVENT_PRESSING, NULL);
@@ -2917,6 +3144,86 @@ static lv_obj_t *bus_label(lv_obj_t *pg, lv_font_t *f, lv_color_t c, int y, int 
     return l;
 }
 
+#if !DISP_ROUND
+/* A stop's page, landscape: as the weather page (place_page_create), the next departure on the left, the three after
+ * it as rows on the right (in how long | when | real time or not). The same objects as the round layout below. */
+static void stop_page_create(int i, lv_obj_t *pg)
+{
+    stop_page_t *p = &sp[i];
+    p->age = bus_label(pg, f_micro, C_DIM, 14, 460);
+    lv_obj_align(p->age, LV_ALIGN_TOP_MID, WX_LX, 14);
+    p->time = label(pg, f_time, C_DIM, 0);
+    lv_obj_align(p->time, LV_ALIGN_TOP_MID, WX_LX, 40);
+    p->title = bus_label(pg, f_city, C_TEXT, 0, 500);
+    lv_obj_align(p->title, LV_ALIGN_TOP_MID, WX_LX, 84);
+    lv_obj_t *hero = lv_obj_create(pg);
+    lv_obj_remove_style_all(hero);
+    lv_obj_set_size(hero, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(hero, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(hero, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(hero, 20, 0);
+    lv_obj_align(hero, LV_ALIGN_TOP_MID, WX_LX, 148);
+    p->badge = lv_obj_create(hero);
+    lv_obj_remove_style_all(p->badge);
+    lv_obj_set_size(p->badge, 120, 120);
+    lv_obj_set_style_radius(p->badge, 22, 0);
+    lv_obj_set_style_bg_color(p->badge, C_ACCENT, 0);
+    lv_obj_set_style_bg_opa(p->badge, LV_OPA_COVER, 0);
+    lv_obj_set_style_margin_bottom(p->badge, 14, 0);
+    lv_obj_add_event_cb(p->badge, pin_draw_cb, LV_EVENT_DRAW_POST, NULL);    // tap: the bus map (bus_tap)
+    lv_obj_add_event_cb(p->badge, badge_ext, LV_EVENT_REFR_EXT_DRAW_SIZE, NULL);
+    p->route = lv_label_create(p->badge);
+    lv_obj_set_style_text_font(p->route, f_city, 0);
+    lv_obj_set_style_text_color(p->route, lv_color_hex(0x04121F), 0);
+    lv_label_set_text(p->route, "");
+    lv_obj_center(p->route);
+    p->big = lv_label_create(hero);
+    lv_obj_set_style_text_font(p->big, f_big, 0);
+    lv_obj_set_style_text_color(p->big, C_TEXT, 0);
+    lv_label_set_text(p->big, "");
+    p->unit = lv_label_create(hero);
+    lv_obj_set_style_text_font(p->unit, f_cond, 0);
+    lv_obj_set_style_text_color(p->unit, C_TEXT, 0);
+    lv_obj_set_style_margin_bottom(p->unit, 26, 0);
+    lv_label_set_text(p->unit, "");
+    p->dir = bus_label(pg, f_cond, C_TEXT, 0, 500);
+    lv_obj_align(p->dir, LV_ALIGN_TOP_MID, WX_LX, 332);
+    p->kind = bus_label(pg, f_small, C_DIM, 0, 500);
+    lv_obj_align(p->kind, LV_ALIGN_TOP_MID, WX_LX, 386);
+    p->div = lv_obj_create(pg);                          // the column divider
+    lv_obj_remove_style_all(p->div);
+    lv_obj_set_size(p->div, 2, 380);
+    lv_obj_set_style_bg_color(p->div, lv_color_hex(0x2A3138), 0);
+    lv_obj_set_style_bg_opa(p->div, LV_OPA_COVER, 0);
+    lv_obj_set_pos(p->div, 572, 84);
+    for (int k = 0; k < 3; k++) {
+        int y = 96 + k * 124;
+        p->col_in[k] = bus_label(pg, f_small, C_ACCENT, 0, 360);
+        lv_obj_set_style_text_align(p->col_in[k], LV_TEXT_ALIGN_LEFT, 0);
+        lv_obj_align(p->col_in[k], LV_ALIGN_TOP_LEFT, 616, y + 10);
+        p->col_at[k] = bus_label(pg, f_cond, C_TEXT, 0, 200);
+        lv_obj_set_style_text_align(p->col_at[k], LV_TEXT_ALIGN_LEFT, 0);
+        lv_obj_align(p->col_at[k], LV_ALIGN_TOP_LEFT, 616, y + 46);
+        p->col_kind[k] = bus_label(pg, f_tiny, C_DIM, 0, 160);
+        lv_obj_set_style_text_align(p->col_kind[k], LV_TEXT_ALIGN_LEFT, 0);
+        lv_obj_align(p->col_kind[k], LV_ALIGN_TOP_LEFT, 820, y + 56);
+    }
+    p->pill = lv_obj_create(pg);                         // the route's notices (as the weather's alert pill)
+    lv_obj_remove_style_all(p->pill);
+    lv_obj_set_size(p->pill, LV_SIZE_CONTENT, 30);
+    lv_obj_set_style_radius(p->pill, 15, 0);
+    lv_obj_set_style_bg_color(p->pill, C_BUSWARN, 0);
+    lv_obj_set_style_bg_opa(p->pill, LV_OPA_COVER, 0);
+    lv_obj_set_style_pad_hor(p->pill, 14, 0);
+    lv_obj_align(p->pill, LV_ALIGN_TOP_MID, 0, PILL_Y);
+    p->pill_lbl = lv_label_create(p->pill);
+    lv_obj_set_style_text_font(p->pill_lbl, f_tiny, 0);
+    lv_obj_set_style_text_color(p->pill_lbl, lv_color_black(), 0);
+    lv_label_set_long_mode(p->pill_lbl, LV_LABEL_LONG_DOT);
+    lv_obj_center(p->pill_lbl);
+    lv_obj_add_flag(p->pill, LV_OBJ_FLAG_HIDDEN);
+}
+#else
 static void stop_page_create(int i, lv_obj_t *pg)
 {
     stop_page_t *p = &sp[i];
@@ -2985,6 +3292,7 @@ static void stop_page_create(int i, lv_obj_t *pg)
     lv_obj_center(p->pill_lbl);
     lv_obj_add_flag(p->pill, LV_OBJ_FLAG_HIDDEN);
 }
+#endif
 
 // Page i from departures.c's data (LVGL task). Only what changed is set (set_text, set_color...): an unchanged page
 // keeps its cached picture.
@@ -3720,8 +4028,13 @@ void ui_init(void)
     su_q = xQueueCreate(4, sizeof(radio_req_t));
     xTaskCreatePinnedToCore(su_radio_task, "setup_radio", 4096, NULL, 3, NULL, 0);   // internal RAM: NVS writes
     display_lock(-1);
+#if DISP_ROUND
     f_time = mkfont(26);  f_city = mkfont(26);  f_big = mkfont(96);
     f_cond = mkfont(28);  f_small = mkfont(20); f_tiny = mkfont(19); f_micro = mkfont(15);
+#else   // 1024x600 landscape (ESP32-P4 7"): about 1.3x, as the screen is 600 px tall instead of 466
+    f_time = mkfont(34);  f_city = mkfont(40);  f_big = mkfont(150);
+    f_cond = mkfont(38);  f_small = mkfont(26); f_tiny = mkfont(24); f_micro = mkfont(19);
+#endif
 
     scr_msg = base_screen();
     msg_title = label(scr_msg, f_city, C_ACCENT, 140);
@@ -4017,7 +4330,7 @@ void ui_place(int i, const char *name, const weather_t *w)
     lv_label_set_text_fmt(p->hum, tr(T_PERCENT), w->humidity);
     lv_label_set_text(p->wind, wind);
     lv_obj_remove_flag(p->detail, LV_OBJ_FLAG_HIDDEN);
-    draw_icon(p->icon, weather_kind(w->code), w->is_day, 80, i * 4);
+    draw_icon(p->icon, weather_kind(w->code), w->is_day, ICON_HERO, i * 4);
     lv_obj_remove_flag(p->icon, LV_OBJ_FLAG_HIDDEN);
     if (w->nc_kind == NC_NONE) lv_obj_add_flag(p->nowcast, LV_OBJ_FLAG_HIDDEN);
     else {
@@ -4033,7 +4346,7 @@ void ui_place(int i, const char *name, const weather_t *w)
             lv_label_set_text(p->fc_day[k], buf);
             snprintf(buf, sizeof(buf), "%d° / %d°", config_temp(w->day[k].tmax), config_temp(w->day[k].tmin));
             lv_label_set_text(p->fc_temp[k], buf);
-            draw_icon(p->fc_icon[k], weather_kind(w->day[k].code), true, 36, i * 4 + k + 1);
+            draw_icon(p->fc_icon[k], weather_kind(w->day[k].code), true, ICON_FC, i * 4 + k + 1);
             lv_obj_remove_flag(p->fc_icon[k], LV_OBJ_FLAG_HIDDEN);
         }
     }

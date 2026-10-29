@@ -5,14 +5,20 @@
 
 #include "sdkconfig.h"
 
-#define DISP_W 466
-#define DISP_H 466
 #if CONFIG_IDF_TARGET_ESP32P4
-// ESP32-P4-Function-EV-Board: the LVGL screen (DISP_W x DISP_H) is drawn at (DISP_OX, DISP_OY) in the 1024x600 panel
+// Guition JC1060P470C: the LVGL screen is the whole 1024x600 panel (landscape). DISP_OX / DISP_OY: where the LVGL screen
+// sits in the panel (0, 0 since the landscape layout; the round 466 UI was centred in it before).
 #define PANEL_W 1024
 #define PANEL_H 600
+#define DISP_W  PANEL_W
+#define DISP_H  PANEL_H
 #define DISP_OX ((PANEL_W - DISP_W) / 2)
 #define DISP_OY ((PANEL_H - DISP_H) / 2)
+#define DISP_ROUND 0       // a rectangle: content may use the corners
+#else
+#define DISP_W 466
+#define DISP_H 466
+#define DISP_ROUND 1       // the round AMOLED: the corners are outside the glass
 #endif
 
 void display_init(void);

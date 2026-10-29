@@ -27,3 +27,5 @@ CONFIG_METEOBUS_P4_PANEL_V2=y
 # V2 panels show a band of vertical streaks when the C6's SDIO link at 40 MHz interferes with the MIPI-DSI stream
 # (agillis/esphome-modular-lvgl-buttons PR #127): 10 MHz
 CONFIG_ESP_HOSTED_SDIO_CLOCK_FREQ_KHZ=10000
+# The radar's map cache holds 1024x600 basemaps here
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_p4.csv"

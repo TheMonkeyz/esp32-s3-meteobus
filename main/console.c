@@ -23,11 +23,12 @@
 #include "touch.h"
 #include "ui.h"
 #include "config.h"
+#include "driver/usb_serial_jtag.h"
 
 static const char *TAG = "test";
 
-#define CX 233
-#define CY 233
+#define CX (DISP_W / 2)
+#define CY (DISP_H / 2)
 
 // Finger moves in steps of ~16 ms (LVGL reads the touch every 30 ms, so every read sees a new point)
 static void finger_path(int x0, int y0, int x1, int y1, int ms)
@@ -191,6 +192,78 @@ static void cmd_profile(int argc, char **argv)          // one frame of each scr
     xTaskCreatePinnedToCore(profile_task, "profile", 10240, NULL, 4, NULL, 1);
 }
 #endif
+
+
+/* "shot SCREEN [DIV]": a screen (ui_snapshot's names: weather, stop1, radar, settings, hourly0, ...) sent over USB as
+ * base64 RGB565, every DIV-th pixel of every DIV-th row (DIV 1..4, default 2): "SHOT name w h", one "S:" line per row,
+ * "SHOTEND". tools/shot.py turns a log into PNGs. For a session that can't reach the board's HTTPS /api/snapshot (the
+ * cloud's), and for screens before Wi-Fi. Straight to the USB driver (testcon's): the UART console would take ~40 s. */
+static void usb_line(const char *s, size_t n)
+{
+    for (size_t o = 0; o < n;) {
+        size_t k = n - o > 128 ? 128 : n - o;             // the driver's ring buffer (testcon: 256 B) refuses bigger writes
+        int w = usb_serial_jtag_write_bytes(s + o, k, pdMS_TO_TICKS(500));
+        if (w <= 0) return;                               // no host reading: drop the rest
+        o += w;
+    }
+}
+
+// In its own task: rendering a screen (the hourly view's pages, say) overflowed the test console's stack
+static char shot_name[24];
+static int shot_div;
+static void shot_task(void *arg);
+
+static void cmd_shot(int argc, char **argv)
+{
+    strlcpy(shot_name, argc > 1 ? argv[1] : "shown", sizeof(shot_name));
+    shot_div = argc > 2 ? atoi(argv[2]) : 2;
+    if (shot_div < 1 || shot_div > 4) shot_div = 2;
+    if (xTaskCreatePinnedToCore(shot_task, "shot", 16384, NULL, 2, NULL, 0) != pdPASS)
+        ESP_LOGW(TAG, "error shot %s: no task", shot_name);
+}
+
+static void shot_task(void *arg)
+{
+    static const char b64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const char *name = shot_name;
+    int div = shot_div;
+    display_lock(-1);
+    lv_draw_buf_t *db = ui_snapshot(name);
+    display_unlock();
+    if (!db) { ESP_LOGW(TAG, "error shot %s: no picture", name); vTaskDelete(NULL); return; }
+    int w = db->header.w / div, h = db->header.h / div;
+    uint16_t *row = heap_caps_malloc(w * 2, MALLOC_CAP_SPIRAM);
+    char *line = heap_caps_malloc(w * 2 * 4 / 3 + 16, MALLOC_CAP_SPIRAM);
+    if (row && line) {
+        char hd[64];
+        int n = snprintf(hd, sizeof(hd), "\nSHOT %s %d %d\n", name, w, h);
+        usb_line(hd, n);
+        for (int y = 0; y < h; y++) {
+            const uint16_t *src = (const uint16_t *)(db->data + (size_t)y * div * db->header.stride);
+            for (int x = 0; x < w; x++) row[x] = src[x * div];
+            const uint8_t *b = (const uint8_t *)row;
+            int len = w * 2, o = 0;
+            line[o++] = 'S'; line[o++] = ':';
+            for (int i = 0; i < len; i += 3) {
+                uint32_t v = b[i] << 16 | (i + 1 < len ? b[i + 1] << 8 : 0) | (i + 2 < len ? b[i + 2] : 0);
+                line[o++] = b64[v >> 18 & 63];
+                line[o++] = b64[v >> 12 & 63];
+                line[o++] = i + 1 < len ? b64[v >> 6 & 63] : '=';
+                line[o++] = i + 2 < len ? b64[v & 63] : '=';
+            }
+            line[o++] = '\n';
+            usb_line(line, o);
+        }
+        usb_line("SHOTEND\n", 8);
+    }
+    free(row);
+    free(line);
+    display_lock(-1);
+    lv_draw_buf_destroy(db);
+    display_unlock();
+    ESP_LOGI(TAG, "ok shot %s %dx%d", name, w, h);
+    vTaskDelete(NULL);
+}
 
 static void cmd_pictest(int argc, char **argv)          // the picture of the screen shown = the screen? (slide.c)
 {
@@ -393,6 +466,7 @@ void console_init(void)
     testcon_register("profile", "profile", cmd_profile);
 #endif
     testcon_register("pictest", "pictest", cmd_pictest);
+    testcon_register("shot", "shot SCREEN [DIV]", cmd_shot);
     testcon_register("alert", "alert sample en|fr|max|off, alert at LAT LON|off", cmd_alert);
     testcon_register("setup", "setup fail", cmd_setup);
     testcon_register("memlow", "memlow start|stop", cmd_memlow);
