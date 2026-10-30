@@ -2792,8 +2792,32 @@ static void cfg_open_state(void)
 // Every second while Settings is shown (cfg_tick) and after each change: only what changed is set, a label set to its
 // own text or a row hidden again redrew it each second (a frame 200 ms before a scroll's first, harness
 // swipe_gap_max_ms.scroll_settings 190-200 ms, October 6)
+#if !DISP_ROUND
+static lv_obj_t *cfg_qr, *cfg_qr_url;              // landscape: the settings page's code beside the rows
+static char cfg_qr_shown[80];
+
+static void cfg_qr_refresh(void)                   // the code for this display's address (with its key, as show_settings)
+{
+    char ip[20], url[48], keyed[80] = "";
+    if (net_is_connected() && net_get_ip(ip, sizeof(ip))) {
+        snprintf(url, sizeof(url), "https://%s", ip);
+        snprintf(keyed, sizeof(keyed), "%s/#k=%s", url, web_key());
+    }
+    if (!strcmp(keyed, cfg_qr_shown)) return;       // unchanged: no redraw (cfg_refresh runs every second)
+    strlcpy(cfg_qr_shown, keyed, sizeof(cfg_qr_shown));
+    set_hidden(cfg_qr, !keyed[0]);
+    if (keyed[0]) {
+        lv_qrcode_update(cfg_qr, keyed, strlen(keyed));
+        lv_label_set_text(cfg_qr_url, url);
+    } else lv_label_set_text(cfg_qr_url, tr(T_NO_CONNECTION));
+}
+#endif
+
 static void cfg_refresh(void)                      // display lock held
 {
+#if !DISP_ROUND
+    cfg_qr_refresh();
+#endif
     presence_cfg_t c;
     presence_status_t st;
     units_t u;
@@ -2969,7 +2993,7 @@ static lv_obj_t *cfg_add_row(lv_obj_t *box, int r, tid_t name, bool is_switch)
 {
     lv_obj_t *row = cfg_row[r] = lv_obj_create(box);
     lv_obj_remove_style_all(row);
-    lv_obj_set_size(row, DISP_ROUND ? 300 : 440, DISP_ROUND ? 52 : 64);
+    lv_obj_set_size(row, DISP_ROUND ? 300 : 580, DISP_ROUND ? 52 : 64);
     lv_obj_set_style_radius(row, 12, 0);
     lv_obj_set_style_bg_color(row, lv_color_hex(0x1A2027), 0);
     lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_STATE_PRESSED);
@@ -3004,7 +3028,7 @@ static void cfg_section(lv_obj_t *box, tid_t name)
     lv_obj_set_style_text_font(l, f_micro, 0);
     lv_obj_set_style_text_color(l, C_DIM, 0);
     lv_obj_set_style_pad_top(l, 6, 0);
-    lv_obj_set_width(l, DISP_ROUND ? 290 : 920);                 // landscape: a whole line of the two columns
+    lv_obj_set_width(l, DISP_ROUND ? 290 : 570);
     tlabel(l, name);
     lv_obj_add_flag(l, LV_OBJ_FLAG_GESTURE_BUBBLE);
 }
@@ -3031,12 +3055,23 @@ static void cfg_create(void)
     lv_obj_align(box, LV_ALIGN_TOP_MID, 0, 70);
     lv_obj_set_flex_flow(box, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(box, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-#else       // landscape: two columns of rows, each section on its own lines
-    lv_obj_set_size(box, 920, 400);
-    lv_obj_align(box, LV_ALIGN_TOP_MID, 0, 80);
-    lv_obj_set_flex_flow(box, LV_FLEX_FLOW_ROW_WRAP);
+#else       // landscape: the rows in a column on the left, the settings page's code on the right (cfg_qr_refresh)
+    lv_obj_set_size(box, 580, 400);
+    lv_obj_align(box, LV_ALIGN_TOP_LEFT, 40, 80);
+    lv_obj_set_flex_flow(box, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(box, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
-    lv_obj_set_style_pad_column(box, 40, 0);
+    lv_obj_align(done, LV_ALIGN_TOP_MID, 40 + 290 - DISP_W / 2, 22);
+    lv_obj_t *cap = label(scr_cfg, f_small, C_ACCENT, 0);         // "Location & more (phone)", over the code
+    tlabel(cap, T_PHONE);
+    lv_obj_set_width(cap, 380);                                 // one line ("Endroit et plus (tél.)" too)
+    lv_label_set_long_mode(cap, LV_LABEL_LONG_DOT);
+    lv_obj_set_height(cap, lv_font_get_line_height(f_small));
+    lv_obj_align(cap, LV_ALIGN_TOP_MID, 330, 84);
+    cfg_qr = make_qr(scr_cfg, 230);
+    lv_obj_align(cfg_qr, LV_ALIGN_TOP_MID, 330, 130);
+    cfg_qr_url = label(scr_cfg, f_tiny, C_DIM, 0);
+    lv_obj_set_width(cfg_qr_url, 330);
+    lv_obj_align(cfg_qr_url, LV_ALIGN_TOP_MID, 330, 384);
 #endif
     lv_obj_set_style_pad_row(box, 6, 0);
     lv_obj_set_scroll_dir(box, LV_DIR_VER);
