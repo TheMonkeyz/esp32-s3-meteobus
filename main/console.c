@@ -304,10 +304,14 @@ static void c6update_task(void *arg)
     uint32_t size = (uint32_t)(uintptr_t)arg;
     const esp_partition_t *p = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_1, NULL);
     uint8_t *buf = malloc(1500);
-    if (!p || !buf || size > p->size) { ESP_LOGW(TAG, "error c6update: no image slot"); goto out; }
+    if (!p || !buf) { ESP_LOGW(TAG, "error c6update: no image slot"); goto out; }
+    // The image starts at 0, or after a 4 KB pad: the helper's esptool refuses to write another chip's image (c6.bin
+    // goes with a pad of 0xFF in front, so it's plain data to esptool)
     uint8_t magic = 0;
+    uint32_t base = 0;
     esp_partition_read(p, 0, &magic, 1);
-    if (magic != 0xE9) { ESP_LOGW(TAG, "error c6update: no image in ota_1 (0x%02X)", magic); goto out; }
+    if (magic != 0xE9) { base = 4096; esp_partition_read(p, base, &magic, 1); }
+    if (magic != 0xE9 || size + base > p->size) { ESP_LOGW(TAG, "error c6update: no image in ota_1"); goto out; }
     esp_hosted_coprocessor_fwver_t v = {0};
     esp_hosted_get_coprocessor_fwversion(&v);
     ESP_LOGI(TAG, "c6update: C6 runs %lu.%lu.%lu; sending %lu bytes", (unsigned long)v.major1, (unsigned long)v.minor1,
@@ -316,7 +320,7 @@ static void c6update_task(void *arg)
     if (e != ESP_OK) { ESP_LOGW(TAG, "error c6update: begin %s", esp_err_to_name(e)); goto out; }
     for (uint32_t off = 0; off < size && e == ESP_OK; off += 1500) {
         uint32_t n = size - off < 1500 ? size - off : 1500;
-        e = esp_partition_read(p, off, buf, n);
+        e = esp_partition_read(p, base + off, buf, n);
         if (e == ESP_OK) e = esp_hosted_slave_ota_write(buf, n);
         if (off % (150 * 1500) == 0) ESP_LOGI(TAG, "c6update: %lu%%", (unsigned long)(off * 100ULL / size));
     }
