@@ -32,3 +32,5 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_p4.csv"
 # The settings page: the C6 (esp-hosted 2.3, "network split") forwards to the P4 only 49152-61439 and a static list
 # without 443: the page was unreachable on 443 (2026-10-29)
 CONFIG_FORGE_HTTPS_PORT=50443
+# The console's "netstat" (lwIP counters): does anything from outside reach the P4 behind its C6?
+CONFIG_LWIP_STATS=y

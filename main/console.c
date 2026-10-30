@@ -24,6 +24,15 @@
 #include "ui.h"
 #include "config.h"
 #include "driver/usb_serial_jtag.h"
+#if CONFIG_LWIP_STATS
+#include "lwip/stats.h"
+#endif
+#if CONFIG_IDF_TARGET_ESP32P4
+#include "esp_partition.h"
+#include "esp_system.h"
+#include "esp_hosted.h"
+#include "esp_hosted_ota.h"
+#endif
 
 static const char *TAG = "test";
 
@@ -271,6 +280,69 @@ static void shot_task(void *arg)
 static void cmd_blitbench(int argc, char **argv) { display_blit_bench(); }
 #endif
 
+#if CONFIG_LWIP_STATS
+// "netstat": lwIP's receive counters (whether connections from outside reach this chip: the P4 behind its C6)
+static void cmd_netstat(int argc, char **argv)
+{
+    ESP_LOGI(TAG, "netstat link rx=%u drop=%u | ip rx=%u drop=%u | tcp rx=%u drop=%u err=%u proterr=%u rst=%u | udp rx=%u",
+             (unsigned)lwip_stats.link.recv, (unsigned)lwip_stats.link.drop, (unsigned)lwip_stats.ip.recv,
+             (unsigned)lwip_stats.ip.drop, (unsigned)lwip_stats.tcp.recv, (unsigned)lwip_stats.tcp.drop,
+             (unsigned)lwip_stats.tcp.err, (unsigned)lwip_stats.tcp.proterr, (unsigned)lwip_stats.tcp.rterr,
+             (unsigned)lwip_stats.udp.recv);
+}
+#endif
+
+
+#if CONFIG_IDF_TARGET_ESP32P4
+/* "c6update SIZE": the Wi-Fi co-processor's (ESP32-C6) firmware, from the P4's spare app slot (ota_1, where the flash
+ * helper wrote it: p4/firmware/c6.bin), through esp-hosted's own update calls (as its host_performs_slave_ota
+ * example). The board shipped with esp-hosted 2.3 on the C6, whose network split kept connections from the home
+ * network (the settings page) for itself; 2.12 forwards them. The C6 writes its other slot and switches only once the
+ * image checks out (2.3 needs no "activate"); the P4 restarts after, to start the link afresh. */
+static void c6update_task(void *arg)
+{
+    uint32_t size = (uint32_t)(uintptr_t)arg;
+    const esp_partition_t *p = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_1, NULL);
+    uint8_t *buf = malloc(1500);
+    if (!p || !buf || size > p->size) { ESP_LOGW(TAG, "error c6update: no image slot"); goto out; }
+    uint8_t magic = 0;
+    esp_partition_read(p, 0, &magic, 1);
+    if (magic != 0xE9) { ESP_LOGW(TAG, "error c6update: no image in ota_1 (0x%02X)", magic); goto out; }
+    esp_hosted_coprocessor_fwver_t v = {0};
+    esp_hosted_get_coprocessor_fwversion(&v);
+    ESP_LOGI(TAG, "c6update: C6 runs %lu.%lu.%lu; sending %lu bytes", (unsigned long)v.major1, (unsigned long)v.minor1,
+             (unsigned long)v.patch1, (unsigned long)size);
+    esp_err_t e = esp_hosted_slave_ota_begin();
+    if (e != ESP_OK) { ESP_LOGW(TAG, "error c6update: begin %s", esp_err_to_name(e)); goto out; }
+    for (uint32_t off = 0; off < size && e == ESP_OK; off += 1500) {
+        uint32_t n = size - off < 1500 ? size - off : 1500;
+        e = esp_partition_read(p, off, buf, n);
+        if (e == ESP_OK) e = esp_hosted_slave_ota_write(buf, n);
+        if (off % (150 * 1500) == 0) ESP_LOGI(TAG, "c6update: %lu%%", (unsigned long)(off * 100ULL / size));
+    }
+    if (e != ESP_OK) { ESP_LOGW(TAG, "error c6update: write %s (the C6 keeps its firmware)", esp_err_to_name(e)); goto out; }
+    e = esp_hosted_slave_ota_end();
+    if (e != ESP_OK) { ESP_LOGW(TAG, "error c6update: end %s (the C6 keeps its firmware)", esp_err_to_name(e)); goto out; }
+    if (v.major1 > 2 || (v.major1 == 2 && v.minor1 >= 6)) {
+        e = esp_hosted_slave_ota_activate();
+        ESP_LOGI(TAG, "c6update: activate %s", esp_err_to_name(e));
+    }
+    ESP_LOGI(TAG, "ok c6update: sent, restarting in 3 s");
+    vTaskDelay(pdMS_TO_TICKS(3000));
+    esp_restart();
+out:
+    free(buf);
+    vTaskDelete(NULL);
+}
+
+static void cmd_c6update(int argc, char **argv)
+{
+    uint32_t size = argc > 1 ? strtoul(argv[1], NULL, 10) : 0;
+    if (!size) { ESP_LOGW(TAG, "error c6update SIZE"); return; }
+    xTaskCreatePinnedToCore(c6update_task, "c6update", 6144, (void *)(uintptr_t)size, 2, NULL, 0);
+}
+#endif
+
 static void cmd_pictest(int argc, char **argv)          // the picture of the screen shown = the screen? (slide.c)
 {
     if (!display_lock(2000)) { ESP_LOGW(TAG, "error pictest: display busy for 2 s (send 'where')"); return; }
@@ -473,6 +545,12 @@ void console_init(void)
 #endif
     testcon_register("pictest", "pictest", cmd_pictest);
     testcon_register("shot", "shot SCREEN [DIV]", cmd_shot);
+#if CONFIG_IDF_TARGET_ESP32P4
+    testcon_register("c6update", "c6update SIZE", cmd_c6update);
+#endif
+#if CONFIG_LWIP_STATS
+    testcon_register("netstat", "netstat", cmd_netstat);
+#endif
 #if !DISP_SWAP
     testcon_register("blitbench", "blitbench", cmd_blitbench);
 #endif
