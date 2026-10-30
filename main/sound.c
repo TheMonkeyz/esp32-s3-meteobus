@@ -11,6 +11,7 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "esp_log.h"
+#include "driver/gpio.h"
 #include "esp_heap_caps.h"
 #include "nvs.h"
 #include "esp_codec_dev.h"
@@ -22,7 +23,7 @@
 static const char *TAG = "sound";
 #define RATE        16000                 // same as the microphones (one I2S clock for both)
 #if CONFIG_IDF_TARGET_ESP32P4
-#define PIN_PA      20                    // Guition JC1060P470C's NS4150 amplifier enable
+#define PIN_PA      11                    // Guition JC1060P470C's NS4150 amplifier enable (not 20: on the pin header)
 #else
 #define PIN_PA      46
 #endif
@@ -135,6 +136,19 @@ static int16_t *render(int level, int *frames)
     return pcm;
 }
 
+#if CONFIG_IDF_TARGET_ESP32P4
+// The ES8311 is shared with the microphone here (audio_p4.c): the device stays open, the amplifier is ours
+static bool spk_open(void)
+{
+    if (spk) return true;
+    spk = audio_speaker_dev();
+    if (!spk) return false;
+    gpio_config_t g = { .pin_bit_mask = 1ULL << PIN_PA, .mode = GPIO_MODE_OUTPUT };
+    gpio_config(&g);
+    gpio_set_level(PIN_PA, 0);
+    return true;
+}
+#else
 static bool spk_open(void)
 {
     if (spk) return true;
@@ -154,6 +168,7 @@ static bool spk_open(void)
     spk = esp_codec_dev_new(&dcfg);
     return spk != NULL;
 }
+#endif
 
 static void play(int level)
 {
@@ -164,15 +179,24 @@ static void play(int level)
     if (!pcm) { ESP_LOGW(TAG, "no memory for the sound"); return; }
     sound_cfg_t c;
     sound_get_config(&c);
+#if CONFIG_IDF_TARGET_ESP32P4
+    esp_codec_dev_set_out_vol(spk, c.volume);
+    gpio_set_level(PIN_PA, 1);                           // the lead-in silence lets the amplifier settle
+#else
     esp_codec_dev_sample_info_t fs = { .sample_rate = RATE, .channel = 2, .bits_per_sample = 16 };
     if (esp_codec_dev_open(spk, &fs) != ESP_CODEC_DEV_OK) { ESP_LOGW(TAG, "speaker open failed"); free(pcm); return; }
     esp_codec_dev_set_out_vol(spk, c.volume);
+#endif
     enum { CHUNK = 1024 };                               // frames per write (4 KB)
     for (int n = 0; n < frames; n += CHUNK) {
         int k = frames - n < CHUNK ? frames - n : CHUNK;
         esp_codec_dev_write(spk, pcm + 2 * n, k * 2 * sizeof(int16_t));
     }
+#if CONFIG_IDF_TARGET_ESP32P4
+    gpio_set_level(PIN_PA, 0);
+#else
     esp_codec_dev_close(spk);                            // amplifier off
+#endif
     free(pcm);
 }
 
