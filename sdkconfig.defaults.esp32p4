@@ -29,3 +29,6 @@ CONFIG_METEOBUS_P4_PANEL_V2=y
 CONFIG_ESP_HOSTED_SDIO_CLOCK_FREQ_KHZ=10000
 # The radar's map cache holds 1024x600 basemaps here
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_p4.csv"
+# The settings page: the C6 (esp-hosted 2.3, "network split") forwards to the P4 only 49152-61439 and a static list
+# without 443: the page was unreachable on 443 (2026-10-29)
+CONFIG_FORGE_HTTPS_PORT=50443

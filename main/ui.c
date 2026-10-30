@@ -458,7 +458,7 @@ static void show_settings(lv_event_t *e)
     ESP_LOGI("ui", "%s", hint_text ? "first run: location hint (settings QR)" : "long press -> settings QR");
     char ip[20], url[48], keyed[80];
     if (!net_get_ip(ip, sizeof(ip))) strcpy(ip, "192.168.4.1");
-    snprintf(url, sizeof(url), "https://%s", ip);
+    snprintf(url, sizeof(url), "https://%s%s", ip, web_port());
     // The code carries the key that lets the page change settings (web.c, "Who may change things"); the address
     // written under it doesn't: typed by hand, the page shows the settings and asks for the code to change them
     snprintf(keyed, sizeof(keyed), "%s/#k=%s", url, web_key());
@@ -2800,7 +2800,7 @@ static void cfg_qr_refresh(void)                   // the code for this display'
 {
     char ip[20], url[48], keyed[80] = "";
     if (net_is_connected() && net_get_ip(ip, sizeof(ip))) {
-        snprintf(url, sizeof(url), "https://%s", ip);
+        snprintf(url, sizeof(url), "https://%s%s", ip, web_port());
         snprintf(keyed, sizeof(keyed), "%s/#k=%s", url, web_key());
     }
     if (!strcmp(keyed, cfg_qr_shown)) return;       // unchanged: no redraw (cfg_refresh runs every second)
