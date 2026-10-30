@@ -19,3 +19,6 @@ bool audio_mic_read(int16_t *samples, size_t n);
 // The shared I2S data interface (a const audio_codec_data_if_t *) for the speaker's own ES8311 device (sound.c);
 // NULL before audio_init() or if it failed
 const void *audio_data_if(void);
+// The Guition JC1060P470C (audio_p4.c) only: its ES8311 is the microphone and the speaker, one esp_codec_dev
+// (IN_OUT) kept open, which sound.c writes to without opening or closing it. NULL if it doesn't answer.
+void *audio_speaker_dev(void);

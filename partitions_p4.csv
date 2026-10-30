@@ -1,0 +1,10 @@
+# Name,   Type, SubType, Offset,   Size
+# Guition JC1060P470C (ESP32-P4, 16 MB flash): partitions.csv with a larger map cache, as the radar's basemaps are
+# 1024x600 there (1.25 MB per zoom level, 7 levels: radar.c's SLOT_SIZE)
+nvs,      data, nvs,     0x9000,   0x6000,
+phy_init, data, phy,     0xf000,   0x1000,
+ota_0,    app,  ota_0,   0x10000,  3M,
+ota_1,    app,  ota_1,   0x310000, 3M,
+otadata,  data, ota,     0x610000, 0x2000,
+mapcache, data, 0x40,    0x620000, 0x8C0000,
+coredump, data, coredump, 0xEE0000, 128K,

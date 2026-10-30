@@ -23,11 +23,21 @@
 #include "touch.h"
 #include "ui.h"
 #include "config.h"
+#include "driver/usb_serial_jtag.h"
+#if CONFIG_LWIP_STATS
+#include "lwip/stats.h"
+#endif
+#if CONFIG_IDF_TARGET_ESP32P4
+#include "esp_partition.h"
+#include "esp_system.h"
+#include "esp_hosted.h"
+#include "esp_hosted_ota.h"
+#endif
 
 static const char *TAG = "test";
 
-#define CX 233
-#define CY 233
+#define CX (DISP_W / 2)
+#define CY (DISP_H / 2)
 
 // Finger moves in steps of ~16 ms (LVGL reads the touch every 30 ms, so every read sees a new point)
 static void finger_path(int x0, int y0, int x1, int y1, int ms)
@@ -111,12 +121,14 @@ static void cmd_press(int argc, char **argv)            // long-press: press X Y
 
 static void cmd_swipe(int argc, char **argv)
 {
-    int d = 150, x0 = CX, y0 = CY, x1 = CX, y1 = CY;
+    // 150 px each way on the round screen; on a landscape one past a third of its width / height (a drag commits there)
+    int dh = DISP_ROUND ? 150 : DISP_W * 22 / 100, dv = DISP_ROUND ? 150 : DISP_H * 22 / 100;
+    int x0 = CX, y0 = CY, x1 = CX, y1 = CY;
     const char *dir = argc == 2 ? argv[1] : "";
-    if (!strcmp(dir, "left"))       { x0 = CX + d; x1 = CX - d; }
-    else if (!strcmp(dir, "right")) { x0 = CX - d; x1 = CX + d; }
-    else if (!strcmp(dir, "up"))    { y0 = CY + d; y1 = CY - d; }
-    else if (!strcmp(dir, "down"))  { y0 = CY - d; y1 = CY + d; }
+    if (!strcmp(dir, "left"))       { x0 = CX + dh; x1 = CX - dh; }
+    else if (!strcmp(dir, "right")) { x0 = CX - dh; x1 = CX + dh; }
+    else if (!strcmp(dir, "up"))    { y0 = CY + dv; y1 = CY - dv; }
+    else if (!strcmp(dir, "down"))  { y0 = CY - dv; y1 = CY + dv; }
     else { ESP_LOGW(TAG, "error swipe: left, right, up or down"); return; }
     finger_path(x0, y0, x1, y1, 200);
     finger_up(x1, y1);
@@ -189,6 +201,157 @@ static void profile_task(void *arg)
 static void cmd_profile(int argc, char **argv)          // one frame of each screen (docs/TESTING.md §8)
 {
     xTaskCreatePinnedToCore(profile_task, "profile", 10240, NULL, 4, NULL, 1);
+}
+#endif
+
+
+/* "shot SCREEN [DIV]": a screen (ui_snapshot's names: weather, stop1, radar, settings, hourly0, ...; "panel": the
+ * landscape panel's frame buffer as shown) sent over USB as
+ * base64 RGB565, every DIV-th pixel of every DIV-th row (DIV 1..4, default 2): "SHOT name w h", one "S:" line per row,
+ * "SHOTEND". tools/shot.py turns a log into PNGs. For a session that can't reach the board's HTTPS /api/snapshot (the
+ * cloud's), and for screens before Wi-Fi. Straight to the USB driver (testcon's): the UART console would take ~40 s. */
+static void usb_line(const char *s, size_t n)
+{
+    for (size_t o = 0; o < n;) {
+        size_t k = n - o > 128 ? 128 : n - o;             // the driver's ring buffer (testcon: 256 B) refuses bigger writes
+        int w = usb_serial_jtag_write_bytes(s + o, k, pdMS_TO_TICKS(500));
+        if (w <= 0) return;                               // no host reading: drop the rest
+        o += w;
+    }
+}
+
+// In its own task: rendering a screen (the hourly view's pages, say) overflowed the test console's stack
+static char shot_name[24];
+static int shot_div;
+static void shot_task(void *arg);
+
+static void cmd_shot(int argc, char **argv)
+{
+    strlcpy(shot_name, argc > 1 ? argv[1] : "shown", sizeof(shot_name));
+    shot_div = argc > 2 ? atoi(argv[2]) : 2;
+    if (shot_div < 1 || shot_div > 4) shot_div = 2;
+    if (xTaskCreatePinnedToCore(shot_task, "shot", 16384, NULL, 2, NULL, 0) != pdPASS)
+        ESP_LOGW(TAG, "error shot %s: no task", shot_name);
+}
+
+static void shot_task(void *arg)
+{
+    static const char b64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const char *name = shot_name;
+    int div = shot_div;
+    display_lock(-1);
+    lv_draw_buf_t *db = NULL;
+#if !DISP_ROUND
+    if (!strcmp(name, "panel")) {                           // what the panel shows now (its frame buffer), not a render
+        db = lv_draw_buf_create(DISP_W, DISP_H, LV_COLOR_FORMAT_RGB565, 0);
+        if (db && !display_read(db->data, DISP_W, DISP_H, 0, 0, DISP_W, DISP_H)) { lv_draw_buf_destroy(db); db = NULL; }
+    } else
+#endif
+    db = ui_snapshot(name);
+    display_unlock();
+    if (!db) { ESP_LOGW(TAG, "error shot %s: no picture", name); vTaskDelete(NULL); return; }
+    int w = db->header.w / div, h = db->header.h / div;
+    uint16_t *row = heap_caps_malloc(w * 2, MALLOC_CAP_SPIRAM);
+    char *line = heap_caps_malloc(w * 2 * 4 / 3 + 16, MALLOC_CAP_SPIRAM);
+    if (row && line) {
+        char hd[64];
+        int n = snprintf(hd, sizeof(hd), "\nSHOT %s %d %d\n", name, w, h);
+        usb_line(hd, n);
+        for (int y = 0; y < h; y++) {
+            const uint16_t *src = (const uint16_t *)(db->data + (size_t)y * div * db->header.stride);
+            for (int x = 0; x < w; x++) row[x] = src[x * div];
+            const uint8_t *b = (const uint8_t *)row;
+            int len = w * 2, o = 0;
+            line[o++] = 'S'; line[o++] = ':';
+            for (int i = 0; i < len; i += 3) {
+                uint32_t v = b[i] << 16 | (i + 1 < len ? b[i + 1] << 8 : 0) | (i + 2 < len ? b[i + 2] : 0);
+                line[o++] = b64[v >> 18 & 63];
+                line[o++] = b64[v >> 12 & 63];
+                line[o++] = i + 1 < len ? b64[v >> 6 & 63] : '=';
+                line[o++] = i + 2 < len ? b64[v & 63] : '=';
+            }
+            line[o++] = '\n';
+            usb_line(line, o);
+        }
+        usb_line("SHOTEND\n", 8);
+    }
+    free(row);
+    free(line);
+    display_lock(-1);
+    lv_draw_buf_destroy(db);
+    display_unlock();
+    ESP_LOGI(TAG, "ok shot %s %dx%d", name, w, h);
+    vTaskDelete(NULL);
+}
+
+#if !DISP_SWAP
+static void cmd_blitbench(int argc, char **argv) { display_blit_bench(); }
+#endif
+
+#if CONFIG_LWIP_STATS
+// "netstat": lwIP's receive counters (whether connections from outside reach this chip: the P4 behind its C6)
+static void cmd_netstat(int argc, char **argv)
+{
+    ESP_LOGI(TAG, "netstat link rx=%u drop=%u | ip rx=%u drop=%u | tcp rx=%u drop=%u err=%u proterr=%u rst=%u | udp rx=%u",
+             (unsigned)lwip_stats.link.recv, (unsigned)lwip_stats.link.drop, (unsigned)lwip_stats.ip.recv,
+             (unsigned)lwip_stats.ip.drop, (unsigned)lwip_stats.tcp.recv, (unsigned)lwip_stats.tcp.drop,
+             (unsigned)lwip_stats.tcp.err, (unsigned)lwip_stats.tcp.proterr, (unsigned)lwip_stats.tcp.rterr,
+             (unsigned)lwip_stats.udp.recv);
+}
+#endif
+
+
+#if CONFIG_IDF_TARGET_ESP32P4
+/* "c6update SIZE": the Wi-Fi co-processor's (ESP32-C6) firmware, from the P4's spare app slot (ota_1, where the flash
+ * helper wrote it: p4/firmware/c6.bin), through esp-hosted's own update calls (as its host_performs_slave_ota
+ * example). The board shipped with esp-hosted 2.3 on the C6, whose network split kept connections from the home
+ * network (the settings page) for itself; 2.12 forwards them. The C6 writes its other slot and switches only once the
+ * image checks out (2.3 needs no "activate"); the P4 restarts after, to start the link afresh. */
+static void c6update_task(void *arg)
+{
+    uint32_t size = (uint32_t)(uintptr_t)arg;
+    const esp_partition_t *p = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_1, NULL);
+    uint8_t *buf = malloc(1500);
+    if (!p || !buf) { ESP_LOGW(TAG, "error c6update: no image slot"); goto out; }
+    // The image starts at 0, or after a 4 KB pad: the helper's esptool refuses to write another chip's image (c6.bin
+    // goes with a pad of 0xFF in front, so it's plain data to esptool)
+    uint8_t magic = 0;
+    uint32_t base = 0;
+    esp_partition_read(p, 0, &magic, 1);
+    if (magic != 0xE9) { base = 4096; esp_partition_read(p, base, &magic, 1); }
+    if (magic != 0xE9 || size + base > p->size) { ESP_LOGW(TAG, "error c6update: no image in ota_1"); goto out; }
+    esp_hosted_coprocessor_fwver_t v = {0};
+    esp_hosted_get_coprocessor_fwversion(&v);
+    ESP_LOGI(TAG, "c6update: C6 runs %lu.%lu.%lu; sending %lu bytes", (unsigned long)v.major1, (unsigned long)v.minor1,
+             (unsigned long)v.patch1, (unsigned long)size);
+    esp_err_t e = esp_hosted_slave_ota_begin();
+    if (e != ESP_OK) { ESP_LOGW(TAG, "error c6update: begin %s", esp_err_to_name(e)); goto out; }
+    for (uint32_t off = 0; off < size && e == ESP_OK; off += 1500) {
+        uint32_t n = size - off < 1500 ? size - off : 1500;
+        e = esp_partition_read(p, base + off, buf, n);
+        if (e == ESP_OK) e = esp_hosted_slave_ota_write(buf, n);
+        if (off % (150 * 1500) == 0) ESP_LOGI(TAG, "c6update: %lu%%", (unsigned long)(off * 100ULL / size));
+    }
+    if (e != ESP_OK) { ESP_LOGW(TAG, "error c6update: write %s (the C6 keeps its firmware)", esp_err_to_name(e)); goto out; }
+    e = esp_hosted_slave_ota_end();
+    if (e != ESP_OK) { ESP_LOGW(TAG, "error c6update: end %s (the C6 keeps its firmware)", esp_err_to_name(e)); goto out; }
+    if (v.major1 > 2 || (v.major1 == 2 && v.minor1 >= 6)) {
+        e = esp_hosted_slave_ota_activate();
+        ESP_LOGI(TAG, "c6update: activate %s", esp_err_to_name(e));
+    }
+    ESP_LOGI(TAG, "ok c6update: sent, restarting in 3 s");
+    vTaskDelay(pdMS_TO_TICKS(3000));
+    esp_restart();
+out:
+    free(buf);
+    vTaskDelete(NULL);
+}
+
+static void cmd_c6update(int argc, char **argv)
+{
+    uint32_t size = argc > 1 ? strtoul(argv[1], NULL, 10) : 0;
+    if (!size) { ESP_LOGW(TAG, "error c6update SIZE"); return; }
+    xTaskCreatePinnedToCore(c6update_task, "c6update", 6144, (void *)(uintptr_t)size, 2, NULL, 0);
 }
 #endif
 
@@ -393,6 +556,16 @@ void console_init(void)
     testcon_register("profile", "profile", cmd_profile);
 #endif
     testcon_register("pictest", "pictest", cmd_pictest);
+    testcon_register("shot", "shot SCREEN [DIV]", cmd_shot);
+#if CONFIG_IDF_TARGET_ESP32P4
+    testcon_register("c6update", "c6update SIZE", cmd_c6update);
+#endif
+#if CONFIG_LWIP_STATS
+    testcon_register("netstat", "netstat", cmd_netstat);
+#endif
+#if !DISP_SWAP
+    testcon_register("blitbench", "blitbench", cmd_blitbench);
+#endif
     testcon_register("alert", "alert sample en|fr|max|off, alert at LAT LON|off", cmd_alert);
     testcon_register("setup", "setup fail", cmd_setup);
     testcon_register("memlow", "memlow start|stop", cmd_memlow);

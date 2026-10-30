@@ -1,0 +1,175 @@
+diff --git a/components/forge_core/diag.c b/components/forge_core/diag.c
+index f9d3482..e2a9527 100644
+--- a/components/forge_core/diag.c
++++ b/components/forge_core/diag.c
+@@ -84,11 +84,17 @@ static void startup_info(void)
+         }
+     }
+     if (cd && chk == ESP_OK && esp_core_dump_get_summary(cd) == ESP_OK) {
++#if __XTENSA__
+         char bt[16 * 11 + 1] = "";
+         for (uint32_t i = 0, n = 0; i < cd->exc_bt_info.depth && i < 16; i++)
+             n += snprintf(bt + n, sizeof(bt) - n, " 0x%08lx", (unsigned long)cd->exc_bt_info.bt[i]);
+         ESP_LOGW(TAG, "coredump: last crash in task %s, PC 0x%08lx, backtrace%s%s", cd->exc_task,
+                  (unsigned long)cd->exc_pc, bt, cd->exc_bt_info.corrupted ? " (corrupted)" : "");
++#else   // RISC-V (ESP32-P4): no backtrace in the summary, only the registers (riscv32-esp-elf-addr2line PC and RA)
++        ESP_LOGW(TAG, "coredump: last crash in task %s, PC 0x%08lx, RA 0x%08lx, mcause 0x%lx, mtval 0x%08lx",
++                 cd->exc_task, (unsigned long)cd->exc_pc, (unsigned long)cd->ex_info.ra,
++                 (unsigned long)cd->ex_info.mcause, (unsigned long)cd->ex_info.mtval);
++#endif
+         esp_core_dump_image_erase();
+     }
+     free(cd);
+diff --git a/components/forge_net/Kconfig b/components/forge_net/Kconfig
+index baf35cd..4dab329 100644
+--- a/components/forge_net/Kconfig
++++ b/components/forge_net/Kconfig
+@@ -1,5 +1,15 @@
+ menu "espforge"
+ 
++    config FORGE_HTTPS_PORT
++        int "Settings page HTTPS port"
++        default 443
++        range 1 65535
++        help
++            The settings page's port on the home network. 443 normally. A board whose Wi-Fi is a co-processor running
++            esp-hosted with "network split" (an ESP32-P4 with an ESP32-C6) hands the host only some ports: 49152-61439
++            and a static list that older co-processor firmware may not give 443 (the Guition JC1060P470C's: the page
++            was unreachable). Addresses the firmware writes (QR codes, redirects, the log) carry the port when not 443.
++
+     config FORGE_SETUP_SSID
+         string "Setup network name"
+         default "Forge-Setup"
+diff --git a/components/forge_net/include/net.h b/components/forge_net/include/net.h
+index fbf9cca..eb1644e 100644
+--- a/components/forge_net/include/net.h
++++ b/components/forge_net/include/net.h
+@@ -43,6 +43,7 @@ typedef void (*net_dpp_done_cb_t)(bool ok, const char *ssid);
+ bool net_dpp_start(net_dpp_uri_cb_t on_uri, net_dpp_done_cb_t on_done);
+ void net_dpp_stop(void);
+ bool net_dpp_active(void);
++bool net_dpp_supported(void);   // false: no Easy Connect here (esp_wifi_remote: Wi-Fi through a co-processor)
+ // Test console ("wifi ..." commands): pretend the saved network is unreachable, without changing the saved credentials
+ void net_test_offline(void);             // now (until net_test_online or a restart)
+ void net_test_offline_next_boot(bool short_setup);   // next boot only (RTC flag); short: auto setup for 60 s only
+diff --git a/components/forge_net/include/web.h b/components/forge_net/include/web.h
+index c7a6721..30f4393 100644
+--- a/components/forge_net/include/web.h
++++ b/components/forge_net/include/web.h
+@@ -32,6 +32,7 @@ void web_set_info(web_info_fn fn);
+ //   extern const uint8_t page_start[] asm("_binary_index_html_start"), page_end[] asm("_binary_index_html_end");
+ void web_set_page(const uint8_t *start, const uint8_t *end);
+ void web_start(void);
++const char *web_port(void);            // "" on 443, else ":<port>" (CONFIG_FORGE_HTTPS_PORT): after the host in URLs
+ const char *web_key(void);             // the key a change must carry (X-Key); goes in the settings QR code (#k=)
+ bool web_url(char *out, int n);        // "https://<ip>/#k=<key>" for the settings QR code; false without an address
+ 
+diff --git a/components/forge_net/net.c b/components/forge_net/net.c
+index 3e24fb0..137bbd8 100644
+--- a/components/forge_net/net.c
++++ b/components/forge_net/net.c
+@@ -20,7 +20,13 @@
+ #include "esp_log.h"
+ #include "esp_timer.h"
+ #include "dns_server.h"
++#include "sdkconfig.h"
++// Easy Connect needs the supplicant's DPP, which only exists with the Wi-Fi radio on this chip: not with esp_wifi_remote
++// (an ESP32-P4 reaching Wi-Fi through a co-processor). Then net_dpp_supported() is false and net_dpp_start() fails.
++#define FORGE_DPP (!CONFIG_ESP_WIFI_REMOTE_ENABLED)
++#if FORGE_DPP
+ #include "esp_dpp.h"
++#endif
+ #include "esp_idf_version.h"
+ #include "esp_attr.h"
+ #include "esp_random.h"
+@@ -468,6 +474,7 @@ void net_set_restart(void (*fn)(void)) { restart_fn = fn ? fn : esp_restart; }
+ void net_restart(void) { restart_fn(); }
+ static void restart_cb(void *arg) { restart_fn(); }   // forge_ota: not in an update's first minute
+ 
++#if FORGE_DPP
+ static void dpp_event(esp_supp_dpp_event_t evt, void *data)
+ {
+     switch (evt) {
+@@ -569,6 +576,16 @@ void net_dpp_stop(void)
+     resume_saved();
+ }
+ 
++#else
++bool net_dpp_start(net_dpp_uri_cb_t on_uri, net_dpp_done_cb_t on_done)
++{
++    (void)on_uri; (void)on_done; (void)dpp_pick_channel; (void)dpp_hold_channel;
++    ESP_LOGW(TAG, "Easy Connect: not available on this board (Wi-Fi through a co-processor)");
++    return false;
++}
++void net_dpp_stop(void) {}
++#endif
++bool net_dpp_supported(void) { return FORGE_DPP; }
+ bool net_dpp_active(void) { return dpp_active; }
+ 
+ bool net_setup_ap_active(void) { return ap_active; }
+diff --git a/components/forge_net/web.c b/components/forge_net/web.c
+index af2a60d..a50119a 100644
+--- a/components/forge_net/web.c
++++ b/components/forge_net/web.c
+@@ -1,3 +1,4 @@
++#include "sdkconfig.h"
+ // Settings page and API (see web.h). HTTPS on 443 on the home network (a phone's GPS, and the key, need a secure
+ // page); plain HTTP on 80 is the captive portal on the setup network and only redirects to HTTPS on the home network.
+ #include "web.h"
+@@ -242,7 +243,7 @@ static esp_err_t http_root_get(httpd_req_t *req)
+     if (web_from_setup_ap(req)) return index_get(req);
+     char ip[20] = "", loc[40];
+     if (!net_get_ip(ip, sizeof(ip))) return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "no address yet");
+-    snprintf(loc, sizeof(loc), "https://%s/", ip);       // the device's own address, never the Host header
++    snprintf(loc, sizeof(loc), "https://%s%s/", ip, web_port());       // the device's own address, never the Host header
+     return redirect_to(req, loc);
+ }
+ 
+@@ -297,7 +298,7 @@ bool web_url(char *out, int n)
+ {
+     char ip[20];
+     if (!net_get_ip(ip, sizeof(ip))) return false;
+-    snprintf(out, n, "https://%s/#k=%s", ip, key);
++    snprintf(out, n, "https://%s%s/#k=%s", ip, web_port(), key);
+     return true;
+ }
+ 
+@@ -332,7 +333,7 @@ static esp_err_t guarded(httpd_req_t *req)
+         if (req->method == HTTP_POST) return refuse(req, "403 Forbidden", "https");
+         char ip[20], loc[40];
+         if (!net_get_ip(ip, sizeof(ip))) return refuse(req, "403 Forbidden", "https");
+-        snprintf(loc, sizeof(loc), "https://%s/", ip);
++        snprintf(loc, sizeof(loc), "https://%s%s/", ip, web_port());
+         return redirect_to(req, loc);
+     }
+     if (r->not_ap && ap) return refuse(req, "403 Forbidden", "setup");
+@@ -388,6 +389,7 @@ static void start_https(void)
+     if (!tlscert_get(&cert, &cert_len, &pkey, &key_len)) { ESP_LOGE(TAG, "no TLS certificate, HTTPS disabled"); return; }
+     tlscert_log_fingerprint();
+     httpd_ssl_config_t conf = HTTPD_SSL_CONFIG_DEFAULT();
++    conf.port_secure = CONFIG_FORGE_HTTPS_PORT;                // 443 unless the board needs another (Kconfig)
+     conf.servercert = (const uint8_t *)cert;
+     conf.servercert_len = cert_len;
+     conf.prvtkey_pem = (const uint8_t *)pkey;
+@@ -404,6 +406,13 @@ static void start_https(void)
+     add_all(s, false);
+ }
+ 
++const char *web_port(void)
++{
++    static char p[8];
++    if (CONFIG_FORGE_HTTPS_PORT != 443 && !p[0]) snprintf(p, sizeof(p), ":%d", CONFIG_FORGE_HTTPS_PORT);
++    return p;
++}
++
+ static void cmd_key(int argc, char **argv) { ESP_LOGI("test", "key %s", key); }
+ 
+ static void cmd_portal(int argc, char **argv)
+@@ -446,6 +455,6 @@ void web_start(void)
+         httpd_register_uri_handler(h, &other);
+     }
+     char ip[20];
+-    if (net_get_ip(ip, sizeof(ip))) ESP_LOGI(TAG, "Settings page: https://%s/", ip);
++    if (net_get_ip(ip, sizeof(ip))) ESP_LOGI(TAG, "Settings page: https://%s%s/", ip, web_port());
+     else ESP_LOGI(TAG, "Web servers started (no IP yet)");
+ }

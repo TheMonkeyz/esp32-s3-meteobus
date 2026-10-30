@@ -1,0 +1,42 @@
+# Guition JC1060P470C: ESP32-P4 + ESP32-C6, 7" 1024x600 (port/esp32-p4). Read after sdkconfig.defaults when IDF_TARGET=esp32p4.
+# The board's chip is revision v1.3: ESP-IDF 5.5.3+ targets v3.x unless told otherwise (Espressif, "ESP32-P4 Chip
+# Revision v3.x User Guide"): a v3 build won't boot on v1.x.
+CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_360=y
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_SPEED_200M=y
+# No frequency scaling yet (main.c's 80..240 MHz is the S3's; display_p4.c holds no "screen" lock)
+CONFIG_PM_ENABLE=n
+# Wi-Fi: the board's ESP32-C6 over SDIO (esp_hosted), esp_wifi's API through esp_wifi_remote
+CONFIG_ESP_WIFI_REMOTE_LIBRARY_HOSTED=y
+# esp_hosted 2.12 (not 3.x): the C6 ships with esp-hosted 2.3.2 firmware, and a 3.x host reported "major version mismatch"
+CONFIG_ESP_HOSTED_P4_DEV_BOARD_FUNC_BOARD=y
+# esp_hosted 2.x allocates its SDIO buffer pools in internal RAM from a constructor, before the scheduler: with 20 + 20
+# (its default) FreeRTOS couldn't allocate the idle task (assert in vApplicationGetIdleTaskMemory, a boot loop,
+# 2026-10-29). 12 + 12 as in Gil Tal's ESP32-P4-Internet-Radio for this board.
+CONFIG_ESP_HOSTED_SDIO_TX_Q_SIZE=12
+CONFIG_ESP_HOSTED_SDIO_RX_Q_SIZE=12
+CONFIG_SPI_FLASH_SUPPORT_BOYA_CHIP=y
+# The speaker amplifier's current peaks dip 3.3 V on weak USB supplies (same reference): lowest brownout level
+CONFIG_ESP_BROWNOUT_DET_LVL_SEL_5=y
+# The panel: the 2026 "V2" (a JD9165 with another init table, reset on GPIO 0). The board here had no label, and the
+# V1 table gave a white, streaked band (2026-10-29), the V2 symptom others report.
+CONFIG_METEOBUS_P4_PANEL_V2=y
+# V2 panels show a band of vertical streaks when the C6's SDIO link at 40 MHz interferes with the MIPI-DSI stream
+# (agillis/esphome-modular-lvgl-buttons PR #127): 10 MHz
+CONFIG_ESP_HOSTED_SDIO_CLOCK_FREQ_KHZ=10000
+# The radar's map cache holds 1024x600 basemaps here
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_p4.csv"
+# The settings page stays on 443: the C6's own esp-hosted 2.3 firmware (network split) kept every connection from the
+# home network for itself, a move to 50443 didn't help either; esp-hosted 2.12.13 on the C6 (console c6update,
+# 2026-10-29) forwards them. CONFIG_FORGE_HTTPS_PORT (espforge patch) remains for boards that need another port.
+# The console's "netstat" (lwIP counters): does anything from outside reach the P4 behind its C6?
+CONFIG_LWIP_STATS=y
+# Task watchdog: 10 s (5 by default). At start-up the main task's TLS handshakes (mbedtls's software comb method for
+# P-256/P-384 here) and the radar's full-size maps kept core 0 busy past 5 s: "task_wdt: IDLE0" warnings, no hang.
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=10
+# Updates: not the AMOLED's site (its releases are ESP32-S3 images). A P4 channel will live here; until then the check
+# finds nothing (HTTP 404) and the display says it is up to date.
+CONFIG_FORGE_OTA_SITE="https://themonkeyz.github.io/esp32-s3-meteobus/p4/"

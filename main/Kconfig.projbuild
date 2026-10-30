@@ -1,0 +1,9 @@
+menu "MeteoBus board"
+    config METEOBUS_P4_PANEL_V2
+        bool "Guition JC1060P470C: V2 panel (2026 batch, \"V2\" on the back label)"
+        depends on IDF_TARGET_ESP32P4
+        default n
+        help
+            Guition changed the 7" panel in 2026: a different JD9165 init table, and reset on GPIO 0 (27 before).
+            The wrong one shows a black, white or streaked screen.
+endmenu

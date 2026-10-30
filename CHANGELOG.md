@@ -9,6 +9,11 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 their own `## vX.Y.Z-rc.N` section. Those are shown only to Beta users, while the final release's section should
 list everything again.
 
+## v0.3.0-rc.1 - 2026-10-29
+- MeteoBus also runs on a 7" landscape display now, the Guition JC1060P470C: every screen laid out for its wide
+  screen, five forecast days with their full names, and the settings page's QR code beside the settings. Its firmware
+  is installed by USB for now. Nothing changes on the round display.
+
 ## v0.2.1 - 2026-10-13
 - The radar and bus map zooms are smoother (about 57 and 54 frames a second instead of 43).
 - The radar's last 3 hours play as soon as you tap, even while the images are still loading: each one shows as soon as

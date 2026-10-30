@@ -35,7 +35,14 @@ static const char *TAG = "radar";
 #define ZOOM_MIN 4          // ~1560 km radius at 47°N
 #define ZOOM_MAX 10         // ~24 km radius (radar data is 1 km/px; closer would just be blocky)
 #define ZOOM_DEF 7          // ~195 km radius
-#define SLOT_SIZE (512 * 1024)   // one cached basemap per zoom level in the mapcache partition
+// One cached basemap per zoom level in the mapcache partition (the map, W x H RGB565, and its header): 512 KB for the
+// AMOLED's 466x466, 1.25 MB for the P4's 1024x600 (7 zoom levels: partitions_p4.csv's 8.75 MB)
+#if DISP_ROUND
+#define SLOT_SIZE (512 * 1024)
+#else
+#define SLOT_SIZE (1280 * 1024)
+#endif
+_Static_assert(SLOT_SIZE >= W * H * 2 + 4096, "a basemap slot holds a whole map");
 #define REFRESH_S  (6 * 60)
 #define MERC_MAX 20037508.342789244
 
@@ -160,9 +167,13 @@ static bool cache_load(void)
     // Costs ~20 ms per map (50 -> 70 ms), in this task.
     xSemaphoreTake(cache_mux, portMAX_DELAY);
     bool ok = true;
-    for (size_t off = 0; ok && off < W * H * 2; off += 4096)
+    for (size_t off = 0; ok && off < W * H * 2; off += 4096) {
         ok = esp_partition_read(p, base + sizeof(h) + off, (uint8_t *)base565 + off,
                                 W * H * 2 - off < 4096 ? W * H * 2 - off : 4096) == ESP_OK;
+        // The P4's 1.2 MB map is 300 reads: a breath now and then, or this core's idle task starved past the task
+        // watchdog's limit at start-up (with the main task's TLS handshakes; "task_wdt: IDLE0", 2026-10-29)
+        if (!DISP_ROUND && (off & 0xFFFF) == 0xF000) vTaskDelay(1);
+    }
     xSemaphoreGive(cache_mux);
     return ok;
 }
@@ -402,7 +413,9 @@ typedef struct {
 } frame_t;
 // The marks live after the pixels in the same PSRAM buffer (idx is W*H + 2*LTG_MAX), so they move with it in
 // plan_frames(). Not in frame_t: it is copied ~46 times (frames, plan_frames, load_frame).
-#define LTG_X(f) ((f)->idx + W * H)                 // in 2 px units (466 / 2 fits a byte)
+// Positions in LTG_U px units, so they fit a byte: 2 for 466 px, 4 for 1024
+#define LTG_U    ((W > 510 || H > 510) ? 4 : 2)
+#define LTG_X(f) ((f)->idx + W * H)
 #define LTG_Y(f) ((f)->idx + W * H + LTG_MAX)
 
 // The 46 frame_t below (palettes: ~1 KB each) are in PSRAM: in internal RAM they were 48 KB, ~86 % of main/'s static
@@ -522,8 +535,8 @@ static void dec_lightning(frame_t *f, dl_t *d, bool got, const char *iso)
         if (!cnt[b]) continue;
         flashes += cnt[b];
         if (f->nltg < LTG_MAX) {
-            lx[f->nltg] = sx[b] / cnt[b] / 2;
-            ly[f->nltg] = sy[b] / cnt[b] / 2;
+            lx[f->nltg] = sx[b] / cnt[b] / LTG_U;
+            ly[f->nltg] = sy[b] / cnt[b] / LTG_U;
             f->nltg++;
         }
     }
@@ -663,7 +676,7 @@ static void compose(const frame_t *f)
                            (f->g[ix] * a + bg * (255 - a)) / 255,
                            (f->b[ix] * a + bb * (255 - a)) / 255);
     }
-    for (int k = 0; k < f->nltg; k++) draw_bolt(LTG_X(f)[k] * 2, LTG_Y(f)[k] * 2);
+    for (int k = 0; k < f->nltg; k++) draw_bolt(LTG_X(f)[k] * LTG_U, LTG_Y(f)[k] * LTG_U);
 }
 
 #define ZOOM_ANIM_MS 300

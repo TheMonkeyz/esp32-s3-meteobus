@@ -331,6 +331,10 @@ X(T_WIFI_SETUP,     "Wi-Fi setup",                 "Configuration Wi-Fi",
 X(T_WIFI_JOIN,      "Scan to join %s\n(password %s).\nAndroid? Swipe left to skip\nthe password",
                     "Balayez pour joindre %s\n(mot de passe %s).\nAndroid? Glissez à gauche\npour éviter le mot de passe",
                     "ᐊᔾᔨᓕᐅᕐᓕ ᑲᓱᕐᓗᒍ %s\n(ᐃᓯᕈᑦ %s).\nAndroid? ᓂᕈᓗᓪᓕ ᓴᐅᒥᒧᑦ\nᐃᓯᕈᑦ ᐲᖅᓗᒍ")
+// T_WIFI_JOIN without its Easy Connect hint, where there is no Easy Connect (the ESP32-P4: Wi-Fi through a co-processor)
+X(T_WIFI_JOIN_PW,   "Scan to join %s\n(password %s).",
+                    "Balayez pour joindre %s\n(mot de passe %s).",
+                    "ᐊᔾᔨᓕᐅᕐᓕ ᑲᓱᕐᓗᒍ %s\n(ᐃᓯᕈᑦ %s).")
 X(T_WIFI_DPP_TITLE, "Android: Easy Connect",       "Android : Easy Connect",
                     "Android: Easy Connect")
 X(T_WIFI_DPP_HOW,   "With your phone on your Wi-Fi,\nscan this (camera or any QR app).\nYour phone sends its network.\nSwipe right for other phones",

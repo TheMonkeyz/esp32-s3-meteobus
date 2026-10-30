@@ -29,10 +29,15 @@ typedef struct {
                                         // > 0 moved right / down (prev shows); even
 } frame_t;
 
-// n pixels, little-endian RGB565 -> panel byte order, two at a time (rows and offsets are even, so 4-byte aligned)
+// n pixels, little-endian RGB565 -> panel byte order, two at a time (rows and offsets are even, so 4-byte aligned).
+// A plain copy where the panel takes LVGL's order (DISP_SWAP 0: the P4's DPI frame buffer).
 static inline void copy_swap(void *dst, const void *src, int n)
 {
     uint32_t *d = dst;
+#if !DISP_SWAP
+    if (src) memcpy(dst, src, n * 2); else memset(dst, 0, n * 2);
+    return;
+#endif
     if (!src) { for (int i = 0; i < n / 2; i++) d[i] = 0; return; }
     const uint32_t *s = src;
     for (int i = 0; i < n / 2; i++) {
@@ -72,6 +77,23 @@ static void fill(int y0, int n, void *dst, void *user)
 static void show(frame_t *f, int off)
 {
     f->off = off & ~1;
+#if !DISP_SWAP
+    // The 2D engine: the frame is two blocks, the end of one picture and the start of the other (fill(), as copies)
+    const int W = DISP_W, H = DISP_H, o = f->off, sw = f->stride / 2;
+    if (f->stride == W * 2) {
+        bool ok;
+        display_frame_begin();
+        if (!f->vertical) ok = o <= 0 ? display_blit(f->cur, sw, H, -o, 0, W + o, H, 0, 0) &&
+                                        display_blit(f->next, sw, H, 0, 0, -o, H, W + o, 0)
+                                      : display_blit(f->prev, sw, H, W - o, 0, o, H, 0, 0) &&
+                                        display_blit(f->cur, sw, H, 0, 0, W - o, H, o, 0);
+        else ok = o <= 0 ? display_blit(f->cur, sw, H, 0, -o, W, H + o, 0, 0) &&
+                           display_blit(f->next, sw, H, 0, 0, W, -o, 0, H + o)
+                         : display_blit(f->prev, sw, H, 0, H - o, W, o, 0, 0) &&
+                           display_blit(f->cur, sw, H, 0, 0, W, H - o, 0, o);
+        if (ok) { display_frame_done(); return; }
+    }
+#endif
     display_raw_frame(fill, f);
 }
 
@@ -671,7 +693,19 @@ static void drag_run(void *unused)
                 if (ahead > 80000) ahead = 80000;
                 raw = pos_last + (int)((pos_last - pos_prev) * (float)ahead / (t_last - t_prev));
             }
-        } else hold_since = 0;
+        } else {
+            hold_since = 0;
+#if !DISP_ROUND
+            // Between two touch reports (the P4 board's GT911: every 20 ms, frames every 16): a repeated point would hold
+            // the page still for a frame, then jump ("stuttering", the user, 2026-10-29). It goes on at the finger's
+            // last speed instead, at most one report's worth past the last point.
+            if (r > 0 && !touch_fresh() && t_last > t_prev && raw == pos_last) {
+                int64_t ahead = tnow - t_last;
+                if (ahead > 20000) ahead = 20000;
+                raw = pos_last + (int)((pos_last - pos_prev) * (float)ahead / (t_last - t_prev));
+            }
+#endif
+        }
         int side = raw > 0 ? -1 : raw < 0 ? 1 : 0, i = side < 0 ? 0 : 1;
         if (side && !tried[i]) {                             // the neighbour on this side, the first time it's needed
             tried[i] = true;
@@ -873,6 +907,33 @@ static void scroll_move_fill(int x0, int w, int y0, int n, void *dst, void *user
     }
 }
 
+#if !DISP_SWAP
+/* scroll_move_fill's frame by the 2D-DMA (the P4): the frame is built in the frame buffer not shown, from blocks of
+ * the picture (= the screen before this frame): outside the list as it is, the list's rows moved by d, and the rows
+ * from the strip (scroll_move_fill's s0..s1); then it is shown, and the picture's list area follows from the screen.
+ * The CPU's path (move the rows within the picture in PSRAM, then copy them out) took 24-27 ms a frame at 1024x600. */
+static bool scroll_frame_dma(scroller_t *s, int d)
+{
+    const lv_area_t *r = &s->r;
+    const int W = DISP_W, H = DISP_H, x1 = r->x1, lw = lv_area_get_width(r), h = lv_area_get_height(r);
+    if (s->pic->header.stride != W * 2 || s->strip->header.stride != W * 2) return false;
+    const void *pic = s->pic->data;
+    int s0 = s->in0 - s->up, s1 = s->in1 + s->down;
+    if (s0 < r->y1) s0 = r->y1;
+    if (s1 > r->y2) s1 = r->y2;
+    display_frame_begin();
+    bool ok = display_blit(pic, W, H, 0, 0, W, r->y1, 0, 0) &&                                    // above the list
+              display_blit(pic, W, H, 0, r->y2 + 1, W, H - 1 - r->y2, 0, r->y2 + 1) &&             // below
+              display_blit(pic, W, H, 0, r->y1, x1, h, 0, r->y1) &&                                // left of it
+              display_blit(pic, W, H, r->x2 + 1, r->y1, W - 1 - r->x2, h, r->x2 + 1, r->y1) &&     // right of it
+              display_blit(pic, W, H, x1, r->y1 + d, lw, s0 - r->y1, x1, r->y1) &&                 // moved rows
+              display_blit(pic, W, H, x1, s1 + 1 + d, lw, r->y2 - s1, x1, s1 + 1) &&
+              display_blit(s->strip->data, W, s->strip->header.h, x1, s0 - s->in0 + ROW_MARGIN, lw, s1 - s0 + 1, x1, s0);
+    display_frame_done();
+    return display_read(s->pic->data, W, H, x1, r->y1, lw, h) && ok;   // the picture = the screen again
+}
+#endif
+
 // Scroll to position `want`: LVGL's state, the picture (moved rows + rendered new ones), the panel
 static void scroll_step(scroller_t *s, int want)
 {
@@ -893,6 +954,9 @@ static void scroll_step(scroller_t *s, int want)
         s->in1 = d > 0 ? r->y2 : r->y1 - d - 1;
         render_rows_reach(s->scr, s->strip, s->in0 - ROW_MARGIN, s->in0, s->in1, s->up, s->down);   // (+ margins)
         t2 = esp_timer_get_time();
+#if !DISP_SWAP
+        if (!scroll_frame_dma(s, d))
+#endif
         display_raw_area(r->x1, r->y1, r->x2, r->y2, d < 0, scroll_move_fill, s);
     } else {                                             // a jump (or no strip): the whole list, then send
         if (abs(d) >= h) render_rows_reach(s->scr, s->pic, 0, r->y1, r->y2, s->up, s->down);
@@ -1304,23 +1368,23 @@ static void zoom_fill(int y0, int n, void *dst, void *user)
         uint32_t *d32 = (uint32_t *)d;
         for (int x = 0; x < DISP_W; x += 2) {            // DISP_W is even; a row is 4-byte aligned (DISP_W * 2)
             uint32_t v = s[col[x]] | ((uint32_t)s[col[x + 1]] << 16);
-            d32[x >> 1] = ((v & 0x00FF00FFu) << 8) | ((v >> 8) & 0x00FF00FFu);
+            d32[x >> 1] = DISP_SWAP ? ((v & 0x00FF00FFu) << 8) | ((v >> 8) & 0x00FF00FFu) : v;
         }
         uint32_t c0 = esp_cpu_get_cycle_count();
         for (int k = ovl_row[y]; k < ovl_row[y + 1]; k++) {
             const ovl_run_t r = ovl[k];
             uint16_t *q = d + r.x;                       // (d is already in the panel's byte order)
             if (r.a5 == 32) {                            // opaque
-                const uint16_t sw = __builtin_bswap16(r.c);
+                const uint16_t sw = DISP_SWAP ? __builtin_bswap16(r.c) : r.c;
                 for (int i = 0; i < r.len; i++) q[i] = sw;
                 continue;
             }
             const uint32_t f = ((uint32_t)r.c | ((uint32_t)r.c << 16)) & 0x07E0F81Fu, a = r.a5;
             for (int i = 0; i < r.len; i++) {
-                uint32_t m = __builtin_bswap16(q[i]);
+                uint32_t m = DISP_SWAP ? __builtin_bswap16(q[i]) : q[i];
                 m = (m | (m << 16)) & 0x07E0F81Fu;
                 uint32_t v = ((((f - m) * a) >> 5) + m) & 0x07E0F81Fu;
-                q[i] = __builtin_bswap16((uint16_t)(v | (v >> 16)));
+                q[i] = DISP_SWAP ? __builtin_bswap16((uint16_t)(v | (v >> 16))) : (uint16_t)(v | (v >> 16));
             }
         }
         zoom_ovl_cyc += esp_cpu_get_cycle_count() - c0;
