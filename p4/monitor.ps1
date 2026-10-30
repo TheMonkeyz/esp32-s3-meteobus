@@ -61,6 +61,13 @@ while ((Get-Date) -lt $end) {
         }
       } catch {}   # still being written: next check
     }
+    # run\job.request (2026-10-29): run run\job.cmd once, hidden, while the log goes on: git, gh and ESP-IDF on this PC
+    # for a cloud session whose own shell can't reach them (job.cmd writes its output and run\job.done itself)
+    if (Test-Path "run\job.request") {
+      Remove-Item "run\job.request" -Force
+      Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "`"$PSScriptRoot\run\job.cmd`"" -WorkingDirectory "$PSScriptRoot\run" -WindowStyle Hidden
+      Write-Host "> run\job.cmd started" -ForegroundColor Cyan
+    }
     try {
       while ([Console]::KeyAvailable) {
         $k = [Console]::ReadKey($true).Key

@@ -37,3 +37,6 @@ CONFIG_LWIP_STATS=y
 # Task watchdog: 10 s (5 by default). At start-up the main task's TLS handshakes (mbedtls's software comb method for
 # P-256/P-384 here) and the radar's full-size maps kept core 0 busy past 5 s: "task_wdt: IDLE0" warnings, no hang.
 CONFIG_ESP_TASK_WDT_TIMEOUT_S=10
+# Updates: not the AMOLED's site (its releases are ESP32-S3 images). A P4 channel will live here; until then the check
+# finds nothing (HTTP 404) and the display says it is up to date.
+CONFIG_FORGE_OTA_SITE="https://themonkeyz.github.io/esp32-s3-meteobus/p4/"

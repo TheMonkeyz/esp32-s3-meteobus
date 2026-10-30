@@ -12,6 +12,7 @@
 #include "config.h"
 #include "net.h"
 #include "web.h"
+#include "forge_compat.h"
 #include "alerts.h"
 #include "ota.h"
 #include "services.h"
