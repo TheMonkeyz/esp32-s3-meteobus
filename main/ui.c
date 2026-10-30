@@ -941,6 +941,10 @@ static void badge_draw(lv_event_t *e)
 }
 
 static void badge_ext(lv_event_t *e) { lv_event_set_ext_draw_size(e, BADGE_R + 4); }
+// LVGL calls an object's DRAW_POST only when the band it renders meets the object itself, not its extra draw size
+// (lv_obj_redraw): the band above the weather icon (the panel's 32-row bands, 2026-10-29) left the top of the badge
+// out, cut flat. With "overflow visible" the extra size counts for that test too.
+#define BADGE_OVERFLOW LV_OBJ_FLAG_OVERFLOW_VISIBLE
 
 // The icon's tap zone, on screen: the icon and its badge, with a margin for a finger
 static bool on_hero_icon(lv_point_t p)
@@ -1676,8 +1680,19 @@ static lv_obj_t *al_label(lv_obj_t *parent, lv_font_t *f, lv_color_t c)
 // Title fixed at the top; when, where and the text scroll together in one column, so a long area name
 // wraps instead of running into the text. A long title ("Wreckhouse wind warning", longer in French) wraps too,
 // and the column starts under its last line (al_layout).
+#if DISP_ROUND
 #define AL_TITLE_Y  40
 #define AL_BOX_END  420                                 // the column's bottom edge
+#define AL_W        260                                 // the title: the round edge's width at its first line
+#define AL_BOX_W    310
+#define AL_PAD_END  90                                  // the last lines can scroll above the round edge
+#else                                                   // landscape: one wide column, the map centred above the text
+#define AL_TITLE_Y  28
+#define AL_BOX_END  (DISP_H - 16)
+#define AL_W        900
+#define AL_BOX_W    860
+#define AL_PAD_END  20
+#endif
 static lv_obj_t *al_box;
 
 static void al_layout(void)
@@ -1694,15 +1709,16 @@ static void alert_create(void)
 {
     scr_alert = base_screen();
     al_title = label(scr_alert, f_city, C_TEXT, AL_TITLE_Y);
-    lv_obj_set_width(al_title, 260);                    // the round edge's width at the first line
+    lv_obj_set_width(al_title, AL_W);
     lv_label_set_long_mode(al_title, LV_LABEL_LONG_WRAP);
     lv_obj_t *box = al_box = lv_obj_create(scr_alert);
     lv_obj_remove_style_all(box);
-    lv_obj_set_size(box, 310, AL_BOX_END - 80);
+    lv_obj_set_size(box, AL_BOX_W, AL_BOX_END - 80);
     lv_obj_align(box, LV_ALIGN_TOP_MID, 0, 80);
     lv_obj_set_flex_flow(box, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(box, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);   // the map centred
     lv_obj_set_style_pad_row(box, 4, 0);
-    lv_obj_set_style_pad_bottom(box, 90, 0);            // the last lines can scroll above the round edge
+    lv_obj_set_style_pad_bottom(box, AL_PAD_END, 0);
     lv_obj_set_scroll_dir(box, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(box, LV_SCROLLBAR_MODE_OFF);
     lv_obj_add_flag(box, LV_OBJ_FLAG_EVENT_BUBBLE | LV_OBJ_FLAG_GESTURE_BUBBLE);
@@ -2468,16 +2484,25 @@ static void update_create(void)
     lv_obj_add_flag(up_pill, LV_OBJ_FLAG_HIDDEN);
 
     scr_update = base_screen();
+#if DISP_ROUND
     up_title = label(scr_update, f_city, C_ACCENT, 40);
     lv_obj_set_width(up_title, 300);
     up_box = lv_obj_create(scr_update);
     lv_obj_remove_style_all(up_box);
     lv_obj_set_size(up_box, 310, 386);
     lv_obj_align(up_box, LV_ALIGN_TOP_MID, 0, 80);
+#else                                                   // landscape: the title on one line, a wider column
+    up_title = label(scr_update, f_city, C_ACCENT, 32);
+    lv_obj_set_width(up_title, 900);
+    up_box = lv_obj_create(scr_update);
+    lv_obj_remove_style_all(up_box);
+    lv_obj_set_size(up_box, 720, DISP_H - 100 - 16);
+    lv_obj_align(up_box, LV_ALIGN_TOP_MID, 0, 100);
+#endif
     lv_obj_set_flex_flow(up_box, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(up_box, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_row(up_box, 10, 0);
-    lv_obj_set_style_pad_bottom(up_box, 90, 0);         // the last lines can scroll above the round edge
+    lv_obj_set_style_pad_bottom(up_box, DISP_ROUND ? 90 : 20, 0);   // round: the last lines scroll above the edge
     lv_obj_set_scroll_dir(up_box, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(up_box, LV_SCROLLBAR_MODE_OFF);
     lv_obj_add_flag(up_box, LV_OBJ_FLAG_EVENT_BUBBLE | LV_OBJ_FLAG_GESTURE_BUBBLE);
@@ -2603,6 +2628,7 @@ static void place_page_create(int i, lv_obj_t *pg)
     lv_obj_add_event_cb(p->icon, badge_draw, LV_EVENT_DRAW_POST, NULL);      // tap: the radar (main_tap)
     lv_obj_add_event_cb(p->icon, badge_ext, LV_EVENT_REFR_EXT_DRAW_SIZE, NULL);
     lv_obj_refresh_ext_draw_size(p->icon);
+    lv_obj_add_flag(p->icon, BADGE_OVERFLOW);
     p->temp = lv_label_create(hero);
     lv_obj_set_style_text_font(p->temp, f_big, 0);
     lv_obj_set_style_text_color(p->temp, C_TEXT, 0);
@@ -2671,6 +2697,7 @@ static void place_page_create(int i, lv_obj_t *pg)
     lv_obj_add_event_cb(p->icon, badge_draw, LV_EVENT_DRAW_POST, NULL);      // tap: the radar (main_tap)
     lv_obj_add_event_cb(p->icon, badge_ext, LV_EVENT_REFR_EXT_DRAW_SIZE, NULL);
     lv_obj_refresh_ext_draw_size(p->icon);
+    lv_obj_add_flag(p->icon, BADGE_OVERFLOW);
     p->temp = lv_label_create(hero);
     lv_obj_set_style_text_font(p->temp, f_big, 0);
     lv_obj_set_style_text_color(p->temp, C_TEXT, 0);
@@ -3221,6 +3248,8 @@ static void stop_page_create(int i, lv_obj_t *pg)
     lv_obj_set_style_margin_bottom(p->badge, 14, 0);
     lv_obj_add_event_cb(p->badge, pin_draw_cb, LV_EVENT_DRAW_POST, NULL);    // tap: the bus map (bus_tap)
     lv_obj_add_event_cb(p->badge, badge_ext, LV_EVENT_REFR_EXT_DRAW_SIZE, NULL);
+    lv_obj_refresh_ext_draw_size(p->badge);
+    lv_obj_add_flag(p->badge, BADGE_OVERFLOW);
     p->route = lv_label_create(p->badge);
     lv_obj_set_style_text_font(p->route, f_city, 0);
     lv_obj_set_style_text_color(p->route, lv_color_hex(0x04121F), 0);
@@ -3295,6 +3324,8 @@ static void stop_page_create(int i, lv_obj_t *pg)
     lv_obj_set_style_margin_bottom(p->badge, 8, 0);
     lv_obj_add_event_cb(p->badge, pin_draw_cb, LV_EVENT_DRAW_POST, NULL);    // tap: the bus map (bus_tap)
     lv_obj_add_event_cb(p->badge, badge_ext, LV_EVENT_REFR_EXT_DRAW_SIZE, NULL);
+    lv_obj_refresh_ext_draw_size(p->badge);
+    lv_obj_add_flag(p->badge, BADGE_OVERFLOW);
     p->route = lv_label_create(p->badge);
     lv_obj_set_style_text_font(p->route, f_city, 0);
     lv_obj_set_style_text_color(p->route, lv_color_hex(0x04121F), 0);
@@ -3638,6 +3669,22 @@ static uint32_t bm_anim_until;             // lv_tick when the zoom's motion end
 static lv_draw_buf_t *bm_none;            // 1 x 1: the canvas's buffer while the map is closed (it can't have none)
 static bool bm_path_drawn;                 // the path is on the picture drawn at bm_zoom_drawn
 static void bm_text(lv_obj_t *l, const char *t, int max_w);
+// The pills: where the round screen is wide enough for them (y 76: 344 px; 387: 312; 417: 286); landscape has room
+#if DISP_ROUND
+#define BM_TITLE_Y 76
+#define BM_STATUS_Y 362
+#define BM_ATTR_Y 396
+#define BM_TITLE_W 330
+#define BM_STATUS_W 290
+#define BM_ATTR_W 280
+#else
+#define BM_TITLE_Y 24
+#define BM_STATUS_Y (DISP_H - 92)
+#define BM_ATTR_Y (DISP_H - 46)
+#define BM_TITLE_W 800
+#define BM_STATUS_W 700
+#define BM_ATTR_W 600
+#endif
 static void bm_refresh(void);
 static bool bm_quit;                       // the map closed (under the display lock)
 static volatile int bm_zoom = BM_ZOOM, bm_zoom_drawn = -1;
@@ -3816,7 +3863,7 @@ static void bm_refresh(void)
     char buf[96], d[64] = "";
     if (e.state == DEP_OK) textfit(e.board.direction, d, sizeof(d));
     snprintf(buf, sizeof(buf), "%s%s%s", e.fav.route, d[0] ? "  →  " : "", d);
-    bm_text(bm_title, buf, 330);
+    bm_text(bm_title, buf, BM_TITLE_W);
     bm_marker(bm_stop, bm_lat, bm_lon);
     EXT_RAM_BSS_ATTR static rtc_bus_t bus[BM_BUSES];
     time_t fetched;
@@ -3836,7 +3883,7 @@ static void bm_refresh(void)
     else if (next) { char w[16]; bus_when(next->depart, now, w, sizeof(w)); snprintf(buf, sizeof(buf), tr(T_MAP_NEXT), w); }
     else if (!nb) snprintf(buf, sizeof(buf), "%s", tr(T_MAP_NO_BUS));
     else buf[0] = 0;
-    bm_text(bm_status, buf, 290);
+    bm_text(bm_status, buf, BM_STATUS_W);
 }
 
 static void busmap_open(int i)
@@ -4057,12 +4104,12 @@ static void busmap_create(void)
     // (2026-10-10). The pills come after them, so they stay readable.
     bm_stop = bm_dot(C_TEXT, 14);
     for (int i = 0; i < BM_BUSES; i++) bm_bus[i] = bm_bus_icon();
-    // Where the round screen is wide enough for them (y 76: 344 px; 387: 312; 417: 286), long text cut (bm_text):
-    // the title at y 34 and the credit at 430 ran past the edge (the user, 2026-10-10); the credit is never cut
-    bm_title = bm_pill(f_small, C_TEXT, 76);
-    bm_status = bm_pill(f_tiny, C_TEXT, 362);
-    bm_attr = bm_pill(f_micro, C_TEXT, 396);              // OSM asks for it on screen; on a pill to be read
-    bm_text(bm_attr, "© OpenStreetMap contributors", 280);
+    // Long text cut (bm_text): on the round screen the title at y 34 and the credit at 430 ran past the edge (the
+    // user, 2026-10-10); the credit is never cut
+    bm_title = bm_pill(f_small, C_TEXT, BM_TITLE_Y);
+    bm_status = bm_pill(f_tiny, C_TEXT, BM_STATUS_Y);
+    bm_attr = bm_pill(f_micro, C_TEXT, BM_ATTR_Y);        // OSM asks for it on screen; on a pill to be read
+    bm_text(bm_attr, "© OpenStreetMap contributors", BM_ATTR_W);
     passthrough(scr_busmap);
     lv_obj_add_event_cb(scr_busmap, busmap_gesture, LV_EVENT_GESTURE, NULL);
     lv_obj_add_event_cb(scr_busmap, busmap_unloaded, LV_EVENT_SCREEN_UNLOADED, NULL);

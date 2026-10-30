@@ -205,7 +205,8 @@ static void cmd_profile(int argc, char **argv)          // one frame of each scr
 #endif
 
 
-/* "shot SCREEN [DIV]": a screen (ui_snapshot's names: weather, stop1, radar, settings, hourly0, ...) sent over USB as
+/* "shot SCREEN [DIV]": a screen (ui_snapshot's names: weather, stop1, radar, settings, hourly0, ...; "panel": the
+ * landscape panel's frame buffer as shown) sent over USB as
  * base64 RGB565, every DIV-th pixel of every DIV-th row (DIV 1..4, default 2): "SHOT name w h", one "S:" line per row,
  * "SHOTEND". tools/shot.py turns a log into PNGs. For a session that can't reach the board's HTTPS /api/snapshot (the
  * cloud's), and for screens before Wi-Fi. Straight to the USB driver (testcon's): the UART console would take ~40 s. */
@@ -239,7 +240,14 @@ static void shot_task(void *arg)
     const char *name = shot_name;
     int div = shot_div;
     display_lock(-1);
-    lv_draw_buf_t *db = ui_snapshot(name);
+    lv_draw_buf_t *db = NULL;
+#if !DISP_ROUND
+    if (!strcmp(name, "panel")) {                           // what the panel shows now (its frame buffer), not a render
+        db = lv_draw_buf_create(DISP_W, DISP_H, LV_COLOR_FORMAT_RGB565, 0);
+        if (db && !display_read(db->data, DISP_W, DISP_H, 0, 0, DISP_W, DISP_H)) { lv_draw_buf_destroy(db); db = NULL; }
+    } else
+#endif
+    db = ui_snapshot(name);
     display_unlock();
     if (!db) { ESP_LOGW(TAG, "error shot %s: no picture", name); vTaskDelete(NULL); return; }
     int w = db->header.w / div, h = db->header.h / div;
