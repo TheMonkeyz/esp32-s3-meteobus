@@ -551,7 +551,7 @@ static void page_dots(lv_obj_t *scr, int active)   // 0 status, 1 extras, 2 weat
 #define HC_W_X  236
 #define HC_W_W  72
 #define LIST_Y  96
-#define LIST_H  314
+#define HLIST_H  314
 #else       // landscape: a wide list, the same columns spread out
 #define ROW_H   58
 #define LIST_W  820
@@ -567,7 +567,7 @@ static void page_dots(lv_obj_t *scr, int active)   // 0 status, 1 extras, 2 weat
 #define HC_W_X  600
 #define HC_W_W  190
 #define LIST_Y  104
-#define LIST_H  440
+#define HLIST_H  440
 #endif
 #define TOP_H   (GRAPH_H + HDR_H)    // rows start here
 typedef struct {
@@ -944,8 +944,9 @@ static void badge_draw(lv_event_t *e)
 static void badge_ext(lv_event_t *e) { lv_event_set_ext_draw_size(e, BADGE_R + 4); }
 // LVGL calls an object's DRAW_POST only when the band it renders meets the object itself, not its extra draw size
 // (lv_obj_redraw): the band above the weather icon (the panel's 32-row bands, 2026-10-29) left the top of the badge
-// out, cut flat. With "overflow visible" the extra size counts for that test too.
-#define BADGE_OVERFLOW LV_OBJ_FLAG_OVERFLOW_VISIBLE
+// out, cut flat. With "overflow visible" the extra size counts for that test too. Landscape only: on the round screen
+// it was never seen, and there the moon's cut-out (a disc of the background colour) would reach past the icon's top.
+#define BADGE_OVERFLOW (DISP_ROUND ? 0 : LV_OBJ_FLAG_OVERFLOW_VISIBLE)
 
 // The icon's tap zone, on screen: the icon and its badge, with a margin for a finger
 static bool on_hero_icon(lv_point_t p)
@@ -1036,7 +1037,7 @@ static void hour_create(void)
 
         dp->list = lv_obj_create(dp->page);                    // graph + headers + hour rows (hr_draw)
         lv_obj_remove_style_all(dp->list);
-        lv_obj_set_size(dp->list, LIST_W, LIST_H);
+        lv_obj_set_size(dp->list, LIST_W, HLIST_H);
         lv_obj_align(dp->list, LV_ALIGN_TOP_MID, 0, LIST_Y);
         lv_obj_set_scroll_dir(dp->list, LV_DIR_VER);
         lv_obj_set_scrollbar_mode(dp->list, LV_SCROLLBAR_MODE_OFF);
