@@ -459,10 +459,19 @@ bool display_cpu_full_speed(void) { return true; }       // no power management 
 
 static char init_note[96];             // repeated 8 s after start: the boot's first ~3 s miss the USB log
 
+// Counted by the DSI bridge's interrupt in this build's ESP-IDF (esp_lcd_panel_dpi.c, a local patch): its own message
+// for an underrun goes to UART0, which nothing reads on this board. Weak: absent in an unpatched ESP-IDF.
+extern volatile uint32_t meteobus_dpi_underruns __attribute__((weak));
+
 static void lvgl_task(void *arg)
 {
     bool noted = false, lit = false;
+    uint32_t underruns = 0;
     while (1) {
+        if (&meteobus_dpi_underruns && meteobus_dpi_underruns != underruns) {
+            underruns = meteobus_dpi_underruns;
+            ESP_LOGW(TAG, "panel underrun (%lu so far): the frame couldn't be read from PSRAM in time", (unsigned long)underruns);
+        }
         // The backlight once LVGL's first frame is in the frame buffer: before it the panel showed a cyan field at boot
         if (!lit && st.frames) { lit = true; vTaskDelay(pdMS_TO_TICKS(20)); bl_set(asleep ? 0 : level_set); }
         if (!noted && esp_timer_get_time() > 8000000) { noted = true; ESP_LOGI(TAG, "%s", init_note); }

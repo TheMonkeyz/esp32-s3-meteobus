@@ -11,7 +11,9 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "esp_log.h"
-#include "driver/gpio.h"
+#if CONFIG_IDF_TARGET_ESP32P4
+#include "driver/gpio.h"                  // the amplifier, switched here (the web emulator has no driver/)
+#endif
 #include "esp_heap_caps.h"
 #include "nvs.h"
 #include "esp_codec_dev.h"

@@ -128,6 +128,9 @@ component manager off, as CLAUDE.md's "Cloud build recipe", plus:
 - vendored components in `EXTRA_COMPONENT_DIRS`: lvgl 9.2.2, esp_codec_dev 1.6.2, esp_hosted 2.12.13, esp_wifi_remote
   1.6.5, esp_lcd_jd9165 2.0.2 (its CMakeLists and esp_lcd_ek79007's used the component manager's version macros:
   patched to build without it), and espforge's components with `p4/espforge-p4.patch`;
+- `p4/esp-idf-dpi-underrun.patch` on ESP-IDF (optional): the DSI bridge's interrupt counts underruns, and
+  `display_p4.c` logs `panel underrun (N so far)`; ESP-IDF's own message for them goes to UART0, which nothing reads on
+  this board. Without the patch the count is simply absent (a weak symbol);
 - `cmake -S . -B build/p4 -G Ninja -DIDF_TARGET=esp32p4 -DSDKCONFIG=build/p4/sdkconfig ...`, then `ninja -C build/p4`.
 
 ## Flashing and testing on the PC
