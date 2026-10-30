@@ -72,6 +72,14 @@ The panel's init sequence and pin map come from Waveshare's BSP
 (`waveshareteam/Waveshare-ESP32-components`, `bsp/esp32_s3_touch_amoled_1_75`). We don't use the BSP itself;
 `display.c` is a small standalone driver.
 
+### The second board: Guition JC1060P470C (ESP32-P4, branch `port/esp32-p4`)
+
+A 7" 1024x600 landscape panel (MIPI-DSI JD9165), GT911 touch, one ES8311 for speaker and microphone, Wi-Fi through an
+ESP32-C6 (esp-hosted over SDIO), no motion sensor. Its own `display_p4.c`, `touch_p4.c`, `audio_p4.c`, `imu_p4.c`, picked
+by `IDF_TARGET` in `main/CMakeLists.txt`; `DISP_ROUND` 0 (landscape layout in `ui.c`) and `DISP_SWAP` 0 (`slide.c` copies
+without the byte swap) in `display.h`. Moves are built in a second frame buffer by the 2D-DMA and swapped at the panel's
+refresh. Everything else (pins, pipeline, Wi-Fi co-processor, build, lessons): `docs/P4-PORT.md`.
+
 ## Tasks
 
 | Task | Core / priority | Job |

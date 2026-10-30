@@ -53,6 +53,9 @@ bus display ([esp32-s3-rtcquebec](https://github.com/TheMonkeyz/esp32-s3-rtcqueb
 - A **Waveshare ESP32-S3-Touch-AMOLED-1.75**: ESP32-S3 with 16 MB flash and 8 MB PSRAM, 1.75" round AMOLED
   (466×466 CO5300 panel), CST9217 touch. The firmware also uses its two microphones (presence dimming), its speaker
   (alert sounds) and its motion sensor (wake on pick-up).
+- *In progress, not released:* a 7" landscape version for the **Guition JC1060P470C** (ESP32-P4, 1024×600, Wi-Fi
+  through its ESP32-C6). It has no motion sensor and no Easy Connect, and needs a small speaker in its 2-pin speaker
+  socket for alert sounds. Built from the `port/esp32-p4` branch only; see [docs/P4-PORT.md](docs/P4-PORT.md).
 - A **USB-C data cable** and a computer with **Chrome or Edge** for the first install.
 - A **Wi-Fi network** with internet access, and a **phone** for the Wi-Fi setup and the settings page. The ESP32-S3
   only has 2.4 GHz Wi-Fi.

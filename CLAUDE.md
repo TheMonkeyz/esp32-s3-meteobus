@@ -63,6 +63,28 @@ before working on the merge. Everything below came with the weather display, and
 - **Tools that are git-ignored** and had to be copied from weather_amoled for a fresh folder: `tools/esptool.exe` and
   its `tools/LICENSE`, `tools/webtest/.browsers` (Playwright's Chromium), `node_modules` (`npm ci`).
 
+### Second board: Guition JC1060P470C (branch `port/esp32-p4`, 2026-10-29)
+
+- **The same firmware for an ESP32-P4 board** with a 7" 1024x600 landscape panel and an ESP32-C6 for Wi-Fi, on **COM7**.
+  Everything about it is in **`docs/P4-PORT.md`** (board, pins, code, build, flashing, what's open, lessons): read it
+  before touching `*_p4.c`, `sdkconfig.defaults.esp32p4` or anything under `#if !DISP_ROUND`. No tags or releases from
+  that branch; espforge changes it needs are in `p4/espforge-p4.patch` until espforge has them.
+- The AMOLED must not change: board code is chosen by target (`main/CMakeLists.txt`), layout by `DISP_ROUND` and byte
+  order by `DISP_SWAP` (`display.h`). Build both targets after a change to shared code.
+- Tools: `p4\start_p4_helper.bat` (the P4's flash helper), `p4/flash.sh MD5`, `p4/shots.sh`, console `shot panel 1`
+  (what the panel really shows), `netstat`, `blitbench`, `c6update`.
+- Lessons (details in docs/P4-PORT.md):
+  11. Identify the board (product link, photo) before porting: a guessed board and panel cost the first hours.
+  12. Pins from a working setup for the same board and an I2C scan, not the schematic: amplifier GPIO 11 (not 20), no
+     ES7210 (the microphone is the ES8311's input). "Played" in the log doesn't mean sound came out.
+  13. "Unreachable" settings page: count packets on the board (`netstat`) first. The C6's network split, then the
+     user's router (phones on Wi-Fi fail, the wired PC works; the AMOLED too), never the display's server.
+  14. LVGL calls DRAW_POST only when the band meets the object itself: a badge past its object's edge needs
+     `LV_OBJ_FLAG_OVERFLOW_VISIBLE`. Check with `pictest` after a swipe and `shot panel`, not only `shot SCREEN`.
+  15. One esp_codec_dev device per codec chip (`es8311_open()` rewrites the chip), created under a lock.
+  16. The settings page keeps the display's key per address (origin): a new port or address means scanning the QR
+     code again, and the page then says "Could not reach the display" (to fix).
+
 Read `README.md`, `docs/HISTORY.md` (how the project grew, how the work is done now, what is still open) and
 `docs/ARCHITECTURE.md` first. **On a Mac, read `docs/MACOS.md` first**: it replaces this file's Windows setup (COM5,
 PowerShell, WSL, `C:\` paths) and sets a designer's scope (her branch only: no tags, releases or `main`). This file collects the practical lessons, September 29 to October 2, 2026: what worked,

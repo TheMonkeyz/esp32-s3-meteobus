@@ -158,6 +158,14 @@ What it taught: time the parts before optimising one (a cycle counter found the 
 while three plausible speed-ups measured nothing), and a check can be wrong in the test (a console command asking the
 CPU's clock always runs at full speed).
 
+### October 29: a second board (branch `port/esp32-p4`)
+
+A Guition JC1060P470C (ESP32-P4 + ESP32-C6, 7" 1024x600) plugged into the PC: MeteoBus ported in a day, with the user
+trying each build. First guessed as Espressif's EV board (black screen, then a white streaked band: a V2 panel), then
+landscape layouts for every screen, 60 fps moves by 2D-DMA and double buffering (22 fps with CPU copies), the C6's
+firmware updated through the P4 (its network split hid the settings page from the home network), the speaker (amplifier
+pin) and the microphone (the ES8311's own input). `docs/P4-PORT.md` has the board, the work and its lessons.
+
 ## How the work is done now
 
 1. **Change, then a test build** labelled above the current release (`vX.Y.Z-name.N` in `version.txt`; the
@@ -222,6 +230,10 @@ CPU's clock always runs at full speed).
 - **Mark only what changed, test what you changed**: every fix in this project added a harness check or a probe.
 
 ## Open threads
+
+- **The P4 board** (docs/P4-PORT.md, "Open"): phones can't reach the settings page on the user's home network (the
+  router, most likely: the AMOLED too), the page's "Could not reach the display" for a missing key, power saving, CI and
+  releases, espforge's patch.
 
 MeteoBus (2026-10-10):
 

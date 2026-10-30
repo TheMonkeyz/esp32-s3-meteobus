@@ -46,3 +46,12 @@ tools/harness/.display_ip
 .espforge/
 # graphify knowledge graph (graph.html, graph.json, GRAPH_REPORT.md, cache): rebuilt locally with /graphify
 graphify-out/
+# The P4 flash helper's working files (p4/: its requests, logs, firmware and the C6's image)
+p4/firmware/
+p4/c6/
+p4/*.txt
+p4/*.log
+p4/flash.status
+p4/*.request
+p4/serial.send
+p4/*.bundle
