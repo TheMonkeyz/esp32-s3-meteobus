@@ -34,3 +34,6 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_p4.csv"
 CONFIG_FORGE_HTTPS_PORT=50443
 # The console's "netstat" (lwIP counters): does anything from outside reach the P4 behind its C6?
 CONFIG_LWIP_STATS=y
+# Task watchdog: 10 s (5 by default). At start-up the main task's TLS handshakes (mbedtls's software comb method for
+# P-256/P-384 here) and the radar's full-size maps kept core 0 busy past 5 s: "task_wdt: IDLE0" warnings, no hang.
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=10

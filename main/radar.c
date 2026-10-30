@@ -167,9 +167,13 @@ static bool cache_load(void)
     // Costs ~20 ms per map (50 -> 70 ms), in this task.
     xSemaphoreTake(cache_mux, portMAX_DELAY);
     bool ok = true;
-    for (size_t off = 0; ok && off < W * H * 2; off += 4096)
+    for (size_t off = 0; ok && off < W * H * 2; off += 4096) {
         ok = esp_partition_read(p, base + sizeof(h) + off, (uint8_t *)base565 + off,
                                 W * H * 2 - off < 4096 ? W * H * 2 - off : 4096) == ESP_OK;
+        // The P4's 1.2 MB map is 300 reads: a breath now and then, or this core's idle task starved past the task
+        // watchdog's limit at start-up (with the main task's TLS handshakes; "task_wdt: IDLE0", 2026-10-29)
+        if (!DISP_ROUND && (off & 0xFFFF) == 0xF000) vTaskDelay(1);
+    }
     xSemaphoreGive(cache_mux);
     return ok;
 }
