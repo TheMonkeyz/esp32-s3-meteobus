@@ -21,6 +21,10 @@ void config_hint_done(void);
 void config_hint_next_boot(void);
 bool config_gesture_hint_wanted(void);       // the gesture hint, once (NVS "ui"/"gest"); also on a "hint next-boot"
 void config_gesture_hint_done(void);
+// Landscape weather page (the P4): the forecast days under the current conditions and the radar beside them
+// (true), or the days as rows on the right (false, the default). NVS "ui"/"wxlay". Nothing on the round display.
+bool config_wx_below(void);
+void config_set_wx_below(bool below);
 bool config_set_location(const location_t *loc);    // edits the place shown; saves to NVS
 int config_place_count(void);
 int config_active_place(void);

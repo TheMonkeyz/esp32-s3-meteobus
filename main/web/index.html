@@ -113,6 +113,9 @@ details.coords{margin-top:10px;font-size:14px;color:var(--dim)}details.coords su
   </div>
   <label for="uClock" data-i18n="clock"></label>
   <select id="uClock"><option value="24" data-i18n="clock24"></option><option value="12" data-i18n="clock12"></option></select>
+  <div id="wxLayBox" style="display:none">
+    <label class="chk"><input type="checkbox" id="uWxBelow"> <span data-i18n="wxBelow"></span></label>
+  </div>
   <div id="umsg" class="muted" style="margin-top:8px" data-i18n="unitsNote"></div>
 </div>
 
@@ -269,6 +272,7 @@ const I18N = {
   coords: 'Coordinates', lat: 'Latitude', lon: 'Longitude', cancel: 'Cancel', save: 'Save', delPlace: 'Delete this place',
   units: 'Units', language: 'Language', temperature: 'Temperature', wind: 'Wind', clock: 'Clock',
   clock24: '24-hour (14:45)', clock12: '12-hour (2:45 PM)', unitsNote: 'Changes apply on the display right away.',
+  wxBelow: 'Forecast under the current conditions, radar beside them (wide display)',
   presTitle: 'Screen & presence', calibrate: '🎙️ Calibrate background (stay quiet 5 s)',
   dimQuiet: 'Dim and turn off the screen when the room is quiet',
   motionWake: 'Wake up when the display is picked up or moved', pickSens: 'Pick-up sensitivity',
@@ -352,6 +356,7 @@ const I18N = {
   delPlace: 'Supprimer cet endroit',
   units: 'Unités', language: 'Langue', temperature: 'Température', wind: 'Vent', clock: 'Horloge',
   clock24: '24 heures (14 h 45)', clock12: '12 heures (2 h 45 p.m.)', unitsNote: "Les changements s'appliquent tout de suite sur l'afficheur.",
+  wxBelow: 'Prévisions sous les conditions actuelles, radar à côté (afficheur large)',
   presTitle: 'Écran et présence', calibrate: '🎙️ Calibrer le bruit de fond (silence 5 s)',
   dimQuiet: "Tamiser puis éteindre l'écran quand la pièce est calme",
   motionWake: "Rallumer l'écran quand l'afficheur est soulevé ou déplacé", pickSens: 'Sensibilité au mouvement',
@@ -411,6 +416,24 @@ const I18N = {
   betaNote: "Versions candidates : les nouveautés quelques jours plus tôt. Elles sont testées, mais un problème est plus probable qu'avec les versions stables.",
  },
  iu: {
+  stops: 'ᓄᖅᑲᕐᕖᑦᑲ',
+  stopsHelp: 'ᓴᖅᑭᔭᐅᒥ ᓴᖅᑭᖅᑐᑦ: ᓂᕈᓗᓪᓕ ᓴᐅᒥᒧᑦ, ᖁᓕᒧᑦ ᐊᑖᓄᓪᓗ.',
+  noStops: 'ᓄᖅᑲᕐᕕᖃᙱᑦᑐᖅ: ᐃᓚᓕ ᐊᑖᓂ.',
+  stopNo: 'ᓄᖅᑲᕐᕕᐅᑉ ᓈᓴᐅᑎᖓ',
+  routeNo: 'ᐊᖅᑯᑦ',
+  stopHint: 'ᓈᓴᐅᑎᖓ ᓄᖅᑲᕐᕕᒻᒥ ᑎᑎᕋᖅᓯᒪᔪᖅ (4).',
+  findDirs: 'ᓇᒧᙵᐅᓐᓃᑦ ᕿᓂᕐᓕ',
+  direction: 'ᓇᒧᙵᐅᓐᓂᖓ',
+  addStop: 'ᓄᖅᑲᕐᕕᒃ ᐅᓇ ᐃᓚᓕ',
+  moveUp: 'ᖁᓕᒧᑦ',
+  removeStop: 'ᐲᕐᓕ',
+  asking: 'RTC ᐊᐱᕆᔪᖅ…',
+  noRoute: '{0} ᐊᖅᑯᑎᐅᙱᑦᑐᖅ.',
+  notServed: '{0} ᓄᖅᑲᙱᑦᑐᖅ {1}-ᒥ.',
+  rtcDown: 'RTC ᑭᐅᙱᑦᑐᖅ. ᑲᓱᒃᑲᓐᓂᕐᓕ.',
+  badFav: 'ᓈᓴᐅᑏᑦ ᖃᐅᔨᒋᐊᕐᓗᒋᑦ.',
+  stopsFull: 'ᓄᖅᑲᕐᕖᑦ {0} ᑭᓯᐊᓂ.',
+  dupStop: 'ᓄᖅᑲᕐᕕᒃ ᐅᓇ ᐃᓚᓕᖅᓯᒪᔪᖅ.',
   title: 'MeteoBus',
   places: 'ᐃᓃᑦ',
   placesHelp: 'ᐃᓂ ᓇᕿᓪᓕ ᐊᓯᔾᔨᕐᓗᒍ. ᓴᖅᑭᔭᐅᒻᒥ, ᓯᓚᐅᑉ ᐃᒐᓚᐅᔮᓂ ᓄᓱᐊᕐᓕ ᖁᓕᒧᑦ ᐅᕝᕙᓘᓐᓃᑦ ᐊᑎᒧᑦ ᐊᓯᐊᓄᑦ ᐃᑳᕐᓗᒍ.',
@@ -437,6 +460,7 @@ const I18N = {
   clock24: '24 ᐃᑲᕐᕌᑦ (14:45)',
   clock12: '12 ᐃᑲᕐᕌᑦ (2:45 PM)',
   unitsNote: 'ᐊᓯᔾᔨᖅᓯᒪᔪᑦ ᐊᑐᓕᖅᑐᑦ ᓴᖅᑭᔭᐅᒻᒥ ᒫᓐᓇ.',
+  wxBelow: 'ᓯᓚᐅᑉ ᖃᓄᐃᓐᓂᖓ ᐊᑖᓂ, Radar ᓴᓂᐊᓐᓂ',
   presTitle: 'ᐃᒐᓚᐅᔭᖅ ᐊᒻᒪᓗ ᐃᓄᐃᑦ',
   calibrate: '🎙️ ᓂᐲᑦ ᐆᒃᑐᖅᓯᐅᕐᓕ (ᓂᐸᐃᓪᓗᑎᑦ 5 s)',
   dimQuiet: 'ᑖᓂᑭᓪᓕᒋᐊᕐᓕ ᐊᒻᒪᓗ ᖃᒥᓪᓕ ᐃᒐᓚᐅᔭᖅ ᓂᐸᐃᑦᑐᒥ',
@@ -559,24 +583,6 @@ const I18N = {
   noSpeaker: 'ᓂᐱᖃᐅᑦ ᐱᖃᙱᑦᑐᖅ.',
   betaNote: 'Beta: ᓄᑖᑦ ᐅᓪᓗᓂᒃ ᓯᕗᓪᓕᖅᐱᐊᖅᓴᖅᑐᑦ. ᒥᓯᓕᖅᑕᐅᔪᑦ, ᑭᓯᐊᓂ ᐊᔪᕐᓇᕐᓂᖅᓴᐅᕗᑦ ᐊᐅᓚᔾᔪᐃᑦᑐᓂᑦ.',
   needKey: 'ᐋᖅᑭᔅᓯᒪᐅᑎᑦ ᐊᓯᔾᔨᖅᓱᖅᑯᓐᓇᑎᑦ, ᐊᔾᔨᓕᐅᕐᓕ ᑎᑎᕋᐅᔭᒧᑦ ᓴᖅᑭᖅᑐᒥ: ᓇᕿᓪᓗᒍ ᓇᕿᒻᒥᓕ ᓯᓚᒧᑦ. ᐅᖄᓚᐅᑎᕋᓛᕐᒧᑦ ᐳᐃᒍᖅᑕᐃᓕᓗᒍ.',
-  stops: 'ᓄᖅᑲᕐᕖᑦᑲ',
-  stopsHelp: 'ᓴᖅᑭᔭᐅᒥ ᓴᖅᑭᖅᑐᑦ: ᓂᕈᓗᓪᓕ ᓴᐅᒥᒧᑦ, ᖁᓕᒧᑦ ᐊᑖᓄᓪᓗ.',
-  noStops: 'ᓄᖅᑲᕐᕕᖃᙱᑦᑐᖅ: ᐃᓚᓕ ᐊᑖᓂ.',
-  stopNo: 'ᓄᖅᑲᕐᕕᐅᑉ ᓈᓴᐅᑎᖓ',
-  routeNo: 'ᐊᖅᑯᑦ',
-  stopHint: 'ᓈᓴᐅᑎᖓ ᓄᖅᑲᕐᕕᒻᒥ ᑎᑎᕋᖅᓯᒪᔪᖅ (4).',
-  findDirs: 'ᓇᒧᙵᐅᓐᓃᑦ ᕿᓂᕐᓕ',
-  direction: 'ᓇᒧᙵᐅᓐᓂᖓ',
-  addStop: 'ᓄᖅᑲᕐᕕᒃ ᐅᓇ ᐃᓚᓕ',
-  moveUp: 'ᖁᓕᒧᑦ',
-  removeStop: 'ᐲᕐᓕ',
-  asking: 'RTC ᐊᐱᕆᔪᖅ…',
-  noRoute: '{0} ᐊᖅᑯᑎᐅᙱᑦᑐᖅ.',
-  notServed: '{0} ᓄᖅᑲᙱᑦᑐᖅ {1}-ᒥ.',
-  rtcDown: 'RTC ᑭᐅᙱᑦᑐᖅ. ᑲᓱᒃᑲᓐᓂᕐᓕ.',
-  badFav: 'ᓈᓴᐅᑏᑦ ᖃᐅᔨᒋᐊᕐᓗᒋᑦ.',
-  stopsFull: 'ᓄᖅᑲᕐᕖᑦ {0} ᑭᓯᐊᓂ.',
-  dupStop: 'ᓄᖅᑲᕐᕕᒃ ᐅᓇ ᐃᓚᓕᖅᓯᒪᔪᖅ.',
  },
 };
 let LANG = 'en';
@@ -603,12 +609,13 @@ function say(el, text, ok){ el.textContent = text; el.className = ok ? 'ok' : 'e
 
 async function saveUnits(){
   const body = {temp: $('uTemp').value, wind: $('uWind').value, clock: Number($('uClock').value)};
+  if (cfg && cfg.landscape) body.wx_below = $('uWxBelow').checked;
   try{
     const r = await fetch('/api/units', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
     say($('umsg'), r.ok ? t('saved') : t('notSaved', r.status), r.ok);
   }catch(e){ say($('umsg'), t('noReach'), false); }
 }
-['uTemp', 'uWind', 'uClock'].forEach(id => $(id).addEventListener('change', saveUnits));
+['uTemp', 'uWind', 'uClock', 'uWxBelow'].forEach(id => $(id).addEventListener('change', saveUnits));
 $('uLang').addEventListener('change', async () => {          // the display's language, and this page's
   LANG = $('uLang').value; applyLang();
   try{
@@ -820,6 +827,8 @@ async function load(){
     showPlaces();
     $('curSsid').textContent = c.ssid || '–';
     if (c.units) { $('uTemp').value = c.units.temp; $('uWind').value = c.units.wind; $('uClock').value = String(c.units.clock); }
+    $('wxLayBox').style.display = c.landscape ? 'block' : 'none';          // the wide display's weather layout
+    if (c.units && c.landscape) $('uWxBelow').checked = !!c.units.wx_below;
   }catch(e){ say($('msg'), t('cantRead'), false); }
 }
 function bars(rssi){ return rssi >= -55 ? '▂▄▆█' : rssi >= -67 ? '▂▄▆' : rssi >= -78 ? '▂▄' : '▂'; }

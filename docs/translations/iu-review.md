@@ -129,6 +129,7 @@ anything that reads wrong.
 | `fw:T_T_CUSTOM` | Custom | ᓇᒻᒥᓂᖅ | Namminiq | medium | Microsoft Inuktitut terminology (Pirurvik): manual = namminiq kamagilugu |
 | `fw:T_TEMPERATURE` | Temperature | ᐆᓇᕐᓂᖅ | Uunarniq | medium | temperature (warmth) |
 | `fw:T_WIND` | Wind | ᐊᓄᕆ | Anuri | medium | wind |
+| `fw:T_WX_BELOW` | Forecast below, radar beside | ᓯᓚ ᐊᑖᓂ, Radar ᓴᓂᐊᓐᓂ | Sila ataani, `Radar` sanianni | low | settings row (landscape display, must fit before the switch): sila = weather, ataani = below it, sanianni = beside it; `radar` kept as T_RADAR |
 | `fw:T_CLOCK` | Clock | ᐃᑲᕐᕌᑦ | Ikarraat | low | Tusaalanga glossary: ikarraaq = hour |
 | `fw:T_LANGUAGE` | Language | ᐅᖃᐅᓯᖅ | Uqausiq | high | Microsoft Inuktitut terminology (Pirurvik): language = pilirijjutinut uqausiq |
 | `fw:T_SEC_SOUND` | SOUND | ᓂᐱ | Nipi | high | nipi = sound |
@@ -195,6 +196,47 @@ anything that reads wrong.
 | `fw:T_ZOOM_WIDEST` | Widest zoom | ᒥᑭᓪᓕᒋᐊᕈᓐᓇᙱᑦᑐᖅ | Mikilligiarunnanngittuq | medium | "cannot zoom out more" |
 | `fw:T_ZOOM_IN` | Zoom in | ᐊᖏᓪᓕᒋᐊᕐᓕ | Angilligiarli | high | Microsoft Inuktitut terminology (Pirurvik): zoom in |
 | `fw:T_ZOOM_OUT` | Zoom out | ᒥᑭᓪᓕᒋᐊᕐᓕ | Mikilligiarli | high | Microsoft Inuktitut terminology (Pirurvik): zoom out |
+| `fw:T_DEP_MIN` | %d min | %d min | %d `min` | medium | minutes until a departure (MeteoBus, 2026-10-09, unreviewed) |
+| `fw:T_DEP_NOW` | < 1 min | < 1 min | < 1 `min` | medium | under a minute (MeteoBus, 2026-10-09, unreviewed) |
+| `fw:T_DEP_UNIT` | min | min | `min` | medium | after the big number of minutes (MeteoBus, 2026-10-09, unreviewed) |
+| `fw:T_DEP_LIVE` | Real time | ᒫᓐᓇ | Maanna | low | maanna = now (as T_NOW): the bus is tracked now (MeteoBus, 2026-10-09, unreviewed) |
+| `fw:T_DEP_SCHED` | Scheduled | ᐅᐸᑦᑐᒃᓴᖅ | Upattuksaq | low | upattuksaq = the one that is to arrive (by the timetable) (MeteoBus, 2026-10-09, unreviewed) |
+| `fw:T_DEP_CANCELLED` | Cancelled | ᖁᔭᓈᖅᑕᐅᔪᖅ | Qujanaaqtaujuq | low | from qujanaarli = cancel (web:cancel) (MeteoBus, 2026-10-09, unreviewed) |
+| `fw:T_DEP_NONE` | No more departures today | ᐅᓪᓗᒥ ᐊᐅᓪᓚᖅᑐᖃᕈᓐᓇᐃᖅᑐᖅ | Ullumi aullaqtuqarunnaiqtuq | low | ullumi = today; aullaq- = leave, -qarunnaiq- = no more (MeteoBus, 2026-10-09, unreviewed) |
+| `fw:T_DEP_LOADING` | Loading... | ᐅᑕᖅᑭᕆᑦᓯ... | Utaqqiritsi... | low | as T_LOADING (MeteoBus, 2026-10-09, unreviewed) |
+| `fw:T_DEP_UPDATED` | Updated at %s | ᓄᑖᖅᑭᖅᑕᐅᔪᖅ: %s | Nutaaqqiqtaujuq: %s | low | as T_UPDATED_MIN (MeteoBus, 2026-10-09, unreviewed) |
+| `fw:T_DEP_OFFLINE` | Can't reach the RTC | RTC ᑲᓱᕈᓐᓇᙱᑦᑐᖅ | `RTC` kasurunnanngittuq | low | as T_CANT_REACH; RTC = Réseau de transport de la Capitale (MeteoBus, 2026-10-09, unreviewed) |
+| `fw:T_DEP_NOT_FOUND` | Route %s doesn't stop here ⏎ in this direction | %s ᓄᖅᑲᙱᑦᑐᖅ ᒫᓂ | %s nuqqanngittuq maani | low | nuqqaq- = stop (a vehicle), maani = here (MeteoBus, 2026-10-09, unreviewed) |
+| `fw:T_DEP_NOT_SERVED` | Stop not served for now | ᓄᖅᑲᕐᕕᒃ ᐊᑐᖅᑕᐅᙱᑦᑐᖅ ᒫᓐᓇ | Nuqqarvik atuqtaunngittuq maanna | low | nuqqarvik = stopping place; atuqtaunngittuq = not used (MeteoBus, 2026-10-09, unreviewed) |
+| `fw:T_DEP_DROP_OFF` | Drop-off only | ᐊᑎᖅᑐᖃᕐᕕᒃ ᑭᓯᐊᓂ | Atiqtuqarvik kisiani | low | atiq- = get off; kisiani = only (MeteoBus, 2026-10-09, unreviewed) |
+| `fw:T_BUS_NOTICES` | %d notices | %d ᑐᓴᒐᔅᓴᑦ | %d tusagassat | low | tusagassaq = news, a notice (MeteoBus, 2026-10-09, unreviewed) |
+| `fw:T_ALERTS_ROUTE` | Alerts: %s | ᑐᓴᒐᔅᓴᑦ: %s | Tusagassat: %s | low | the route's notices (title of the alert screen) (MeteoBus, 2026-10-09, unreviewed) |
+| `fw:T_ALERT_BEGIN` | Start: %s | ᐱᒋᐊᕐᓂᖅ: %s | Pigiarniq: %s | low | pigiaq- = begin (MeteoBus, 2026-10-09, unreviewed) |
+| `fw:T_ALERT_END` | End: %s | ᐃᓱᐊᖓ: %s | Isuanga: %s | low | isua = its end (MeteoBus, 2026-10-09, unreviewed) |
+| `fw:T_NO_STOPS` | No stops yet | ᓄᖅᑲᕐᕕᖃᙱᑦᑐᖅ | Nuqqarviqanngittuq | low | no stopping places (MeteoBus, 2026-10-09, unreviewed) |
+| `fw:T_NO_STOPS_HOW` | Add your stops from your ⏎ phone: press and hold, ⏎ then Location & more | ᓄᖅᑲᕐᕖᑦ ᐃᓚᓗᒋᑦ ⏎ ᐅᖄᓚᐅᑎᕋᓛᕐᒥ: ⏎ ᓇᕿᓪᓗᒍ ᓇᕿᒻᒥᓕ | Nuqqarviit ilalugit ⏎ uqaalautiralaarmi: ⏎ naqillugu naqimmili | low | add the stops on the phone: press and hold (as T_GEST_HELP) (MeteoBus, 2026-10-09, unreviewed) |
+| `fw:T_MAP_NEXT` | Next bus: %s | ᑎᑭᓕᕆᔪᖅ: %s | Tikilirijuq: %s | low | tikiliri- = is arriving (MeteoBus, 2026-10-09, unreviewed) |
+| `fw:T_MAP_LOADING` | Loading the map... | ᓄᓇᙳᐊᖅ... ᐅᑕᖅᑭᕆᑦᓯ | Nunannguaq... utaqqiritsi | low | as T_LOADING_RADAR (MeteoBus, 2026-10-09, unreviewed) |
+| `fw:T_MAP_NO_TILES` | Can't load the map | ᓄᓇᙳᐊᖅ ᒥᓇᕆᔭᐅᔪᓐᓇᙱᑦᑐᖅ | Nunannguaq minarijaujunnanngittuq | low | as T_MAPS_LOADING (MeteoBus, 2026-10-09, unreviewed) |
+| `fw:T_MAP_NO_BUS` | No bus on the way now | ᑎᑭᓕᕆᔪᖃᙱᑦᑐᖅ ᒫᓐᓇ | Tikilirijuqanngittuq maanna | low | none arriving now (MeteoBus, 2026-10-09, unreviewed) |
+| `web:stops` | My stops | ᓄᖅᑲᕐᕖᑦᑲ | Nuqqarviitka | low | my stopping places (MeteoBus, 2026-10-09, unreviewed) |
+| `web:stopsHelp` | They show on the display's buses screen (swipe left from the weather); drag up or down there for the next stop. | ᓴᖅᑭᔭᐅᒥ ᓴᖅᑭᖅᑐᑦ: ᓂᕈᓗᓪᓕ ᓴᐅᒥᒧᑦ, ᖁᓕᒧᑦ ᐊᑖᓄᓪᓗ. | Saqqijaumi saqqiqtut: nirululli saumimut, qulimut ataanullu. | low | they show on the display: swipe left, up and down (MeteoBus, 2026-10-09, unreviewed) |
+| `web:noStops` | No stops yet: add one below. | ᓄᖅᑲᕐᕕᖃᙱᑦᑐᖅ: ᐃᓚᓕ ᐊᑖᓂ. | Nuqqarviqanngittuq: ilali ataani. | low |  (MeteoBus, 2026-10-09, unreviewed) |
+| `web:stopNo` | Stop number | ᓄᖅᑲᕐᕕᐅᑉ ᓈᓴᐅᑎᖓ | Nuqqarviup naasautinga | low | the stopping place's number (MeteoBus, 2026-10-09, unreviewed) |
+| `web:routeNo` | Route | ᐊᖅᑯᑦ | Aqqut | low | aqqut = way, route (MeteoBus, 2026-10-09, unreviewed) |
+| `web:stopHint` | The stop number is on the sign at the stop (4 digits). | ᓈᓴᐅᑎᖓ ᓄᖅᑲᕐᕕᒻᒥ ᑎᑎᕋᖅᓯᒪᔪᖅ (4). | Naasautinga nuqqarvimmi titiraqsimajuq (4). | low | its number is written at the stop (MeteoBus, 2026-10-09, unreviewed) |
+| `web:findDirs` | Find directions | ᓇᒧᙵᐅᓐᓃᑦ ᕿᓂᕐᓕ | Namunngaunniit qinirli | low | find where it goes (MeteoBus, 2026-10-09, unreviewed) |
+| `web:direction` | Direction | ᓇᒧᙵᐅᓐᓂᖓ | Namunngaunninga | low | where it goes (MeteoBus, 2026-10-09, unreviewed) |
+| `web:addStop` | Add this stop | ᓄᖅᑲᕐᕕᒃ ᐅᓇ ᐃᓚᓕ | Nuqqarvik una ilali | low | as web:addPlace (MeteoBus, 2026-10-09, unreviewed) |
+| `web:moveUp` | Move up | ᖁᓕᒧᑦ | Qulimut | low | up (MeteoBus, 2026-10-09, unreviewed) |
+| `web:removeStop` | Remove | ᐲᕐᓕ | Piirli | medium | as web:delPlace (MeteoBus, 2026-10-09, unreviewed) |
+| `web:asking` | Asking the RTC… | RTC ᐊᐱᕆᔪᖅ… | `RTC` apirijuq… | low | apiri- = ask (MeteoBus, 2026-10-09, unreviewed) |
+| `web:noRoute` | Route {0} doesn't exist. | {0} ᐊᖅᑯᑎᐅᙱᑦᑐᖅ. | {0} aqqutiunngittuq. | low |  (MeteoBus, 2026-10-09, unreviewed) |
+| `web:notServed` | Route {0} doesn't stop at {1} in that direction. | {0} ᓄᖅᑲᙱᑦᑐᖅ {1}-ᒥ. | {0} nuqqanngittuq {1}-mi. | low |  (MeteoBus, 2026-10-09, unreviewed) |
+| `web:rtcDown` | The RTC didn't answer. Try again in a moment. | RTC ᑭᐅᙱᑦᑐᖅ. ᑲᓱᒃᑲᓐᓂᕐᓕ. | `RTC` kiunngittuq. Kasukkannirli. | low | as T_TAP_RETRY (MeteoBus, 2026-10-09, unreviewed) |
+| `web:badFav` | Check the stop and route numbers. | ᓈᓴᐅᑏᑦ ᖃᐅᔨᒋᐊᕐᓗᒋᑦ. | Naasautiit qaujigiarlugit. | low | check the numbers (MeteoBus, 2026-10-09, unreviewed) |
+| `web:stopsFull` | That's the most stops the display can show ({0}). | ᓄᖅᑲᕐᕖᑦ {0} ᑭᓯᐊᓂ. | Nuqqarviit {0} kisiani. | low | only {0} stops (MeteoBus, 2026-10-09, unreviewed) |
+| `web:dupStop` | That stop is already in the list. | ᓄᖅᑲᕐᕕᒃ ᐅᓇ ᐃᓚᓕᖅᓯᒪᔪᖅ. | Nuqqarvik una ilaliqsimajuq. | low | already added (MeteoBus, 2026-10-09, unreviewed) |
 | `web:title` | MeteoBus | MeteoBus | `MeteoBus` | low | product name, kept in Latin letters (was "Silamut saqqijaut", weather display) |
 | `web:places` | Places | ᐃᓃᑦ | Iniit | high | Tusaalanga glossary: ini = place |
 | `web:placesHelp` | Tap a place to change it. On the display, drag up or down on the weather screen to switch. | ᐃᓂ ᓇᕿᓪᓕ ᐊᓯᔾᔨᕐᓗᒍ. ᓴᖅᑭᔭᐅᒻᒥ, ᓯᓚᐅᑉ ᐃᒐᓚᐅᔮᓂ ᓄᓱᐊᕐᓕ ᖁᓕᒧᑦ ᐅᕝᕙᓘᓐᓃᑦ ᐊᑎᒧᑦ ᐊᓯᐊᓄᑦ ᐃᑳᕐᓗᒍ. | Ini naqilli asijjirlugu. Saqqijaummi, silaup igalaujaani nusuarli qulimut uvvaluunniit atimut asianut ikaarlugu. | low | Microsoft Inuktitut terminology (Pirurvik): tap = naqilli, drag = nusuarli; qulimut = up, atimut = down |
@@ -221,6 +263,7 @@ anything that reads wrong.
 | `web:clock24` | 24-hour (14:45) | 24 ᐃᑲᕐᕌᑦ (14:45) | 24 ikarraat (14:45) | medium |  |
 | `web:clock12` | 12-hour (2:45 PM) | 12 ᐃᑲᕐᕌᑦ (2:45 PM) | 12 ikarraat (2:45 `PM`) | medium |  |
 | `web:unitsNote` | Changes apply on the display right away. | ᐊᓯᔾᔨᖅᓯᒪᔪᑦ ᐊᑐᓕᖅᑐᑦ ᓴᖅᑭᔭᐅᒻᒥ ᒫᓐᓇ. | Asijjiqsimajut atuliqtut saqqijaummi maanna. | low | Microsoft Inuktitut terminology (Pirurvik): apply = atuliqtilli |
+| `web:wxBelow` | Forecast under the current conditions, radar beside them (wide display) | ᓯᓚᐅᑉ ᖃᓄᐃᓐᓂᖓ ᐊᑖᓂ, Radar ᓴᓂᐊᓐᓂ | Silaup qanuinninga ataani, `Radar` sanianni | low | settings page: the wide (landscape) display's weather layout; same draft as T_WX_BELOW; `radar` kept as T_RADAR |
 | `web:presTitle` | Screen & presence | ᐃᒐᓚᐅᔭᖅ ᐊᒻᒪᓗ ᐃᓄᐃᑦ | Igalaujaq ammalu inuit | low | "screen and people" |
 | `web:calibrate` | 🎙️ Calibrate background (stay quiet 5 s) | 🎙️ ᓂᐲᑦ ᐆᒃᑐᖅᓯᐅᕐᓕ (ᓂᐸᐃᓪᓗᑎᑦ 5 s) | 🎙️ Nipiit uuktuqsiurli (nipaillutit 5 `s`) | low | "measure the sounds (be quiet 5 s)" |
 | `web:dimQuiet` | Dim and turn off the screen when the room is quiet | ᑖᓂᑭᓪᓕᒋᐊᕐᓕ ᐊᒻᒪᓗ ᖃᒥᓪᓕ ᐃᒐᓚᐅᔭᖅ ᓂᐸᐃᑦᑐᒥ | Taanikilligiarli ammalu qamilli igalaujaq nipaittumi | low | Microsoft Inuktitut terminology (Pirurvik): dim, turn off |
@@ -468,44 +511,3 @@ anything that reads wrong.
 | `site:foot1` | Source code, releases and documentation: <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus">github.com/TheMonkeyz/esp32-s3-meteobus</a>. Downloads for other tools: <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/releases">releases</a>. | ᐱᓕᕆᔾᔪᑎᑦ ᐊᒻᒪᓗ ᑎᑎᕋᖅᓯᒪᔪᑦ: <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus">github.com/TheMonkeyz/esp32-s3-meteobus</a>. ᒥᓇᐃᑦ: <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/releases">ᓄᑖᑦ</a>. | Pilirijjutit ammalu titiraqsimajut: <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus">`github.com/TheMonkeyz/esp32-s3-meteobus`</a>. Minait: <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/releases">nutaat</a>. | low | "programs and documents (titiraqsimajut = things written). Downloads (minaq, Microsoft): new versions" |
 | `site:foot2` | Weather: Open-Meteo. Radar: Environment and Climate Change Canada (GeoMet). Buses: Réseau de transport de la Capitale (RTC), from rtcquebec.ca, for personal use. Map © OpenStreetMap contributors. Flashing by ESP Web Tools. | ᓯᓚ: Open-Meteo. Radar: Environment and Climate Change Canada (GeoMet). ᓄᖅᑲᕐᕖᑦ: Réseau de transport de la Capitale (RTC), rtcquebec.ca-ᒥᑦ, ᐃᖕᒥᓄᑦ ᐊᑐᖅᑕᒃᓴᖅ. ᓄᓇᙳᐊᖅ © OpenStreetMap contributors. ESP Web Tools-ᒃᑯᑦ ᐃᓕᑕᐅᔪᖅ. | Sila: `Open-Meteo`. `Radar`: `Environment and Climate Change Canada (GeoMet)`. Nuqqarviit: `Réseau de transport de la Capitale (RTC)`, `rtcquebec.ca`-mit, ingminut atuqtaksaq. Nunannguaq `© OpenStreetMap contributors`. `ESP Web Tools`-kkut ilitaujuq. | low | agency names and the map attribution kept as published; "stops: RTC, from rtcquebec.ca, for one's own use" (ingminut atuqtaksaq is a guess); "installed through ESP Web Tools" (MeteoBus, 2026-10-10, unreviewed) |
 | `site:foot3` | Firmware © 2026 Laurent Mathieu, <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/blob/main/LICENSE">MIT license</a> (<a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/blob/main/THIRD_PARTY_NOTICES.md">third-party notices</a>). Set in Montserrat, the display's font (<a href="fonts/montserrat-OFL.txt">SIL Open Font License</a>). | ᖃᕋᓴᐅᔭᐅᑉ ᐱᓕᕆᔾᔪᑎᖓ © 2026 Laurent Mathieu, <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/blob/main/LICENSE">MIT</a> (<a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/blob/main/THIRD_PARTY_NOTICES.md">ᐊᓯᖏᑦ</a>). Montserrat (<a href="fonts/montserrat-OFL.txt">SIL Open Font License</a>). | Qarasaujaup pilirijjutinga © 2026 `Laurent Mathieu`, <a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/blob/main/LICENSE">`MIT`</a> (<a href="https://github.com/TheMonkeyz/esp32-s3-meteobus/blob/main/THIRD_PARTY_NOTICES.md">asingit</a>). `Montserrat` (<a href="fonts/montserrat-OFL.txt">`SIL Open Font License`</a>). | low | "firmware © …, MIT (others: the third-party notices). Montserrat (its license)" |
-| `fw:T_DEP_MIN` | %d min | %d min | %d `min` | medium | minutes until a departure (MeteoBus, 2026-10-09, unreviewed) |
-| `fw:T_DEP_NOW` | < 1 min | < 1 min | < 1 `min` | medium | under a minute (MeteoBus, 2026-10-09, unreviewed) |
-| `fw:T_DEP_UNIT` | min | min | `min` | medium | after the big number of minutes (MeteoBus, 2026-10-09, unreviewed) |
-| `fw:T_DEP_LIVE` | Real time | ᒫᓐᓇ | Maanna | low | maanna = now (as T_NOW): the bus is tracked now (MeteoBus, 2026-10-09, unreviewed) |
-| `fw:T_DEP_SCHED` | Scheduled | ᐅᐸᑦᑐᒃᓴᖅ | Upattuksaq | low | upattuksaq = the one that is to arrive (by the timetable) (MeteoBus, 2026-10-09, unreviewed) |
-| `fw:T_DEP_CANCELLED` | Cancelled | ᖁᔭᓈᖅᑕᐅᔪᖅ | Qujanaaqtaujuq | low | from qujanaarli = cancel (web:cancel) (MeteoBus, 2026-10-09, unreviewed) |
-| `fw:T_DEP_NONE` | No more departures today | ᐅᓪᓗᒥ ᐊᐅᓪᓚᖅᑐᖃᕈᓐᓇᐃᖅᑐᖅ | Ullumi aullaqtuqarunnaiqtuq | low | ullumi = today; aullaq- = leave, -qarunnaiq- = no more (MeteoBus, 2026-10-09, unreviewed) |
-| `fw:T_DEP_LOADING` | Loading... | ᐅᑕᖅᑭᕆᑦᓯ... | Utaqqiritsi... | low | as T_LOADING (MeteoBus, 2026-10-09, unreviewed) |
-| `fw:T_DEP_UPDATED` | Updated at %s | ᓄᑖᖅᑭᖅᑕᐅᔪᖅ: %s | Nutaaqqiqtaujuq: %s | low | as T_UPDATED_MIN (MeteoBus, 2026-10-09, unreviewed) |
-| `fw:T_DEP_OFFLINE` | Can't reach the RTC | RTC ᑲᓱᕈᓐᓇᙱᑦᑐᖅ | `RTC` kasurunnanngittuq | low | as T_CANT_REACH; RTC = Réseau de transport de la Capitale (MeteoBus, 2026-10-09, unreviewed) |
-| `fw:T_DEP_NOT_FOUND` | Route %s doesn't stop here ⏎ in this direction | %s ᓄᖅᑲᙱᑦᑐᖅ ᒫᓂ | %s nuqqanngittuq maani | low | nuqqaq- = stop (a vehicle), maani = here (MeteoBus, 2026-10-09, unreviewed) |
-| `fw:T_DEP_NOT_SERVED` | Stop not served for now | ᓄᖅᑲᕐᕕᒃ ᐊᑐᖅᑕᐅᙱᑦᑐᖅ ᒫᓐᓇ | Nuqqarvik atuqtaunngittuq maanna | low | nuqqarvik = stopping place; atuqtaunngittuq = not used (MeteoBus, 2026-10-09, unreviewed) |
-| `fw:T_DEP_DROP_OFF` | Drop-off only | ᐊᑎᖅᑐᖃᕐᕕᒃ ᑭᓯᐊᓂ | Atiqtuqarvik kisiani | low | atiq- = get off; kisiani = only (MeteoBus, 2026-10-09, unreviewed) |
-| `fw:T_BUS_NOTICES` | %d notices | %d ᑐᓴᒐᔅᓴᑦ | %d tusagassat | low | tusagassaq = news, a notice (MeteoBus, 2026-10-09, unreviewed) |
-| `fw:T_ALERTS_ROUTE` | Alerts: %s | ᑐᓴᒐᔅᓴᑦ: %s | Tusagassat: %s | low | the route's notices (title of the alert screen) (MeteoBus, 2026-10-09, unreviewed) |
-| `fw:T_ALERT_BEGIN` | Start: %s | ᐱᒋᐊᕐᓂᖅ: %s | Pigiarniq: %s | low | pigiaq- = begin (MeteoBus, 2026-10-09, unreviewed) |
-| `fw:T_ALERT_END` | End: %s | ᐃᓱᐊᖓ: %s | Isuanga: %s | low | isua = its end (MeteoBus, 2026-10-09, unreviewed) |
-| `fw:T_NO_STOPS` | No stops yet | ᓄᖅᑲᕐᕕᖃᙱᑦᑐᖅ | Nuqqarviqanngittuq | low | no stopping places (MeteoBus, 2026-10-09, unreviewed) |
-| `fw:T_NO_STOPS_HOW` | Add your stops from your ⏎ phone: press and hold, ⏎ then Location & more | ᓄᖅᑲᕐᕖᑦ ᐃᓚᓗᒋᑦ ⏎ ᐅᖄᓚᐅᑎᕋᓛᕐᒥ: ⏎ ᓇᕿᓪᓗᒍ ᓇᕿᒻᒥᓕ | Nuqqarviit ilalugit ⏎ uqaalautiralaarmi: ⏎ naqillugu naqimmili | low | add the stops on the phone: press and hold (as T_GEST_HELP) (MeteoBus, 2026-10-09, unreviewed) |
-| `web:stops` | My stops | ᓄᖅᑲᕐᕖᑦᑲ | Nuqqarviitka | low | my stopping places (MeteoBus, 2026-10-09, unreviewed) |
-| `web:stopsHelp` | They show on the display's buses screen (swipe left from the weather); drag up or down there for the next stop. | ᓴᖅᑭᔭᐅᒥ ᓴᖅᑭᖅᑐᑦ: ᓂᕈᓗᓪᓕ ᓴᐅᒥᒧᑦ, ᖁᓕᒧᑦ ᐊᑖᓄᓪᓗ. | Saqqijaumi saqqiqtut: nirululli saumimut, qulimut ataanullu. | low | they show on the display: swipe left, up and down (MeteoBus, 2026-10-09, unreviewed) |
-| `web:noStops` | No stops yet: add one below. | ᓄᖅᑲᕐᕕᖃᙱᑦᑐᖅ: ᐃᓚᓕ ᐊᑖᓂ. | Nuqqarviqanngittuq: ilali ataani. | low |  (MeteoBus, 2026-10-09, unreviewed) |
-| `web:stopNo` | Stop number | ᓄᖅᑲᕐᕕᐅᑉ ᓈᓴᐅᑎᖓ | Nuqqarviup naasautinga | low | the stopping place's number (MeteoBus, 2026-10-09, unreviewed) |
-| `web:routeNo` | Route | ᐊᖅᑯᑦ | Aqqut | low | aqqut = way, route (MeteoBus, 2026-10-09, unreviewed) |
-| `web:stopHint` | The stop number is on the sign at the stop (4 digits). | ᓈᓴᐅᑎᖓ ᓄᖅᑲᕐᕕᒻᒥ ᑎᑎᕋᖅᓯᒪᔪᖅ (4). | Naasautinga nuqqarvimmi titiraqsimajuq (4). | low | its number is written at the stop (MeteoBus, 2026-10-09, unreviewed) |
-| `web:findDirs` | Find directions | ᓇᒧᙵᐅᓐᓃᑦ ᕿᓂᕐᓕ | Namunngaunniit qinirli | low | find where it goes (MeteoBus, 2026-10-09, unreviewed) |
-| `web:direction` | Direction | ᓇᒧᙵᐅᓐᓂᖓ | Namunngaunninga | low | where it goes (MeteoBus, 2026-10-09, unreviewed) |
-| `web:addStop` | Add this stop | ᓄᖅᑲᕐᕕᒃ ᐅᓇ ᐃᓚᓕ | Nuqqarvik una ilali | low | as web:addPlace (MeteoBus, 2026-10-09, unreviewed) |
-| `web:moveUp` | Move up | ᖁᓕᒧᑦ | Qulimut | low | up (MeteoBus, 2026-10-09, unreviewed) |
-| `web:removeStop` | Remove | ᐲᕐᓕ | Piirli | medium | as web:delPlace (MeteoBus, 2026-10-09, unreviewed) |
-| `web:asking` | Asking the RTC… | RTC ᐊᐱᕆᔪᖅ… | `RTC` apirijuq… | low | apiri- = ask (MeteoBus, 2026-10-09, unreviewed) |
-| `web:noRoute` | Route {0} doesn't exist. | {0} ᐊᖅᑯᑎᐅᙱᑦᑐᖅ. | {0} aqqutiunngittuq. | low |  (MeteoBus, 2026-10-09, unreviewed) |
-| `web:notServed` | Route {0} doesn't stop at {1} in that direction. | {0} ᓄᖅᑲᙱᑦᑐᖅ {1}-ᒥ. | {0} nuqqanngittuq {1}-mi. | low |  (MeteoBus, 2026-10-09, unreviewed) |
-| `web:rtcDown` | The RTC didn't answer. Try again in a moment. | RTC ᑭᐅᙱᑦᑐᖅ. ᑲᓱᒃᑲᓐᓂᕐᓕ. | `RTC` kiunngittuq. Kasukkannirli. | low | as T_TAP_RETRY (MeteoBus, 2026-10-09, unreviewed) |
-| `web:badFav` | Check the stop and route numbers. | ᓈᓴᐅᑏᑦ ᖃᐅᔨᒋᐊᕐᓗᒋᑦ. | Naasautiit qaujigiarlugit. | low | check the numbers (MeteoBus, 2026-10-09, unreviewed) |
-| `web:stopsFull` | That's the most stops the display can show ({0}). | ᓄᖅᑲᕐᕖᑦ {0} ᑭᓯᐊᓂ. | Nuqqarviit {0} kisiani. | low | only {0} stops (MeteoBus, 2026-10-09, unreviewed) |
-| `web:dupStop` | That stop is already in the list. | ᓄᖅᑲᕐᕕᒃ ᐅᓇ ᐃᓚᓕᖅᓯᒪᔪᖅ. | Nuqqarvik una ilaliqsimajuq. | low | already added (MeteoBus, 2026-10-09, unreviewed) |
-| `fw:T_MAP_NEXT` | Next bus: %s | ᑎᑭᓕᕆᔪᖅ: %s | Tikilirijuq: %s | low | tikiliri- = is arriving (MeteoBus, 2026-10-09, unreviewed) |
-| `fw:T_MAP_LOADING` | Loading the map... | ᓄᓇᙳᐊᖅ... ᐅᑕᖅᑭᕆᑦᓯ | Nunannguaq... utaqqiritsi | low | as T_LOADING_RADAR (MeteoBus, 2026-10-09, unreviewed) |
-| `fw:T_MAP_NO_TILES` | Can't load the map | ᓄᓇᙳᐊᖅ ᒥᓇᕆᔭᐅᔪᓐᓇᙱᑦᑐᖅ | Nunannguaq minarijaujunnanngittuq | low | as T_MAPS_LOADING (MeteoBus, 2026-10-09, unreviewed) |
-| `fw:T_MAP_NO_BUS` | No bus on the way now | ᑎᑭᓕᕆᔪᖃᙱᑦᑐᖅ ᒫᓐᓇ | Tikilirijuqanngittuq maanna | low | none arriving now (MeteoBus, 2026-10-09, unreviewed) |

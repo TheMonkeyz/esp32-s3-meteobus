@@ -15,6 +15,12 @@ list everything again.
   codecs, and the 7" display's needs. Nothing changes on the screen, on either display. For developers: no more
   `p4/espforge-p4.patch` or `forge_compat.c`; `forge_audio` is the sixth espforge component; the 7" display's firmware
   builds on the PC from the same manifest (its components under a target rule).
+- Wide display (JC1060P470C): the divider between the two halves of the weather, stop and extras pages is now at the
+  centre of the screen.
+- Wide display: a new setting, "Forecast below, radar beside" (in Settings and on the settings page). With it on, the
+  weather page shows the five days under the current conditions and the radar in the right half of the screen: tap
+  the radar to play the last 3 hours, swipe down or up on it to zoom, tap the circle in its corner for the
+  full-screen radar.
 
 ## v0.3.1 - 2026-10-30
 - 7" display (Guition JC1060P470C): no more white flashes of the whole screen every few minutes. Its firmware is on

@@ -87,17 +87,27 @@ static const void *stop_neighbour(int side, void *user);
 static void stop_commit(int side, void *user);
 static void weather_alert_render(void);
 // Weather screen: one page per place in a vertical pager (pager.c); pills, page dots and place dots stay on top.
-// Forecast days on the weather page: 3 across the round screen, 5 as rows down the landscape one's right side
+// Forecast days on the weather page: 3 across the round screen, 5 on the landscape one. Landscape has two layouts
+// (config_wx_below, Settings): A, the days as rows on the right of a divider at the screen's centre; B, the days as
+// columns under the current conditions in the left half, and the radar (radar_panel_create) in the right half.
 #if DISP_ROUND
 #define FC_DAYS 3
 #else
 #define FC_DAYS 5
-#define FC_X0  580                     // the forecast rows: right of the divider, from y FC_Y0, FC_ROW apart
-#define FC_Y0  76
+#define WX_LX  (-256)                  // the left column's centre, from the screen's centre (x 256)
+#define DIV_X  512                     // the column divider (A: the page's; B: wx_vdiv beside the radar)
+#define FC_Y0  76                      // A: the rows from y FC_Y0, FC_ROW apart, right of DIV_X
 #define FC_ROW 90
+#define FB_DX  96                      // B: the columns, FB_DX apart around the left column's centre
+#define FB_Y_DIV 398                   // B: the divider under the conditions, then day / icon / high-low
+#define WXP_X  532                     // B: the radar panel, the right half less a margin from the divider
+#define WXP_Y  40
+#define WXP_W  472
+#define WXP_H  490
 #endif
 typedef struct {
     lv_obj_t *time, *city, *icon, *temp, *cond, *nowcast, *fc_day[FC_DAYS], *fc_temp[FC_DAYS], *fc_icon[FC_DAYS];
+    lv_obj_t *hero, *div;                      // landscape: moved by place_page_layout()
     lv_obj_t *detail, *feels, *hum, *wind;      // "Feels 8°  ·  (drop) 86 %  ·  (wind) 8 km/h" (a row)
     char name[48];
     int utc_offset;
@@ -109,6 +119,10 @@ typedef struct {
 } place_page_t;
 static lv_obj_t *scr_main, *place_pager;
 static place_page_t pp[MAX_PLACES];
+static bool wx_below;                          // landscape layout B (config_wx_below(), read at start)
+#if !DISP_ROUND
+static lv_obj_t *wx_panel, *wx_vdiv;           // B: the radar panel and the divider beside it (on scr_main)
+#endif
 static EXT_RAM_BSS_ATTR weather_t pw[MAX_PLACES];   // each page's forecast (redrawn on a units change)
 static int n_places = 1, cur_place;            // pages in use, the place shown (alerts, hourly, extras, radar)
 static lv_obj_t *pl_dot[MAX_PLACES];           // which place is shown (right edge of the weather screen)
@@ -890,6 +904,20 @@ static void radar_close(const char *why, lv_dir_t dir)
 
 static void radar_unloaded(lv_event_t *e) { radar_set_visible(false); }   // however it was left
 
+#if !DISP_ROUND
+// Layout B's radar panel (radar.c) is kept fresh while the weather screen is the one shown
+static void main_loaded(lv_event_t *e) { radar_panel_set_shown(wx_below); }
+static void main_unloaded(lv_event_t *e) { radar_panel_set_shown(false); }
+// Its corner control: the full-screen radar, as the icon's badge
+static void panel_expand(void) { radar_open(); }
+// Its picture changed while another screen is shown (the full radar playing, a frame every 6 min): the weather
+// screen's cached pictures (slide.c) hold the old one. The panel is on scr_main, so it is in every place's picture.
+static void panel_dirty(void)
+{
+    for (int i = 0; i < n_places; i++) slide_cache_dirty_rows(pager_page(place_pager, i), WXP_Y, WXP_Y + WXP_H);
+}
+#endif
+
 static void radar_idle(lv_timer_t *t)
 {
     if (lv_screen_active() != scr_radar || slide_running()) return;
@@ -962,6 +990,11 @@ static void hour_close(void)
 // Tap on the weather screen: the icon (radar), a forecast column (hourly view), the bottom pill (alert or update)
 #define PILL_Y      (DISP_H - 62)                       // the bottom pill's top (alert, else update): 404..434
 #define PILL_TAP_Y  (PILL_Y - 8)
+#if DISP_ROUND
+#define PILL_DX     0
+#else
+#define PILL_DX     (wx_below ? WX_LX : 0)              // B: under the left column, clear of the radar panel
+#endif
 static void main_tap(lv_event_t *e)
 {
     lv_indev_t *in = lv_indev_active();
@@ -982,8 +1015,16 @@ static void main_tap(lv_event_t *e)
     if (p.y < 296) return;                              // only the forecast row
     int col = p.x < DISP_W / 2 - 49 ? 0 : p.x > DISP_W / 2 + 49 ? 2 : 1;
 #else
-    if (p.x < FC_X0 || p.y < FC_Y0 || p.y >= FC_Y0 + FC_DAYS * FC_ROW) return;   // only the forecast rows
-    int col = (p.y - FC_Y0) / FC_ROW;
+    int col;
+    if (wx_below) {                                     // B: the columns under the conditions (the panel: its own taps)
+        if (p.x >= DIV_X || p.y < FB_Y_DIV) return;
+        col = (p.x - (DISP_W / 2 + WX_LX - FC_DAYS * FB_DX / 2)) / FB_DX;
+        if (col < 0) col = 0;
+        if (col >= FC_DAYS) col = FC_DAYS - 1;
+    } else {                                            // A: the rows on the right
+        if (p.x < DIV_X || p.y < FC_Y0 || p.y >= FC_Y0 + FC_DAYS * FC_ROW) return;
+        col = (p.y - FC_Y0) / FC_ROW;
+    }
 #endif
     if (col >= wx.ndays) return;
     printf("ui: tap forecast day %d\n", col);
@@ -1303,12 +1344,27 @@ static void drag_read(lv_indev_t *in, lv_indev_data_t *data)
     // Decided after DRAG_PX, by the larger axis (as LVGL picks a scroll direction). Requiring a 2:1 ratio missed curved
     // swipes on the round screen, and the hours list took those that started slightly vertical.
     if (abs(dx) < DRAG_PX && abs(dy) < DRAG_PX) return;
-    drag_armed = false;
     bool horiz = abs(dx) > abs(dy), vert = !horiz;
+#if !DISP_ROUND
+    // A vertical swipe on the radar panel (layout B) zooms the radar, as on the full screen (down = in), once it is
+    // clearly a swipe (40 px, as the full screen's zoom_swipe); the places are swiped from the left half
+    if (vert && cur == scr_main && wx_below && drag_p0.x >= WXP_X && drag_p0.y >= WXP_Y && drag_p0.y < WXP_Y + WXP_H) {
+        if (abs(dy) < 40) return;                              // (still armed: decided when it gets there)
+        drag_armed = false;
+        printf("ui: radar panel zoom %s\n", dy > 0 ? "in" : "out");
+        radar_zoom(dy > 0 ? 1 : -1);
+        lv_indev_wait_release(in);
+        return;
+    }
+#endif
+    drag_armed = false;
     drag_p1 = p;
     bool took = false;
     if (horiz && drag_index(cur) >= 0) took = drag_start(false, screen_neighbour, screen_commit);
-    else if (vert && cur == scr_main) took = drag_start(true, place_neighbour, place_commit);
+    else if (vert && cur == scr_main) {
+        if (wx_below) radar_panel_stop();                      // the panel's playback: the picture must stand still
+        took = drag_start(true, place_neighbour, place_commit);
+    }
     else if (vert && cur == scr_bus) took = drag_start(true, stop_neighbour, stop_commit);
     else if (horiz && cur == scr_hour) took = drag_start(false, day_neighbour, day_commit);
     else if (vert && cur != scr_radar && cur != scr_busmap) {           // a list (hourly hours, Settings, status...)
@@ -1939,7 +1995,7 @@ static bool have_air;
 #define ARC_CY  215
 #else           // landscape: the sun arc on the left, the values as rows on the right
 #define ARC_R   180
-#define ARC_CX  286
+#define ARC_CX  (DISP_W / 2 + WX_LX)             // the left half's centre, as the weather page
 #define ARC_CY  340
 #define EX_DX   (ARC_CX - DISP_W / 2)            // TOP_MID offsets of the left column
 #endif
@@ -2135,17 +2191,17 @@ static void extras_create(void)
     lv_obj_set_size(div, 2, 380);
     lv_obj_set_style_bg_color(div, lv_color_hex(0x2A3138), 0);
     lv_obj_set_style_bg_opa(div, LV_OPA_COVER, 0);
-    lv_obj_set_pos(div, 572, 110);
+    lv_obj_set_pos(div, DIV_X, 110);                          // (the divider at the centre, as the weather page)
     for (int i = 0; i < 4; i++) {                             // key above its value, a row each
         int y = 130 + i * 92;
         ex_key[i] = label(scr_extras, f_small, C_DIM, 0);
         lv_obj_set_width(ex_key[i], 360);
         lv_obj_set_style_text_align(ex_key[i], LV_TEXT_ALIGN_LEFT, 0);
-        lv_obj_align(ex_key[i], LV_ALIGN_TOP_LEFT, 616, y);
+        lv_obj_align(ex_key[i], LV_ALIGN_TOP_LEFT, DIV_X + 44, y);
         ex_val[i] = label(scr_extras, f_cond, C_TEXT, 0);
         lv_obj_set_width(ex_val[i], 360);
         lv_obj_set_style_text_align(ex_val[i], LV_TEXT_ALIGN_LEFT, 0);
-        lv_obj_align(ex_val[i], LV_ALIGN_TOP_LEFT, 616, y + 32);
+        lv_obj_align(ex_val[i], LV_ALIGN_TOP_LEFT, DIV_X + 44, y + 32);
     }
     ex_moon = lv_obj_create(scr_extras);
     lv_obj_remove_style_all(ex_moon);
@@ -2477,7 +2533,7 @@ static void update_create(void)
     lv_obj_set_style_pad_hor(up_pill, 12, 0);
     lv_obj_set_style_pad_ver(up_pill, 5, 0);
     lv_obj_set_style_radius(up_pill, 15, 0);
-    lv_obj_align(up_pill, LV_ALIGN_TOP_MID, 0, PILL_Y);    // the bottom slot, when no alert takes it (pills_show)
+    lv_obj_align(up_pill, LV_ALIGN_TOP_MID, PILL_DX, PILL_Y);    // the bottom slot, when no alert takes it (pills_show)
     up_pill_lbl = lv_label_create(up_pill);
     lv_obj_set_style_text_font(up_pill_lbl, f_tiny, 0);
     lv_obj_set_style_text_color(up_pill_lbl, lv_color_hex(0x04121F), 0);
@@ -2599,11 +2655,53 @@ static void row_icon(lv_obj_t *row, int w, int h, lv_event_cb_t draw)
 }
 
 #if !DISP_ROUND
-/* One place's weather page, landscape (1024x600): now on the left (clock, place, icon and temperature, conditions,
- * details, nowcast), the next three days as rows on the right, a divider between. The same objects as the round
- * layout below, so the rest of ui.c doesn't know which one it has. */
-#define WX_LX  (-226)                  // the left column's centre, from the screen's centre (x 286)
-#define WX_RX  0                       // the right column starts at x 600 (TOP_LEFT)
+/* One place's weather page, landscape (1024x600): now in the left half (clock, place, icon and temperature,
+ * conditions, details, nowcast), the five days as rows in the right half (layout A) or as columns under the
+ * conditions, the radar panel taking the right half (B). The same objects as the round layout below, so the rest of
+ * ui.c doesn't know which one it has; place_page_layout() moves them between A and B (Settings). */
+static void place_page_layout(place_page_t *p, bool below)
+{
+    // The left column: B packs it a little tighter to leave the columns their room above the pill (y 538)
+    lv_obj_align(p->time, LV_ALIGN_TOP_MID, WX_LX, below ? 34 : 40);
+    lv_obj_align(p->city, LV_ALIGN_TOP_MID, WX_LX, below ? 74 : 84);
+    lv_obj_align(p->hero, LV_ALIGN_TOP_MID, WX_LX, below ? 118 : 148);
+    lv_obj_align(p->cond, LV_ALIGN_TOP_MID, WX_LX, below ? 286 : 332);
+    lv_obj_align(p->detail, LV_ALIGN_TOP_MID, WX_LX, below ? 332 : 386);
+    lv_obj_align(p->nowcast, LV_ALIGN_TOP_MID, WX_LX, below ? 364 : 430);
+    if (below) {
+        lv_obj_set_size(p->div, 472, 2);
+        lv_obj_set_pos(p->div, 20, FB_Y_DIV);
+    } else {
+        lv_obj_set_size(p->div, 2, FC_DAYS * FC_ROW);
+        lv_obj_set_pos(p->div, DIV_X, FC_Y0);
+    }
+    for (int k = 0; k < FC_DAYS; k++) {
+        if (below) {                                   // columns: day / icon / high-low, centred FB_DX apart
+            int dx = WX_LX + (2 * k - (FC_DAYS - 1)) * FB_DX / 2;
+            lv_obj_set_style_text_font(p->fc_day[k], f_micro, 0);
+            lv_obj_set_width(p->fc_day[k], FB_DX + 24);               // "Aujourd'hui" (its neighbours are short)
+            lv_obj_set_style_text_align(p->fc_day[k], LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_align(p->fc_day[k], LV_ALIGN_TOP_MID, dx, FB_Y_DIV + 8);
+            lv_obj_align(p->fc_icon[k], LV_ALIGN_TOP_MID, dx, FB_Y_DIV + 32);
+            lv_obj_set_style_text_font(p->fc_temp[k], f_tiny, 0);
+            lv_obj_set_width(p->fc_temp[k], FB_DX);
+            lv_obj_set_style_text_align(p->fc_temp[k], LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_align(p->fc_temp[k], LV_ALIGN_TOP_MID, dx, FB_Y_DIV + 98);
+        } else {                                       // rows: day | icon | high / low
+            int y = FC_Y0 + k * FC_ROW;
+            lv_obj_set_style_text_font(p->fc_day[k], f_small, 0);
+            lv_obj_set_width(p->fc_day[k], 190);
+            lv_obj_set_style_text_align(p->fc_day[k], LV_TEXT_ALIGN_LEFT, 0);
+            lv_obj_align(p->fc_day[k], LV_ALIGN_TOP_LEFT, DIV_X + 40, y + (FC_ROW - 32) / 2);
+            lv_obj_align(p->fc_icon[k], LV_ALIGN_TOP_LEFT, DIV_X + 238, y + (FC_ROW - 124 * ICON_FC / 100) / 2);
+            lv_obj_set_style_text_font(p->fc_temp[k], f_small, 0);
+            lv_obj_set_width(p->fc_temp[k], 170);
+            lv_obj_set_style_text_align(p->fc_temp[k], LV_TEXT_ALIGN_RIGHT, 0);
+            lv_obj_align(p->fc_temp[k], LV_ALIGN_TOP_LEFT, DIV_X + 308, y + (FC_ROW - 32) / 2);
+        }
+    }
+}
+
 static void place_page_create(int i, lv_obj_t *pg)
 {
     place_page_t *p = &pp[i];
@@ -2612,18 +2710,16 @@ static void place_page_create(int i, lv_obj_t *pg)
     lv_label_set_long_mode(p->age, LV_LABEL_LONG_DOT);
     lv_obj_align(p->age, LV_ALIGN_TOP_MID, WX_LX, 14);
     p->time = label(pg, f_time, C_DIM, 0);
-    lv_obj_align(p->time, LV_ALIGN_TOP_MID, WX_LX, 40);
     p->city = label(pg, f_city, C_TEXT, 0);
     lv_obj_set_width(p->city, 500);
     lv_label_set_long_mode(p->city, LV_LABEL_LONG_DOT);
-    lv_obj_align(p->city, LV_ALIGN_TOP_MID, WX_LX, 84);
     lv_obj_t *hero = lv_obj_create(pg);
+    p->hero = hero;
     lv_obj_remove_style_all(hero);
     lv_obj_set_size(hero, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(hero, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(hero, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(hero, 20, 0);
-    lv_obj_align(hero, LV_ALIGN_TOP_MID, WX_LX, 148);
     p->icon = icon_box_create(hero, ICON_HERO);
     lv_obj_add_event_cb(p->icon, badge_draw, LV_EVENT_DRAW_POST, NULL);      // tap: the radar (main_tap)
     lv_obj_add_event_cb(p->icon, badge_ext, LV_EVENT_REFR_EXT_DRAW_SIZE, NULL);
@@ -2635,14 +2731,12 @@ static void place_page_create(int i, lv_obj_t *pg)
     lv_label_set_text(p->temp, "");
     p->cond = label(pg, f_cond, C_TEXT, 0);
     lv_obj_set_width(p->cond, 500);
-    lv_obj_align(p->cond, LV_ALIGN_TOP_MID, WX_LX, 332);
     p->detail = lv_obj_create(pg);
     lv_obj_remove_style_all(p->detail);
     lv_obj_set_size(p->detail, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(p->detail, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(p->detail, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(p->detail, 8, 0);
-    lv_obj_align(p->detail, LV_ALIGN_TOP_MID, WX_LX, 386);
     p->feels = row_label(p->detail);
     lv_label_set_text(row_label(p->detail), "·");
     row_icon(p->detail, 12, 16, drop_draw);
@@ -2653,28 +2747,18 @@ static void place_page_create(int i, lv_obj_t *pg)
     lv_obj_add_flag(p->detail, LV_OBJ_FLAG_HIDDEN);
     p->nowcast = label(pg, f_tiny, C_ACCENT, 0);
     lv_obj_set_width(p->nowcast, 500);
-    lv_obj_align(p->nowcast, LV_ALIGN_TOP_MID, WX_LX, 430);
     lv_obj_add_flag(p->nowcast, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_t *div = lv_obj_create(pg);                         // the column divider
-    lv_obj_remove_style_all(div);
-    lv_obj_set_size(div, 2, FC_DAYS * FC_ROW);
-    lv_obj_set_style_bg_color(div, lv_color_hex(0x2A3138), 0);
-    lv_obj_set_style_bg_opa(div, LV_OPA_COVER, 0);
-    lv_obj_set_pos(div, 572, FC_Y0);
-    for (int k = 0; k < FC_DAYS; k++) {                        // a row per day: day | icon | high / low
-        int y = FC_Y0 + k * FC_ROW;
+    p->div = lv_obj_create(pg);                                // the divider (A: a column, B: under the conditions)
+    lv_obj_remove_style_all(p->div);
+    lv_obj_set_style_bg_color(p->div, lv_color_hex(0x2A3138), 0);
+    lv_obj_set_style_bg_opa(p->div, LV_OPA_COVER, 0);
+    for (int k = 0; k < FC_DAYS; k++) {                        // a day: its name, icon, high / low
         p->fc_day[k] = label(pg, f_small, C_ACCENT, 0);
-        lv_obj_set_width(p->fc_day[k], 190);
-        lv_obj_set_style_text_align(p->fc_day[k], LV_TEXT_ALIGN_LEFT, 0);
         lv_label_set_long_mode(p->fc_day[k], LV_LABEL_LONG_DOT);
-        lv_obj_align(p->fc_day[k], LV_ALIGN_TOP_LEFT, 612, y + (FC_ROW - 32) / 2);
         p->fc_icon[k] = icon_box_create(pg, ICON_FC);
-        lv_obj_align(p->fc_icon[k], LV_ALIGN_TOP_LEFT, 800, y + (FC_ROW - 124 * ICON_FC / 100) / 2);
         p->fc_temp[k] = label(pg, f_small, C_TEXT, 0);
-        lv_obj_set_width(p->fc_temp[k], 150);
-        lv_obj_set_style_text_align(p->fc_temp[k], LV_TEXT_ALIGN_RIGHT, 0);
-        lv_obj_align(p->fc_temp[k], LV_ALIGN_TOP_LEFT, 840, y + (FC_ROW - 32) / 2);
     }
+    place_page_layout(p, wx_below);
 }
 #else
 // One place's weather page: the layout the weather screen always had
@@ -2774,8 +2858,8 @@ static void place_settled(int i, void *user)
  * same functions as the settings page (forge_presence, config.c), so the phone and the display always agree. Places,
  * the Wi-Fi password, custom timings and sound calibration stay on the phone (typing, map, live meter). */
 
-enum { R_DIM, R_MOTION, R_TIMING, R_TEMP, R_WIND, R_CLOCK, R_LANG, R_CHIME, R_VOLUME, R_TEST, R_PHONE, R_WIFI, R_UPDATE,
-       R_RESTART, CFG_ROWS };
+enum { R_DIM, R_MOTION, R_TIMING, R_WXLAY, R_TEMP, R_WIND, R_CLOCK, R_LANG, R_CHIME, R_VOLUME, R_TEST, R_PHONE, R_WIFI,
+       R_UPDATE, R_RESTART, CFG_ROWS };              // (R_WXLAY: the landscape screen only, no row on the round one)
 static lv_obj_t *cfg_row[CFG_ROWS], *cfg_val[CFG_ROWS], *cfg_arc, *cfg_bright, *cfg_zone;
 // The brightness shown: an arc along the round screen's bottom edge, a bar across the landscape screen's bottom
 static void cfg_bright_show(int v)
@@ -2856,6 +2940,9 @@ static void cfg_refresh(void)                      // display lock held
     cfg_switch(R_DIM, c.enabled);
     cfg_switch(R_MOTION, presence_motion_wake());
     set_hidden(cfg_row[R_MOTION], !st.imu_ok);
+#if !DISP_ROUND
+    cfg_switch(R_WXLAY, config_wx_below());
+#endif
     int p = cfg_preset(&c);
     set_text(cfg_val[R_TIMING], tr(p < 0 ? T_T_CUSTOM : cfg_presets[p].name));
     set_text(cfg_val[R_TEMP], u.fahrenheit ? "°F" : "°C");
@@ -2906,6 +2993,9 @@ static void cfg_tap(lv_event_t *e)
     switch (r) {
     case R_DIM: c.enabled = !c.enabled; presence_set_config(&c); break;
     case R_MOTION: presence_set_motion(!presence_motion_wake(), st.motion_thr); break;
+#if !DISP_ROUND
+    case R_WXLAY: config_set_wx_below(!config_wx_below()); ui_wx_layout_changed(); break;
+#endif
     case R_TIMING: {
         int p = (cfg_preset(&c) + 1) % 3;                       // custom -> Short
         c.dim_s = cfg_presets[p].dim;
@@ -3108,6 +3198,9 @@ static void cfg_create(void)
     cfg_add_row(box, R_DIM, T_DIM_QUIET, true);
     cfg_add_row(box, R_MOTION, T_WAKE_PICKUP, true);
     cfg_add_row(box, R_TIMING, T_TIMING, false);
+#if !DISP_ROUND
+    cfg_add_row(box, R_WXLAY, T_WX_BELOW, true);     // the weather page's layout (the radar beside the forecast)
+#endif
     cfg_section(box, T_SEC_UNITS);
     cfg_add_row(box, R_TEMP, T_TEMPERATURE, false);
     cfg_add_row(box, R_WIND, T_WIND, false);
@@ -3268,23 +3361,23 @@ static void stop_page_create(int i, lv_obj_t *pg)
     lv_obj_align(p->dir, LV_ALIGN_TOP_MID, WX_LX, 332);
     p->kind = bus_label(pg, f_small, C_DIM, 0, 500);
     lv_obj_align(p->kind, LV_ALIGN_TOP_MID, WX_LX, 386);
-    p->div = lv_obj_create(pg);                          // the column divider
+    p->div = lv_obj_create(pg);                          // the column divider, at the screen's centre (as weather A)
     lv_obj_remove_style_all(p->div);
     lv_obj_set_size(p->div, 2, 380);
     lv_obj_set_style_bg_color(p->div, lv_color_hex(0x2A3138), 0);
     lv_obj_set_style_bg_opa(p->div, LV_OPA_COVER, 0);
-    lv_obj_set_pos(p->div, 572, 84);
+    lv_obj_set_pos(p->div, DIV_X, 84);
     for (int k = 0; k < 3; k++) {
         int y = 96 + k * 124;
         p->col_in[k] = bus_label(pg, f_small, C_ACCENT, 0, 360);
         lv_obj_set_style_text_align(p->col_in[k], LV_TEXT_ALIGN_LEFT, 0);
-        lv_obj_align(p->col_in[k], LV_ALIGN_TOP_LEFT, 616, y + 10);
+        lv_obj_align(p->col_in[k], LV_ALIGN_TOP_LEFT, DIV_X + 44, y + 10);
         p->col_at[k] = bus_label(pg, f_cond, C_TEXT, 0, 200);
         lv_obj_set_style_text_align(p->col_at[k], LV_TEXT_ALIGN_LEFT, 0);
-        lv_obj_align(p->col_at[k], LV_ALIGN_TOP_LEFT, 616, y + 46);
+        lv_obj_align(p->col_at[k], LV_ALIGN_TOP_LEFT, DIV_X + 44, y + 46);
         p->col_kind[k] = bus_label(pg, f_tiny, C_DIM, 0, 160);
         lv_obj_set_style_text_align(p->col_kind[k], LV_TEXT_ALIGN_LEFT, 0);
-        lv_obj_align(p->col_kind[k], LV_ALIGN_TOP_LEFT, 820, y + 56);
+        lv_obj_align(p->col_kind[k], LV_ALIGN_TOP_LEFT, DIV_X + 248, y + 56);
     }
     p->pill = lv_obj_create(pg);                         // the route's notices (as the weather's alert pill)
     lv_obj_remove_style_all(p->pill);
@@ -4138,6 +4231,9 @@ void ui_init(void)
     lv_obj_set_width(msg_body, 330);
 
     scr_main = base_screen();
+#if !DISP_ROUND
+    wx_below = config_wx_below();
+#endif
     place_pager = pager_create(scr_main, true, MAX_PLACES, place_scrolled, place_settled, NULL);
     pager_freeze(place_pager);                           // places are dragged as pictures (slide.c, drag_read)
     for (int i = 0; i < MAX_PLACES; i++) place_page_create(i, pager_page(place_pager, i));
@@ -4152,7 +4248,7 @@ void ui_init(void)
     lv_obj_set_flex_flow(al_pill, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(al_pill, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(al_pill, 8, 0);
-    lv_obj_align(al_pill, LV_ALIGN_TOP_MID, 0, PILL_Y);
+    lv_obj_align(al_pill, LV_ALIGN_TOP_MID, PILL_DX, PILL_Y);
     al_pill_lbl = lv_label_create(al_pill);
     lv_obj_set_style_text_font(al_pill_lbl, f_tiny, 0);
     lv_label_set_long_mode(al_pill_lbl, LV_LABEL_LONG_DOT);
@@ -4185,6 +4281,19 @@ void ui_init(void)
     scr_radar = radar_create(f_small, f_small, f_micro);
     lv_obj_add_event_cb(scr_radar, radar_unloaded, LV_EVENT_SCREEN_UNLOADED, NULL);
     lv_timer_create(radar_idle, 10000, NULL);
+#if !DISP_ROUND
+    wx_vdiv = lv_obj_create(scr_main);                         // B: the divider beside the radar panel
+    lv_obj_remove_style_all(wx_vdiv);
+    lv_obj_set_size(wx_vdiv, 2, WXP_H);
+    lv_obj_set_style_bg_color(wx_vdiv, lv_color_hex(0x2A3138), 0);
+    lv_obj_set_style_bg_opa(wx_vdiv, LV_OPA_COVER, 0);
+    lv_obj_set_pos(wx_vdiv, DIV_X, WXP_Y);
+    wx_panel = radar_panel_create(scr_main, WXP_W, WXP_H, f_small, f_micro, panel_expand, panel_dirty);
+    lv_obj_set_pos(wx_panel, WXP_X, WXP_Y);
+    if (!wx_below) { lv_obj_add_flag(wx_vdiv, LV_OBJ_FLAG_HIDDEN); lv_obj_add_flag(wx_panel, LV_OBJ_FLAG_HIDDEN); }
+    lv_obj_add_event_cb(scr_main, main_loaded, LV_EVENT_SCREEN_LOADED, NULL);
+    lv_obj_add_event_cb(scr_main, main_unloaded, LV_EVENT_SCREEN_UNLOADED, NULL);
+#endif
     lv_obj_add_event_cb(scr_main, gesture_cb, LV_EVENT_GESTURE, NULL);
     lv_obj_add_event_cb(scr_main, open_cfg, LV_EVENT_LONG_PRESSED, NULL);
     lv_obj_add_event_cb(scr_main, main_tap, LV_EVENT_SHORT_CLICKED, NULL);
@@ -4194,6 +4303,9 @@ void ui_init(void)
     update_create();                // pill on scr_main (made non-clickable by passthrough) + update screen
     passthrough(scr_main);          // before the (clickable) overlay is added
     lv_obj_add_flag(place_pager, LV_OBJ_FLAG_CLICKABLE);   // it must stay pressable to scroll between places
+#if !DISP_ROUND
+    lv_obj_add_flag(wx_panel, LV_OBJ_FLAG_CLICKABLE);      // its own taps (play, the full screen); main_tap skips it
+#endif
 
     overlay = lv_obj_create(scr_main);
     lv_obj_remove_style_all(overlay);
@@ -4258,7 +4370,7 @@ static void day_name(const char *date, int idx, char *out, size_t n)
     if (sscanf(date, "%d-%d-%d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday) == 3) {
         tm.tm_year -= 1900; tm.tm_mon -= 1; tm.tm_hour = 12;
         mktime(&tm);
-        snprintf(out, n, "%s", tr_weekday(tm.tm_wday, !DISP_ROUND));   // landscape: room for "Wednesday"
+        snprintf(out, n, "%s", tr_weekday(tm.tm_wday, !DISP_ROUND && !wx_below));   // rows: room for "Wednesday"
     } else snprintf(out, n, "-");
 }
 
@@ -4440,7 +4552,8 @@ void ui_place(int i, const char *name, const weather_t *w)
         if (k < w->ndays) {
             day_name(w->day[k].date, k, buf, sizeof(buf));
             lv_label_set_text(p->fc_day[k], buf);
-            snprintf(buf, sizeof(buf), "%d° / %d°", config_temp(w->day[k].tmax), config_temp(w->day[k].tmin));
+            snprintf(buf, sizeof(buf), wx_below ? "%d°/%d°" : "%d° / %d°",      // (B's columns are narrow)
+                     config_temp(w->day[k].tmax), config_temp(w->day[k].tmin));
             lv_label_set_text(p->fc_temp[k], buf);
             draw_icon(p->fc_icon[k], weather_kind(w->day[k].code), true, ICON_FC, i * (FC_DAYS + 1) + k + 1);
             lv_obj_remove_flag(p->fc_icon[k], LV_OBJ_FLAG_HIDDEN);
@@ -4616,6 +4729,31 @@ lv_draw_buf_t *ui_snapshot(const char *screen)
 }
 
 // The phone's settings page changed something Settings shows (presence, sound, update channel): its picture
+void ui_wx_layout_changed(void)
+{
+#if !DISP_ROUND
+    display_lock(-1);
+    bool below = config_wx_below();
+    if (below != wx_below) {
+        wx_below = below;
+        printf("ui: weather layout %s\n", below ? "B (forecast below, radar beside)" : "A (forecast rows)");
+        for (int i = 0; i < MAX_PLACES; i++) place_page_layout(&pp[i], below);
+        set_hidden(wx_vdiv, !below);
+        set_hidden(wx_panel, !below);
+        lv_obj_align(al_pill, LV_ALIGN_TOP_MID, PILL_DX, PILL_Y);
+        lv_obj_align(up_pill, LV_ALIGN_TOP_MID, PILL_DX, PILL_Y);
+        radar_panel_set_shown(below && lv_screen_active() == scr_main);
+        for (int i = 0; i < n_places; i++)                  // the day names (full / short) and the temperatures
+            if (pp[i].has_wx) ui_place(i, pp[i].name, &pw[i]);
+        slide_cache_dirty(NULL);
+        clock_shown[0] = 0;
+        clock_tick(NULL);
+    }
+    if (lv_screen_active() == scr_cfg) cfg_refresh();
+    display_unlock();
+#endif
+}
+
 void ui_settings_changed(void)
 {
     display_lock(-1);
