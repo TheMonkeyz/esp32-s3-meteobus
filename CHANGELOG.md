@@ -9,6 +9,11 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 their own `## vX.Y.Z-rc.N` section. Those are shown only to Beta users, while the final release's section should
 list everything again.
 
+## v0.3.1 - 2026-10-30
+- 7" display (Guition JC1060P470C): no more white flashes of the whole screen every few minutes. Its firmware is on
+  the release page (jc1060p470c-v0.3.1.zip).
+- The "Try it" demo on the install page works again. Nothing changes on the round display.
+
 ## v0.3.1-rc.1 - 2026-10-30
 - 7" display (Guition JC1060P470C): no more white flashes of the whole screen every few minutes.
 - The "Try it" demo on the install page works again. Nothing changes on the round display.
