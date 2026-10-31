@@ -71,6 +71,18 @@ showed as blue/cyan flashes. Measured for one 1024x600 frame (console `blitbench
 | async_memcpy, one block / row by row | 11.6 / 56 ms |
 | 2D-DMA (`esp_async_fbcpy`) | ~8 ms |
 
+**White flashes (fixed 2026-10-30).** ESP-IDF's DPI driver restarts the panel's frame DMA from an interrupt after every
+frame, and the gap between frames is ~0.9 ms. Anything that holds interrupts off longer, on the core that serves that
+interrupt or on the other core while it waits for the same lock, leaves the panel without a picture for a frame: a
+full-screen white flash, every few minutes. Found by timing (console `walk`): a walk of the PSRAM heap (any
+`heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)`: diag's statistics, `slide.c`'s `room_for()`) holds the heap's
+lock 2.3 ms, and `uxTaskGetSystemState()` (diag's per-task lines, which measure every stack) 6.1 ms. So: the panel is
+set up from a task on core 1 (its interrupts are served there), PSRAM's largest free block is its free size
+(`--wrap=heap_caps_get_largest_free_block`, `display_p4.c`), and diag has no per-task lines here
+(`CONFIG_FORGE_DIAG_TASK_STATS=n`, espforge patch). Not the cause, tried on the way: the power supply (an 18 W
+charger), Wi-Fi transmit power (11 dBm), code in PSRAM (`CONFIG_SPIRAM_XIP_FROM_PSRAM`), memory bandwidth (no
+underrun counted). `flags.disable_lp` breaks this panel (streaks): keep the link's low-power mode.
+
 List scrolls use the 2D-DMA too (`scroll_frame_dma()`: the frame from the picture's blocks in the buffer not shown).
 Drags go on at the finger's last speed between two GT911 reports, at most 20 ms ahead (landscape only).
 
@@ -99,10 +111,11 @@ P4 (the C6 has no USB of its own here):
    1500-byte pieces through `esp_hosted_slave_ota_begin/write/end`; the C6 switches only once the image checks out, then
    the P4 restarts. ~12 s for 1.2 MB.
 
-espforge needed three changes, in `p4/espforge-p4.patch` (against espforge v0.3.0, applied to `.espforge/` for the
+espforge needed four changes, in `p4/espforge-p4.patch` (against espforge v0.3.0, applied to `.espforge/` for the
 build; not yet in espforge): diag.c's crash summary for RISC-V, forge_net without Easy Connect when DPP isn't there
-(`FORGE_DPP`, `net_dpp_supported()`), and `CONFIG_FORGE_HTTPS_PORT` (443 by default; `web_port()` adds the port to the
-addresses forge_net and ui.c write). The P4 used 50443 for a while; it is back on 443 since the C6's update.
+(`FORGE_DPP`, `net_dpp_supported()`), `CONFIG_FORGE_HTTPS_PORT` (443 by default; `web_port()` adds the port to the
+addresses forge_net and ui.c write), and `CONFIG_FORGE_DIAG_TASK_STATS` (diag's per-task lines, off here). The
+P4 used 50443 for a while; it is back on 443 since the C6's update.
 
 ### Radar
 
@@ -166,7 +179,7 @@ the AMOLED's.
 - CI and releases for the P4 (component manifest, espforge with the patch released, a second firmware in the flasher).
 - espforge: the patch's three changes, the backlog entries (espforge's `docs/BACKLOG.md`).
 
-## Lessons (2026-10-29)
+## Lessons (2026-10-29, 30)
 
 1. **Identify the board before porting.** "ESP32-P4-Function-EV-Board" was a guess; the board was a Guition
    JC1060P470C with a V2 panel. A black screen, then a white streaked band (the V1 table on a V2 panel), cost the first
@@ -187,3 +200,9 @@ the AMOLED's.
    `vApplicationGetIdleTaskMemory`, boot loop).
 8. esptool won't write a C6 image to a P4's flash: pad it (4 KB) and find the image by its magic.
 9. Python's `write_text()` on CRLF files (lesson 10 of CLAUDE.md) bit again here: check `file` on what you edit.
+10. **A display fed from an interrupt every frame can't take long critical sections anywhere.** White flashes every
+    few minutes were interrupts held off for 2-6 ms by statistics code (heap walks, the task list). Ask the user for
+    the time of each flash and match it to the log (the once-a-minute statistics, one second before); then make the
+    suspect run on demand at announced times while the user watches; time it (`walk`). Power, radio and bandwidth
+    were plausible and wrong.
+
