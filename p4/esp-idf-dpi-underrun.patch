@@ -1,0 +1,21 @@
+diff --git a/components/esp_lcd/dsi/esp_lcd_panel_dpi.c b/components/esp_lcd/dsi/esp_lcd_panel_dpi.c
+index 74c95b4a..9ad3729a 100644
+--- a/components/esp_lcd/dsi/esp_lcd_panel_dpi.c
++++ b/components/esp_lcd/dsi/esp_lcd_panel_dpi.c
+@@ -94,6 +94,8 @@ bool mipi_dsi_dma_trans_done_cb(dw_gdma_channel_handle_t chan, const dw_gdma_tra
+     return yield_needed;
+ }
+ 
++volatile uint32_t meteobus_dpi_underruns;   // MeteoBus P4 port: counted here, logged by the app (USB log)
++
+ void mipi_dsi_bridge_isr_handler(void *args)
+ {
+     esp_lcd_dpi_panel_t* dpi_panel = (esp_lcd_dpi_panel_t *)args;
+@@ -103,6 +105,7 @@ void mipi_dsi_bridge_isr_handler(void *args)
+     mipi_dsi_brg_ll_clear_interrupt_status(hal->bridge, intr_status);
+ 
+     if (intr_status & MIPI_DSI_BRG_LL_EVENT_UNDERRUN) {
++        meteobus_dpi_underruns++;
+         // when an underrun happens, the LCD display may already becomes blue
+         // it's too late to recover the display, so we just print an error message
+         // as a hint to the user that he should optimize the memory bandwidth (with AXI-ICM)

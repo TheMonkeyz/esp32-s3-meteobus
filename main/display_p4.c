@@ -459,10 +459,20 @@ bool display_cpu_full_speed(void) { return true; }       // no power management 
 
 static char init_note[96];             // repeated 8 s after start: the boot's first ~3 s miss the USB log
 
+// Counted by the DSI bridge's interrupt in this build's ESP-IDF (esp_lcd_panel_dpi.c, a local patch): its own message
+// for an underrun goes to UART0, which nothing reads on this board. Weak: absent in an unpatched ESP-IDF.
+extern volatile uint32_t meteobus_dpi_underruns __attribute__((weak));
+
+
 static void lvgl_task(void *arg)
 {
     bool noted = false, lit = false;
+    uint32_t underruns = 0;
     while (1) {
+        if (&meteobus_dpi_underruns && meteobus_dpi_underruns != underruns) {
+            underruns = meteobus_dpi_underruns;
+            ESP_LOGW(TAG, "panel underrun (%lu so far): the frame couldn't be read from PSRAM in time", (unsigned long)underruns);
+        }
         // The backlight once LVGL's first frame is in the frame buffer: before it the panel showed a cyan field at boot
         if (!lit && st.frames) { lit = true; vTaskDelay(pdMS_TO_TICKS(20)); bl_set(asleep ? 0 : level_set); }
         if (!noted && esp_timer_get_time() > 8000000) { noted = true; ESP_LOGI(TAG, "%s", init_note); }
@@ -555,7 +565,38 @@ static IRAM_ATTR bool on_refresh(esp_lcd_panel_handle_t p, esp_lcd_dpi_panel_eve
     return w == pdTRUE;
 }
 
+// The largest free block of PSRAM, asked by diag's statistics every minute and slide.c's room_for(), is a walk of the
+// whole PSRAM heap holding its lock with interrupts off: 2.3 ms here (console "walk"), on whichever core asks and on
+// any core that wants the heap meanwhile. The panel's DMA is restarted from an interrupt after every frame (ESP-IDF's
+// DPI driver), and the gap between frames is ~0.9 ms: a walk at the wrong moment left the panel without a picture
+// and it flashed white (every few minutes, 2026-10-30). Here PSRAM's largest block is its free size (32 MB, rarely
+// fragmented enough to matter; an allocation that fails anyway is handled where it's made). --wrap: main/CMakeLists.txt
+size_t __real_heap_caps_get_largest_free_block(uint32_t caps);
+size_t __wrap_heap_caps_get_largest_free_block(uint32_t caps)
+{
+    if (caps & MALLOC_CAP_SPIRAM) return heap_caps_get_free_size(caps);
+    return __real_heap_caps_get_largest_free_block(caps);
+}
+
+static void display_init_here(void);
+static void init_task(void *arg)
+{
+    display_init_here();
+    xTaskNotifyGive((TaskHandle_t)arg);
+    vTaskDelete(NULL);
+}
+
+// On core 1, so the panel's interrupts are there (an interrupt is served by the core that allocated it): the DPI's
+// DMA is restarted for every frame from its interrupt, and when that comes late the panel gets no picture and flashes
+// white. Core 0 is where the network, flash and statistics tasks hold interrupts off now and then (see below).
 void display_init(void)
+{
+    if (xPortGetCoreID() == 1) { display_init_here(); return; }
+    xTaskCreatePinnedToCore(init_task, "disp_init", 8192, xTaskGetCurrentTaskHandle(), 5, NULL, 1);
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+}
+
+static void display_init_here(void)
 {
     ESP_LOGI(TAG, "Init MIPI-DSI + JD9165 (%dx%d), LVGL screen %dx%d at %d,%d", PANEL_W, PANEL_H, DISP_W, DISP_H,
              DISP_OX, DISP_OY);

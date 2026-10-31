@@ -40,3 +40,6 @@ CONFIG_ESP_TASK_WDT_TIMEOUT_S=10
 # Updates: not the AMOLED's site (its releases are ESP32-S3 images). A P4 channel will live here; until then the check
 # finds nothing (HTTP 404) and the display says it is up to date.
 CONFIG_FORGE_OTA_SITE="https://themonkeyz.github.io/esp32-s3-meteobus/p4/"
+# espforge diag: no per-task statistics (uxTaskGetSystemState holds interrupts off ~6 ms; the panel's frame DMA is
+# restarted from an interrupt every frame: white flashes, 2026-10-30). Needs p4/espforge-p4.patch.
+CONFIG_FORGE_DIAG_TASK_STATS=n

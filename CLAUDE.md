@@ -84,6 +84,10 @@ before working on the merge. Everything below came with the weather display, and
   15. One esp_codec_dev device per codec chip (`es8311_open()` rewrites the chip), created under a lock.
   16. The settings page keeps the display's key per address (origin): a new port or address means scanning the QR
      code again, and the page then says "Could not reach the display" (to fix).
+  17. White flashes on the P4: anything holding interrupts off past the ~0.9 ms between frames (ESP-IDF restarts the
+     DPI DMA from an interrupt every frame): PSRAM heap walks (2.3 ms), `uxTaskGetSystemState()` (6.1 ms). Found by
+     matching the user's flash times to the log, then running the suspect at announced times. Never call
+     `heap_caps_get_largest_free_block(SPIRAM)` or task statistics periodically on that board.
 
 Read `README.md`, `docs/HISTORY.md` (how the project grew, how the work is done now, what is still open) and
 `docs/ARCHITECTURE.md` first. **On a Mac, read `docs/MACOS.md` first**: it replaces this file's Windows setup (COM5,

@@ -288,6 +288,27 @@ static void shot_task(void *arg)
 static void cmd_blitbench(int argc, char **argv) { display_blit_bench(); }
 #endif
 
+#if !DISP_ROUND
+// "walk": how long one PSRAM heap walk holds the heap's lock, interrupts off (ESP-IDF's own function: display_p4.c
+// keeps everything else from calling it for PSRAM)
+size_t __real_heap_caps_get_largest_free_block(uint32_t caps);
+static void cmd_walk(int argc, char **argv)
+{
+    int64_t t0 = esp_timer_get_time();
+    size_t lg = __real_heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
+    int64_t t1 = esp_timer_get_time();
+    size_t mn = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    int64_t t2 = esp_timer_get_time();
+    static TaskStatus_t ts[48];
+    uint32_t total;
+    int64_t t3 = esp_timer_get_time();
+    int n = uxTaskGetSystemState(ts, 48, &total);
+    int64_t t4 = esp_timer_get_time();
+    ESP_LOGI(TAG, "walk psram %lld us (largest %u KB), internal %lld us (largest %u KB), task list %lld us (%d tasks), "
+             "on core %d", t1 - t0, (unsigned)(lg / 1024), t2 - t1, (unsigned)(mn / 1024), t4 - t3, n, xPortGetCoreID());
+}
+#endif
+
 #if CONFIG_LWIP_STATS
 // "netstat": lwIP's receive counters (whether connections from outside reach this chip: the P4 behind its C6)
 static void cmd_netstat(int argc, char **argv)
@@ -557,6 +578,9 @@ void console_init(void)
 #endif
     testcon_register("pictest", "pictest", cmd_pictest);
     testcon_register("shot", "shot SCREEN [DIV]", cmd_shot);
+#if !DISP_ROUND
+    testcon_register("walk", "walk", cmd_walk);
+#endif
 #if CONFIG_IDF_TARGET_ESP32P4
     testcon_register("c6update", "c6update SIZE", cmd_c6update);
 #endif
