@@ -121,7 +121,7 @@ fw:T_T_LONG	Long	Takijut	medium	takijuq = long
 fw:T_T_CUSTOM	Custom	Namminiq	medium	Microsoft Inuktitut terminology (Pirurvik): manual = namminiq kamagilugu
 fw:T_TEMPERATURE	Temperature	Uunarniq	medium	temperature (warmth)
 fw:T_WIND	Wind	Anuri	medium	wind
-fw:T_WX_BELOW	Forecast below, radar beside	Sila ataani, `radar` sanianni	low	settings row (landscape display, must fit before the switch): sila = weather, ataani = below it, sanianni = beside it; `radar` kept as T_RADAR
+fw:T_WX_BELOW	Forecast below, radar beside	Sila ataani, `Radar` sanianni	low	settings row (landscape display, must fit before the switch): sila = weather, ataani = below it, sanianni = beside it; `radar` kept as T_RADAR
 fw:T_CLOCK	Clock	Ikarraat	low	Tusaalanga glossary: ikarraaq = hour
 fw:T_LANGUAGE	Language	Uqausiq	high	Microsoft Inuktitut terminology (Pirurvik): language = pilirijjutinut uqausiq
 fw:T_SEC_SOUND	SOUND	Nipi	high	nipi = sound
@@ -255,7 +255,7 @@ web:clock	Clock	Ikarraat	low	Tusaalanga glossary: ikarraaq = hour
 web:clock24	24-hour (14:45)	24 ikarraat (14:45)	medium	
 web:clock12	12-hour (2:45 PM)	12 ikarraat (2:45 `PM`)	medium	
 web:unitsNote	Changes apply on the display right away.	Asijjiqsimajut atuliqtut saqqijaummi maanna.	low	Microsoft Inuktitut terminology (Pirurvik): apply = atuliqtilli
-web:wxBelow	Forecast under the current conditions, radar beside them (wide display)	Silaup qanuinninga ataani, `radar` sanianni	low	settings page: the wide (landscape) display's weather layout; same draft as T_WX_BELOW; `radar` kept as T_RADAR
+web:wxBelow	Forecast under the current conditions, radar beside them (wide display)	Silaup qanuinninga ataani, `Radar` sanianni	low	settings page: the wide (landscape) display's weather layout; same draft as T_WX_BELOW; `radar` kept as T_RADAR
 web:presTitle	Screen & presence	Igalaujaq ammalu inuit	low	"screen and people"
 web:calibrate	🎙️ Calibrate background (stay quiet 5 s)	🎙️ Nipiit uuktuqsiurli (nipaillutit 5 `s`)	low	"measure the sounds (be quiet 5 s)"
 web:dimQuiet	Dim and turn off the screen when the room is quiet	Taanikilligiarli ammalu qamilli igalaujaq nipaittumi	low	Microsoft Inuktitut terminology (Pirurvik): dim, turn off

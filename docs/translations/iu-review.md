@@ -129,7 +129,7 @@ anything that reads wrong.
 | `fw:T_T_CUSTOM` | Custom | ᓇᒻᒥᓂᖅ | Namminiq | medium | Microsoft Inuktitut terminology (Pirurvik): manual = namminiq kamagilugu |
 | `fw:T_TEMPERATURE` | Temperature | ᐆᓇᕐᓂᖅ | Uunarniq | medium | temperature (warmth) |
 | `fw:T_WIND` | Wind | ᐊᓄᕆ | Anuri | medium | wind |
-| `fw:T_WX_BELOW` | Forecast below, radar beside | ᓯᓚ ᐊᑖᓂ, radar ᓴᓂᐊᓐᓂ | Sila ataani, `radar` sanianni | low | settings row (landscape display, must fit before the switch): sila = weather, ataani = below it, sanianni = beside it; `radar` kept as T_RADAR |
+| `fw:T_WX_BELOW` | Forecast below, radar beside | ᓯᓚ ᐊᑖᓂ, Radar ᓴᓂᐊᓐᓂ | Sila ataani, `Radar` sanianni | low | settings row (landscape display, must fit before the switch): sila = weather, ataani = below it, sanianni = beside it; `radar` kept as T_RADAR |
 | `fw:T_CLOCK` | Clock | ᐃᑲᕐᕌᑦ | Ikarraat | low | Tusaalanga glossary: ikarraaq = hour |
 | `fw:T_LANGUAGE` | Language | ᐅᖃᐅᓯᖅ | Uqausiq | high | Microsoft Inuktitut terminology (Pirurvik): language = pilirijjutinut uqausiq |
 | `fw:T_SEC_SOUND` | SOUND | ᓂᐱ | Nipi | high | nipi = sound |
@@ -263,7 +263,7 @@ anything that reads wrong.
 | `web:clock24` | 24-hour (14:45) | 24 ᐃᑲᕐᕌᑦ (14:45) | 24 ikarraat (14:45) | medium |  |
 | `web:clock12` | 12-hour (2:45 PM) | 12 ᐃᑲᕐᕌᑦ (2:45 PM) | 12 ikarraat (2:45 `PM`) | medium |  |
 | `web:unitsNote` | Changes apply on the display right away. | ᐊᓯᔾᔨᖅᓯᒪᔪᑦ ᐊᑐᓕᖅᑐᑦ ᓴᖅᑭᔭᐅᒻᒥ ᒫᓐᓇ. | Asijjiqsimajut atuliqtut saqqijaummi maanna. | low | Microsoft Inuktitut terminology (Pirurvik): apply = atuliqtilli |
-| `web:wxBelow` | Forecast under the current conditions, radar beside them (wide display) | ᓯᓚᐅᑉ ᖃᓄᐃᓐᓂᖓ ᐊᑖᓂ, radar ᓴᓂᐊᓐᓂ | Silaup qanuinninga ataani, `radar` sanianni | low | settings page: the wide (landscape) display's weather layout; same draft as T_WX_BELOW; `radar` kept as T_RADAR |
+| `web:wxBelow` | Forecast under the current conditions, radar beside them (wide display) | ᓯᓚᐅᑉ ᖃᓄᐃᓐᓂᖓ ᐊᑖᓂ, Radar ᓴᓂᐊᓐᓂ | Silaup qanuinninga ataani, `Radar` sanianni | low | settings page: the wide (landscape) display's weather layout; same draft as T_WX_BELOW; `radar` kept as T_RADAR |
 | `web:presTitle` | Screen & presence | ᐃᒐᓚᐅᔭᖅ ᐊᒻᒪᓗ ᐃᓄᐃᑦ | Igalaujaq ammalu inuit | low | "screen and people" |
 | `web:calibrate` | 🎙️ Calibrate background (stay quiet 5 s) | 🎙️ ᓂᐲᑦ ᐆᒃᑐᖅᓯᐅᕐᓕ (ᓂᐸᐃᓪᓗᑎᑦ 5 s) | 🎙️ Nipiit uuktuqsiurli (nipaillutit 5 `s`) | low | "measure the sounds (be quiet 5 s)" |
 | `web:dimQuiet` | Dim and turn off the screen when the room is quiet | ᑖᓂᑭᓪᓕᒋᐊᕐᓕ ᐊᒻᒪᓗ ᖃᒥᓪᓕ ᐃᒐᓚᐅᔭᖅ ᓂᐸᐃᑦᑐᒥ | Taanikilligiarli ammalu qamilli igalaujaq nipaittumi | low | Microsoft Inuktitut terminology (Pirurvik): dim, turn off |
