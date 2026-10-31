@@ -13,7 +13,8 @@ list everything again.
 - The shared software under the display (espforge) is at its v0.6.0, which now holds what this display had added on
   its own: the radar's faster downloads while it is open, one download at a time, the real screen off, the audio
   codecs, and the 7" display's needs. Nothing changes on the screen, on either display. For developers: no more
-  `p4/espforge-p4.patch` or `forge_compat.c`; `forge_audio` is the sixth espforge component.
+  `p4/espforge-p4.patch` or `forge_compat.c`; `forge_audio` is the sixth espforge component; the 7" display's firmware
+  builds on the PC from the same manifest (its components under a target rule).
 
 ## v0.3.1 - 2026-10-30
 - 7" display (Guition JC1060P470C): no more white flashes of the whole screen every few minutes. Its firmware is on

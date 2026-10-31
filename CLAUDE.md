@@ -81,6 +81,8 @@ before working on the merge. Everything below came with the weather display, and
   espforge v0.6.0 (no `p4/espforge-p4.patch` or `forge_compat.c` since MeteoBus v0.3.2-rc.1).
 - The AMOLED must not change: board code is chosen by target (`main/CMakeLists.txt`), layout by `DISP_ROUND` and byte
   order by `DISP_SWAP` (`display.h`). Build both targets after a change to shared code.
+- Build on the PC: `idf.py -B build\p4 -D IDF_TARGET=esp32p4 -D SDKCONFIG=build\p4\sdkconfig build` (the manifest's
+  target rules bring its components; since v0.3.2-rc.1), then the three `.bin` files into `p4irmware\`.
 - Tools: `p4\start_p4_helper.bat` (the P4's flash helper), `p4/flash.sh MD5`, `p4/shots.sh`, console `shot panel 1`
   (what the panel really shows), `netstat`, `blitbench`, `c6update`.
 - Lessons (details in docs/P4-PORT.md):

@@ -134,9 +134,14 @@ held core 0 past 5 s).
 
 ## Building
 
-There is no P4 build in CI yet: `main/idf_component.yml` lists only the AMOLED's components (it would need
-`esp_hosted`, `esp_wifi_remote`, `esp_lcd_jd9165`). The cloud session builds with the
-component manager off, as CLAUDE.md's "Cloud build recipe", plus:
+Since MeteoBus v0.3.2-rc.1 (2026-10-31) `main/idf_component.yml` lists the P4's components (`esp_lcd_jd9165` 2.0.2,
+`esp_wifi_remote` 1.6.5, `esp_hosted` 2.12.13) under a target rule, so the PC builds it with the component manager:
+
+    idf.py -B build\p4 -D IDF_TARGET=esp32p4 -D SDKCONFIG=build\p4\sdkconfig build
+
+(the AMOLED's build skips them). Then copy `build\p4\meteobus.bin`, `bootloaderootloader.bin` and
+`partition_table\partition-table.bin` to `p4irmware\` and run `p4/flash.sh MD5 SECS`. There is no P4 build in CI
+yet. The cloud session built with the component manager off, as CLAUDE.md's "Cloud build recipe", plus:
 
 - the RISC-V toolchain (`riscv32-esp-elf`) on the PATH, `ESP_IDF_VERSION=5.5` in the environment (esp_wifi_remote's
   Kconfig needs it), `ESP_ROM_ELF_DIR` set;
@@ -181,9 +186,12 @@ the AMOLED's.
 - Power: frequency scaling and a real screen-off (panel asleep) as on the AMOLED (v0.2.1).
 - CI and releases for the P4 (component manifest, a second firmware in the flasher).
 - ~~espforge: the patch's changes, the backlog entries~~: in espforge v0.6.0 (2026-10-31), taken by MeteoBus v0.3.2-rc.1.
-  Not yet run on the P4 board since (its board was in another session's hands): the first P4 build on v0.6.0 should
-  check the microphone's level line across a chime (forge_audio's single-ES8311 layout, proven only on the AMOLED
-  layout in espforge) and that no white flash came back (`diag: stats cost` at start).
+  Run on the board the same day (the PC build above): boot clean (`diag: stats cost: task list -1 us, PSRAM largest
+  block -1 us`), `audio: microphone ready (the ES8311's input)` from forge_audio, the microphone's level line kept
+  moving across a test chime (-37 dB, -1.9 dB during the chime, -31 dB after: L212 holds on the ES8311_BOTH layout),
+  the radar turned Wi-Fi power save off and on (`net: low latency on (1 users)` / `off`, `wifi status` ps=none / min),
+  14 past frames in 4.8 s. One `Connection reset by peer` on the first GeoMet request right after power save went off,
+  recovered on the retry: to watch. White flashes were not watched long enough to say.
 
 ## Lessons (2026-10-29, 30)
 
