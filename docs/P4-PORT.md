@@ -12,6 +12,19 @@ Works on the board, checked on the device (log, console screenshots, the user's 
 - Every screen in landscape: weather (five forecast days as rows, full day names; a tap on a row opens its hours),
   stop pages, bus map, extras, status, settings (rows on the left, the settings page's QR code on the right), hourly
   view, radar, weather alert, update, Wi-Fi setup.
+- **The weather page's two layouts (2026-10-30, checked on the board: console screenshots in English, French and
+  Inuktitut, `pictest` 0 rows after a playback and after a screen swipe and back, PSRAM low 8.9 MB, internal 141 KB):**
+  the column divider is at the
+  screen's centre (x 512) on the weather, stop and extras pages. Settings' "Forecast below, radar beside" (NVS
+  `ui/wxlay`, the page's check box, `POST /api/units {"wx_below":true}`) switches the weather page to layout B: the
+  five days as columns under the current conditions in the left half (short day names, `f_micro` / `f_tiny`), and
+  the **radar panel** in the right half (`radar_panel_create`, radar.c): the radar picture's centre window
+  (472x490 of the 1024x600 `out565`, the LVGL image's stride is the full width: no copy, no second renderer), its
+  latest frame kept fresh every 6 min while the page is shown, the place dot, the frame-time label and the playback
+  bar. A tap plays / stops the last 3 h as on the full screen; the circle at its top-right opens the full-screen
+  radar (the icon's badge still does too). A vertical swipe of 40 px on the panel zooms (down = in, as the full
+  screen; LVGL's scale animation on the panel's image, clipped by the panel); on the left half it changes the place,
+  and a place drag stops the panel's playback. Layout A (the default) is the old one with the divider moved.
 - Moves at the panel's rate: swipes 62-64 fps, gap max 16 ms, no tearing; hourly list scrolls ~58 fps; zooms as on the
   AMOLED.
 - Wi-Fi through the board's ESP32-C6 (esp-hosted), the settings page on the home network at `https://<ip>/` (the PC
@@ -171,6 +184,14 @@ the AMOLED's.
 - **The settings page says "Could not reach the display"** when the display refuses a change for a missing key (401):
   the key is kept per address, so after the address changed (port 50443 to 443) the page had none. It should say to
   scan the QR code again (espforge's page).
+- Layout B, still to see on the board: a nowcast line (none tonight) above the five columns, the alert pill under the
+  left column (no alert tonight), a place drag with two places (the panel is one object on `scr_main`, in every
+  place's picture: it moves with the page, then the new place's radar replaces it). Seen: a `shot panel` taken
+  during a playback shows two frames in bands (LVGL's partial redraw into the shown buffer, 32-line bands): the
+  panel's frame changes are not double-buffered, like every other partial redraw here.
+- The radar task has two gates that the panel's playback needed (2026-10-30): the idle rounds (`pan_playing`:
+  straight to `pipe_load()` while frames of the plan are missing, else the task spun and tripped IDLE0's watchdog)
+  and `pipe_load()`'s own `visible || play_pending || playing`. A playback in the panel loaded 14 frames in 9.5 s.
 - The alert screen's region map in landscape (no real alert yet; the sample has no map) and the update screen with a
   real update.
 - `ui_snapshot()` (the console's `shot SCREEN`) once showed a one-row black line across the weather icon that the panel

@@ -42,4 +42,5 @@ void ui_ota(const ota_status_t *st);    // update availability / progress (from 
 lv_draw_buf_t *ui_snapshot(const char *screen);
 void ui_units_changed(void);            // units / clock / language changed: redraw everything that shows them
 void ui_settings_changed(void);         // web.c: presence, sound or update settings changed (Settings' picture)
+void ui_wx_layout_changed(void);        // config_wx_below() changed (Settings, the page): the landscape weather page
 void ui_on_data_refresh(void (*cb)(void));   // language changed on the display: main.c fetches alerts again

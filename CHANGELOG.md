@@ -9,6 +9,14 @@ How to write an entry: add a `## vX.Y.Z - YYYY-MM-DD` section at the top **befor
 their own `## vX.Y.Z-rc.N` section. Those are shown only to Beta users, while the final release's section should
 list everything again.
 
+## Unreleased (port/esp32-p4, 2026-10-30; give it its version number before tagging)
+- Wide display (JC1060P470C): the divider between the two halves of the weather, stop and extras pages is now at the
+  centre of the screen.
+- Wide display: a new setting, "Forecast below, radar beside" (in Settings and on the settings page). With it on, the
+  weather page shows the five days under the current conditions and the radar in the right half of the screen: tap
+  the radar to play the last 3 hours, swipe down or up on it to zoom, tap the circle in its corner for the
+  full-screen radar.
+
 ## v0.3.0 - 2026-10-29
 - MeteoBus also runs on a 7" landscape display now, the Guition JC1060P470C: every screen laid out for its wide
   screen, five forecast days with their full names, and the settings page's QR code beside the settings. Its firmware

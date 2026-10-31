@@ -78,7 +78,10 @@ A 7" 1024x600 landscape panel (MIPI-DSI JD9165), GT911 touch, one ES8311 for spe
 ESP32-C6 (esp-hosted over SDIO), no motion sensor. Its own `display_p4.c`, `touch_p4.c`, `audio_p4.c`, `imu_p4.c`, picked
 by `IDF_TARGET` in `main/CMakeLists.txt`; `DISP_ROUND` 0 (landscape layout in `ui.c`) and `DISP_SWAP` 0 (`slide.c` copies
 without the byte swap) in `display.h`. Moves are built in a second frame buffer by the 2D-DMA and swapped at the panel's
-refresh. Everything else (pins, pipeline, Wi-Fi co-processor, build, lessons): `docs/P4-PORT.md`.
+refresh. Its weather page has two layouts (`config_wx_below()`, Settings "Forecast below, radar beside"): A, the five
+days as rows right of a divider at the screen's centre; B, the days as columns under the conditions and the radar's
+centre window in the right half (`radar_panel_create()`, "Radar" below; `place_page_layout()` moves the same objects
+between A and B). Everything else (pins, pipeline, Wi-Fi co-processor, build, lessons): `docs/P4-PORT.md`.
 
 ## Tasks
 
@@ -725,6 +728,17 @@ order, and ~11 ms on the bus.
 
 ## Radar (`radar.c`)
 
+- **The panel (landscape layout B, `radar_panel_create()`):** a second `lv_image` on the weather screen whose
+  descriptor points into `out565` at its centre (`header.stride` = the full width, `data` = the window's first pixel),
+  so every `compose()` and `refresh_img()` shows there too without a copy, and a place change (`radar_relocate()`)
+  moves it like the full screen. `radar_panel_set_shown()` (the weather screen loaded or unloaded, the option) makes
+  the task fetch the latest frame every `REFRESH_S` as when the full screen is open, but the buses' side work goes on
+  between (the task's idle rounds), nothing plays by itself, and Wi-Fi power save is only off while it plays. The
+  panel's labels (frame time, "Loading past 3 h...", the playback bar) mirror the full screen's (`lbl_set`,
+  `obj_hide`, `bar_set`). A tap plays / stops (`on_tap`); the corner control calls ui.c's `radar_open()`. A vertical
+  swipe on the panel zooms (ui.c's `drag_read`, 40 px: `radar_zoom()`; `start_scale_anim()` animates the panel's
+  image with LVGL when the full screen isn't shown). A frame drawn while another screen is shown marks the weather screen's pictures out of date
+  (`pan_dirty_cb`: ui.c's `panel_dirty`, the panel's rows of every place's picture).
 - **Projection:** Web Mercator. Zoom levels 4–10 give view radii of about 1560 / 780 / 390 / 195 / 98 / 49 / 24 km
   at 47°N (zoom 7 = ~837 m/px is the default). Zoom 10 is the useful limit, because GeoMet radar is 1 km/px. The range
   ring picks the round distance (5 km … 800 km) closest to half the radius. The view is centred on the saved location (`apply_view()`). Only doubling steps are used, so

@@ -260,6 +260,8 @@ X(T_TEMPERATURE,    "Temperature",                 "Température",
                     "ᐆᓇᕐᓂᖅ")
 X(T_WIND,           "Wind",                        "Vent",
                     "ᐊᓄᕆ")
+X(T_WX_BELOW,       "Forecast below, radar beside", "Prévisions en dessous, radar à côté",
+                    "ᓯᓚ ᐊᑖᓂ, radar ᓴᓂᐊᓐᓂ")
 X(T_CLOCK,          "Clock",                       "Horloge",
                     "ᐃᑲᕐᕌᑦ")
 X(T_LANGUAGE,       "Language",                    "Langue",
