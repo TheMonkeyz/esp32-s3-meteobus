@@ -312,7 +312,7 @@ measured), `snapshot_ms.stop`, `.stop2`, `.stop3` (max 5,000 ms, 1.4-2.1 s). Onl
 pictures are all saved): a board with four favourites or more would otherwise add NEW metrics and fail the run.
 `radar_history_s` (max 7.0 s) was over its limit on 2026-10-09 on the unchanged weather firmware too (7.2-8.2 s): Wi-Fi
 power save made each GeoMet reply wait for a beacon (~100 ms a request). Since v0.2.0-rc.4 it is off while the radar or the
-bus map is open (`netq_awake()`, ARCHITECTURE "Network queue"): 3.1-3.9 s. A slow request: time the same URL from
+bus map is open (`net_low_latency()`, ARCHITECTURE "Network queue"): 3.1-3.9 s. A slow request: time the same URL from
 the PC before blaming the server or a change.
 
 **Ad-hoc scripts** use the harness's classes, which find the helper's files and carry the display's key:

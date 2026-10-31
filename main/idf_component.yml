@@ -3,24 +3,42 @@ dependencies:
   espressif/esp_codec_dev: "1.5.11"   # pinned: "~1.5.2" floated to whatever 1.5.x was newest at build time
   # espforge's infrastructure (Wi-Fi setup, web server, updates, diagnostics, console, languages), at a release tag:
   # this display only takes espforge versions that passed their own tests. To build against an unreleased espforge
-  # checkout, see tools/forge_local.py (CLAUDE.md, "Shared with espforge"). Bump the five tags together.
+  # checkout, see tools/forge_local.py (CLAUDE.md, "Shared with espforge"). Bump the six tags together.
   forge_core:
     git: https://github.com/TheMonkeyz/espforge.git
     path: components/forge_core
-    version: v0.3.0
+    version: v0.6.0
   forge_net:
     git: https://github.com/TheMonkeyz/espforge.git
     path: components/forge_net
-    version: v0.3.0
+    version: v0.6.0
   forge_ota:
     git: https://github.com/TheMonkeyz/espforge.git
     path: components/forge_ota
-    version: v0.3.0
+    version: v0.6.0
   dns_server:
     git: https://github.com/TheMonkeyz/espforge.git
     path: components/dns_server
-    version: v0.3.0
+    version: v0.6.0
   forge_presence:
     git: https://github.com/TheMonkeyz/espforge.git
     path: components/forge_presence
-    version: v0.3.0
+    version: v0.6.0
+  forge_audio:
+    git: https://github.com/TheMonkeyz/espforge.git
+    path: components/forge_audio
+    version: v0.6.0
+  # The Guition JC1060P470C (ESP32-P4, docs/P4-PORT.md) only: its panel driver and its Wi-Fi co-processor's host side.
+  # Skipped for the AMOLED (the rules): idf.py -B build\p4 -D IDF_TARGET=esp32p4 -D SDKCONFIG=build\p4\sdkconfig build
+  espressif/esp_lcd_jd9165:
+    version: "2.0.2"
+    rules:
+      - if: "target == esp32p4"
+  espressif/esp_wifi_remote:
+    version: "1.6.5"
+    rules:
+      - if: "target == esp32p4"
+  espressif/esp_hosted:
+    version: "2.12.13"
+    rules:
+      - if: "target == esp32p4"
