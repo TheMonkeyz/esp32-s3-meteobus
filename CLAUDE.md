@@ -60,6 +60,15 @@ before working on the merge. Everything below came with the weather display, and
      weather_amoled, espforge LESSONS): the owner's ask (2026-10-11).
   10. Edits made with Python's `read_text()` / `write_text()` on Windows turned LF files into CRLF (git showed every
      line changed): read and write bytes, or `newline=''`.
+- **v0.3.2-rc.1 (2026-10-31): espforge v0.6.0.** The framework took what MeteoBus had built on its own (espforge's
+  CHANGELOG v0.6.0, from its BACKLOG entries): `netq_awake()` is `net_low_latency()`, the RTC's requests wait for and
+  hold forge_net's download slot (`net_dl_busy()`, `net_dl_begin("rtc")`; the weather loop and the radar keep `netq.c`'s
+  flags: they may overlap), the codecs are forge_audio (`audio.c` keeps the pins; `audio_p4.c` is its ES8311_BOTH
+  layout), the real screen off is forge_presence's `screen_off` hook, and the P4's patch and `forge_compat.c` are gone.
+  Kept on purpose: `slide.c`, the radar's tiles (not forge_map: docs/MERGE-PLAN.md), the RTC's requests in the radar
+  task's idle time (not `net_bg_post`: its 8 KB internal task is lesson 2). A counted on/off call (`net_low_latency`)
+  needs a guard against a repeated value at the caller (`radar_set_visible`). The emulator (`web/emu/emu_stubs.c`)
+  needs a stand-in for every new forge_net call an app file uses, and `tools/forge_local.py` lists the components.
 - **Tools that are git-ignored** and had to be copied from weather_amoled for a fresh folder: `tools/esptool.exe` and
   its `tools/LICENSE`, `tools/webtest/.browsers` (Playwright's Chromium), `node_modules` (`npm ci`).
 
@@ -68,7 +77,8 @@ before working on the merge. Everything below came with the weather display, and
 - **The same firmware for an ESP32-P4 board** with a 7" 1024x600 landscape panel and an ESP32-C6 for Wi-Fi, on **COM7**.
   Everything about it is in **`docs/P4-PORT.md`** (board, pins, code, build, flashing, what's open, lessons): read it
   before touching `*_p4.c`, `sdkconfig.defaults.esp32p4` or anything under `#if !DISP_ROUND`. No tags or releases from
-  that branch; espforge changes it needs are in `p4/espforge-p4.patch` until espforge has them.
+  that branch until v0.3.0 (its firmware is a zip on the release page since); the espforge changes it needed are in
+  espforge v0.6.0 (no `p4/espforge-p4.patch` or `forge_compat.c` since MeteoBus v0.3.2-rc.1).
 - The AMOLED must not change: board code is chosen by target (`main/CMakeLists.txt`), layout by `DISP_ROUND` and byte
   order by `DISP_SWAP` (`display.h`). Build both targets after a change to shared code.
 - Tools: `p4\start_p4_helper.bat` (the P4's flash helper), `p4/flash.sh MD5`, `p4/shots.sh`, console `shot panel 1`
@@ -129,27 +139,28 @@ extracted on October 4 (its `docs/LESSONS.md` L1-L184 generalize the bugs below,
 within hours (Easy Connect was fixed there while this display still failed with the user's phone), so since v1.14.0
 the display **takes its infrastructure from espforge**: forge_core (diag, test console, i18n core, NVS helpers,
 version, png_rows, textfit, http_once, utf8), forge_net (Wi-Fi, setup network, Easy Connect, web server, svc,
-certificate), forge_ota (updates), dns_server and, since v1.15.0, forge_presence (screen dimming by presence: the
+certificate), forge_ota (updates), dns_server, since v1.15.0 forge_presence (screen dimming by presence: the
 state machine, settings, calibration, console `presence` / `wake`, `/api/presence` and `/api/calibrate`; this board's
-microphones, motion sensor, touch and brightness are its hooks in `main.c`), **at a release tag** (the user's choice,
-October 4).
+microphones, motion sensor, touch, brightness and the real screen off are its hooks in `main.c`) and, since MeteoBus
+v0.3.2-rc.1 (espforge v0.6.0), forge_audio (the codecs: ES7210 + ES8311 on the AMOLED, one ES8311 on the P4; the pins
+in `audio.c`), **at a release tag** (the user's choice, October 4).
 
-- **Where:** `main/idf_component.yml` pins the five at the same espforge tag; ESP-IDF's component manager fetches them
+- **Where:** `main/idf_component.yml` pins the six at the same espforge tag; ESP-IDF's component manager fetches them
   into `managed_components/` (git-ignored, like `dependencies.lock`). If `idf.py` stops on "'git init --bare' failed
   ... unable to get current working directory", set `IDF_COMPONENT_CACHE_PATH` to a folder that exists (this PC:
   `C:\Users\lmathieu\.espressif\cm_cache`). Builds outside idf.py (host tests, the emulator, CI) use
   managed_components, or `python tools/fetch_forge.py` (clones the pinned tag into `.espforge/`).
 - **What stays here:** display, touch, `slide.c` (larger than espforge's trimmed fork: port ideas, not the file), pager,
-  lvgl_mem, imu, audio (I2S0 and the ES7210: forge_presence's microphone hooks, the speaker's data interface), sound,
+  lvgl_mem, imu, audio (the board's pins for forge_audio), sound,
   ui, radar, weather, alerts, config, the buses (MeteoBus: `departures.c` the RTC's polling, `rtc_api.c` its
-  replies, `favs.c` the favourites in NVS, `bus_routes.c` `/api/favs` and `/api/route`, `netq.c` who is downloading
-  and Wi-Fi power save), and the app's glue: `routes.c` (the settings page's app routes), `console.c` (the display's
+  replies, `favs.c` the favourites in NVS, `bus_routes.c` `/api/favs` and `/api/route`, `netq.c` who is downloading;
+  Wi-Fi power save is forge_net's `net_low_latency()` since v0.3.2-rc.1), and the app's glue: `routes.c` (the settings page's app routes), `console.c` (the display's
   console commands, "where", "diag: display"), `services.c` (the weather's five outside services, their probe URLs,
   the reasons' texts; the RTC's is registered by `departures.c`), `i18n.c` (the texts, Inuktitut's descriptor). Kconfig
   `CONFIG_FORGE_*` in `sdkconfig.defaults` keep the display's names (MeteoBus-Setup, the certificate, the User-Agent,
   the update site).
 - **A fix to shared code** is made in espforge: test it with this app first (`python tools/forge_local.py`: a build
-  against the espforge checkout, nothing committed), release an espforge rc, then bump the five tags here. Before
+  against the espforge checkout, nothing committed), release an espforge rc, then bump the six tags here. Before
   debugging Wi-Fi setup, OTA or the tools, read espforge's LESSONS for that topic.
 - **After bumping the tags, delete `dependencies.lock`** (git-ignored) before building: on October 6 the component
   manager said it re-solved, yet kept the locked commit for the new tag (v0.2.1 built v0.2.0's `forge_core`, without

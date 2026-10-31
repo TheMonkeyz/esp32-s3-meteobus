@@ -587,12 +587,12 @@ main/
   rtc_api.c     the RTC's website API: request URLs and reply parsing (host-tested)
   favs.c        the favourite stops in NVS
   bus_routes.c  the settings page's /api/favs and /api/route (My stops)
-  netq.c        who is downloading now (the buses wait for the others); Wi-Fi power save off while a map is open
+  netq.c        who is downloading now (the buses wait for the others, and for forge_net's download slot)
   weather.c     Open-Meteo fetch/parse, WMO code -> text/icon
   alerts.c      Environment Canada weather alerts (MSC GeoMet OGC API)
   routes.c      the settings page's app routes (places, units, sound) and the snapshot hook
   config.c      saved location (NVS) and local-time helper (UTC offset from Open-Meteo)
-  audio.c       I2S0 both ways, ES7210 microphones (forge_presence hooks); the speaker side is sound.c
+  audio.c       the board's pins for espforge's forge_audio (I2S0 both ways, the codecs); the speaker side is sound.c
   imu.c         QMI8658 motion sensor (wake on pick-up)
   sound.c       alert beeps through the speaker (ES8311, shares I2S with the microphones)
   i18n.c        the display's texts (i18n_strings.h: English, French, Inuktitut) and the Inuktitut language
@@ -609,7 +609,7 @@ main/idf_component.yml  LVGL, the audio codec, and espforge's components at a re
                 forge_core (diagnostics, test console, language core, text fit, PNG rows), forge_net (Wi-Fi, setup
                 network and captive portal, Easy Connect, the HTTPS settings server, service health, the per-device
                 certificate), forge_ota (updates over Wi-Fi, rollback), dns_server, forge_presence (screen dimming by
-                presence, since v1.15.0): github.com/TheMonkeyz/espforge
+                presence, since v1.15.0), forge_audio (the codecs, since v0.3.2-rc.1): github.com/TheMonkeyz/espforge
 docs/README.md        an index of the docs
 docs/ARCHITECTURE.md  how the pieces fit together, memory budget, known issues
 docs/MERGE-PLAN.md    how the weather and bus displays were merged (the agreed UI and memory plan)

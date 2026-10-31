@@ -1,76 +1,45 @@
-// The board's audio (audio.h): I2S0 in both directions, the ES7210 microphones through esp_codec_dev. The speaker's
-// ES8311 is sound.c's, on the same data interface.
+// The board's audio (audio.h): espforge's forge_audio with this board's pins. The Waveshare AMOLED: I2S0 both ways,
+// the ES7210 microphones in (I2C 0x40 on touch's bus) and the ES8311 speaker out (sound.c's own device on the shared
+// data interface). The Guition JC1060P470C (ESP32-P4): one ES8311 as speaker and microphone (forge_audio's ES8311_BOTH
+// layout: one IN_OUT device kept open under a lock; sound.c writes to it and switches the amplifier, GPIO 11, itself).
+// Until espforge v0.6.0 the codec code was here (audio.c) and in audio_p4.c; the pins stay, the rest is forge_audio.c.
 #include "audio.h"
-#include "driver/i2s_std.h"
-#include "esp_log.h"
-#include "esp_codec_dev.h"
-#include "esp_codec_dev_defaults.h"
+#include "forge_audio.h"
+#include "esp_codec_dev_defaults.h"              // ES7210_SEL_MIC1/2
 #include "touch.h"
 
-static const char *TAG = "audio";
-
-#define SAMPLE_RATE   16000
-#define PIN_MCLK      42
-#define PIN_BCLK      9
-#define PIN_WS        45
-#define PIN_DIN       10                         // ES7210 -> ESP32 (the BSP calls it DSIN)
-#define PIN_DOUT      8                          // ESP32 -> ES8311 (speaker, sound.c)
-#define ES7210_ADDR   0x80                       // 8-bit address (0x40), as esp_codec_dev expects
-
-static const audio_codec_data_if_t *data_if;
-static esp_codec_dev_handle_t mic;
+static const forge_audio_cfg_t cfg = {
+#if CONFIG_IDF_TARGET_ESP32P4
+    // Pins as in a working ESPHome setup for this board (github.com/charrus/Guition-esp32-p4-jc1060p470-...). GPIO 11
+    // is the amplifier enable (sound.c), GPIO 20 is on the header. The ES8311 (0x18) is the only codec on the bus,
+    // whatever the schematic shows (docs/P4-PORT.md).
+    .layout = FORGE_AUDIO_ES8311_BOTH,
+    .i2s_port = 0,
+    .mclk = 13, .bclk = 12, .ws = 10,
+    .dout = 9,                                   // P4 -> ES8311 (speaker)
+    .din = 48,                                   // ES8311's ADC -> P4 (the microphone behind the case's round holes)
+    .sample_rate = 16000,
+    .mic_addr = 0x30,                            // the ES8311's 8-bit address (0x18), as esp_codec_dev expects
+#else
+    .layout = FORGE_AUDIO_ES7210_ES8311,
+    .i2s_port = 0,
+    .mclk = 42, .bclk = 9, .ws = 45,
+    .din = 10,                                   // ES7210 -> ESP32 (the BSP calls it DSIN)
+    .dout = 8,                                   // ESP32 -> ES8311 (speaker, sound.c)
+    .sample_rate = 16000,
+    .mic_addr = 0x80,                            // the ES7210's 8-bit address (0x40), as esp_codec_dev expects
+    .mic_select = ES7210_SEL_MIC1 | ES7210_SEL_MIC2,
+#endif
+};
 
 bool audio_init(void)
 {
-    if (data_if) return true;
-    // Both directions on one I2S port (same clocks): microphones in (ES7210), speaker out (ES8311, sound.c)
-    i2s_chan_handle_t rx = NULL, tx = NULL;
-    i2s_chan_config_t cc = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
-    cc.dma_desc_num = 4;
-    cc.dma_frame_num = 320;
-    cc.auto_clear = true;                                     // silence on the speaker between chimes
-    if (i2s_new_channel(&cc, &tx, &rx) != ESP_OK) { ESP_LOGE(TAG, "I2S channels failed"); return false; }
-    i2s_std_config_t sc = {
-        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(SAMPLE_RATE),
-        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
-        .gpio_cfg = { .mclk = PIN_MCLK, .bclk = PIN_BCLK, .ws = PIN_WS, .dout = PIN_DOUT, .din = PIN_DIN },
-    };
-    if (i2s_channel_init_std_mode(tx, &sc) != ESP_OK || i2s_channel_init_std_mode(rx, &sc) != ESP_OK ||
-        i2s_channel_enable(tx) != ESP_OK || i2s_channel_enable(rx) != ESP_OK) {
-        ESP_LOGE(TAG, "I2S setup failed");
-        return false;
-    }
-    audio_codec_i2s_cfg_t icfg = { .port = I2S_NUM_0, .rx_handle = rx, .tx_handle = tx };
-    data_if = audio_codec_new_i2s_data(&icfg);
-    return data_if != NULL;
+    forge_audio_cfg_t c = cfg;
+    c.i2c = touch_i2c_bus();                     // the codecs' control bus is touch's: after touch_init()
+    return forge_audio_init(&c, true);           // both directions: the speaker is silent until something plays
 }
 
-bool audio_mic_open(float gain_db)
-{
-    if (mic) return true;
-    if (!audio_init()) return false;
-    audio_codec_i2c_cfg_t ccfg = { .port = 0, .addr = ES7210_ADDR, .bus_handle = touch_i2c_bus() };
-    const audio_codec_ctrl_if_t *ctrl_if = audio_codec_new_i2c_ctrl(&ccfg);
-    if (!ctrl_if) return false;
-    es7210_codec_cfg_t ecfg = { .ctrl_if = ctrl_if, .mic_selected = ES7210_SEL_MIC1 | ES7210_SEL_MIC2 };
-    const audio_codec_if_t *codec = es7210_codec_new(&ecfg);
-    if (!codec) return false;
-    esp_codec_dev_cfg_t dcfg = { .dev_type = ESP_CODEC_DEV_TYPE_IN, .codec_if = codec, .data_if = data_if };
-    esp_codec_dev_handle_t d = esp_codec_dev_new(&dcfg);
-    if (!d) return false;
-    esp_codec_dev_set_in_gain(d, gain_db);
-    esp_codec_dev_sample_info_t fs = { .sample_rate = SAMPLE_RATE, .channel = 2, .bits_per_sample = 16 };
-    if (esp_codec_dev_open(d, &fs) != ESP_CODEC_DEV_OK) {
-        ESP_LOGE(TAG, "microphones (ES7210) don't answer");
-        return false;
-    }
-    mic = d;
-    return true;
-}
-
-bool audio_mic_read(int16_t *samples, size_t n)
-{
-    return mic && esp_codec_dev_read(mic, samples, (int)(n * sizeof(int16_t))) == ESP_CODEC_DEV_OK;
-}
-
-const void *audio_data_if(void) { return data_if; }
+bool audio_mic_open(float gain_db) { return audio_init() && forge_audio_mic_open(gain_db); }
+bool audio_mic_read(int16_t *samples, size_t n) { return forge_audio_mic_read(samples, n); }
+const void *audio_data_if(void) { return forge_audio_data_if(); }
+void *audio_speaker_dev(void) { return forge_audio_speaker_dev(); }

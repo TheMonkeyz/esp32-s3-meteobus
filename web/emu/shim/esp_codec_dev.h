@@ -8,8 +8,8 @@ typedef struct { int dummy; } audio_codec_data_if_t;
 typedef struct { int dummy; } audio_codec_ctrl_if_t;
 typedef struct { int dummy; } audio_codec_gpio_if_t;
 typedef struct { int dummy; } audio_codec_if_t;
-typedef enum { ESP_CODEC_DEV_TYPE_IN = 1, ESP_CODEC_DEV_TYPE_OUT = 2 } esp_codec_dev_type_t;
-typedef enum { ESP_CODEC_DEV_WORK_MODE_ADC = 1, ESP_CODEC_DEV_WORK_MODE_DAC = 2 } esp_codec_dev_work_mode_t;
+typedef enum { ESP_CODEC_DEV_TYPE_IN = 1, ESP_CODEC_DEV_TYPE_OUT = 2, ESP_CODEC_DEV_TYPE_IN_OUT = 3 } esp_codec_dev_type_t;
+typedef enum { ESP_CODEC_DEV_WORK_MODE_ADC = 1, ESP_CODEC_DEV_WORK_MODE_DAC = 2, ESP_CODEC_DEV_WORK_MODE_BOTH = 3 } esp_codec_dev_work_mode_t;
 #define ESP_CODEC_DEV_OK 0
 typedef struct {
     esp_codec_dev_type_t dev_type;
@@ -24,3 +24,4 @@ int esp_codec_dev_write(esp_codec_dev_handle_t h, void *data, int len);
 int esp_codec_dev_close(esp_codec_dev_handle_t h);
 int esp_codec_dev_set_in_gain(esp_codec_dev_handle_t h, float db);
 int esp_codec_dev_read(esp_codec_dev_handle_t h, void *data, int len);
+static inline int esp_codec_dev_delete(esp_codec_dev_handle_t h) { (void)h; return ESP_CODEC_DEV_OK; }

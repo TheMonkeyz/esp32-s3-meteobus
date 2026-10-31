@@ -182,8 +182,8 @@ static esp_err_t location_post(httpd_req_t *req)
 }
 
 static const web_route_t routes[] = {
-    { "/api/config",    HTTP_GET,  config_get },
-    { "/api/sound",     HTTP_GET,  sound_get },
+    { "/api/config",    HTTP_GET,  config_get, .keyed = false },
+    { "/api/sound",     HTTP_GET,  sound_get, .keyed = false },
     { "/api/location",  HTTP_POST, location_post, .keyed = true },
     { "/api/units",     HTTP_POST, units_post, .keyed = true },
     { "/api/places",    HTTP_POST, places_post, .keyed = true },

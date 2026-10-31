@@ -31,7 +31,7 @@ CONFIG_ESP_HOSTED_SDIO_CLOCK_FREQ_KHZ=10000
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_p4.csv"
 # The settings page stays on 443: the C6's own esp-hosted 2.3 firmware (network split) kept every connection from the
 # home network for itself, a move to 50443 didn't help either; esp-hosted 2.12.13 on the C6 (console c6update,
-# 2026-10-29) forwards them. CONFIG_FORGE_HTTPS_PORT (espforge patch) remains for boards that need another port.
+# 2026-10-29) forwards them. CONFIG_FORGE_HTTPS_PORT (espforge v0.6.0) remains for boards that need another port.
 # The console's "netstat" (lwIP counters): does anything from outside reach the P4 behind its C6?
 CONFIG_LWIP_STATS=y
 # Task watchdog: 10 s (5 by default). At start-up the main task's TLS handshakes (mbedtls's software comb method for
@@ -40,6 +40,9 @@ CONFIG_ESP_TASK_WDT_TIMEOUT_S=10
 # Updates: not the AMOLED's site (its releases are ESP32-S3 images). A P4 channel will live here; until then the check
 # finds nothing (HTTP 404) and the display says it is up to date.
 CONFIG_FORGE_OTA_SITE="https://themonkeyz.github.io/esp32-s3-meteobus/p4/"
-# espforge diag: no per-task statistics (uxTaskGetSystemState holds interrupts off ~6 ms; the panel's frame DMA is
-# restarted from an interrupt every frame: white flashes, 2026-10-30). Needs p4/espforge-p4.patch.
+# espforge diag (v0.6.0): no per-task statistics (uxTaskGetSystemState holds interrupts off ~6 ms) and no walk of the
+# PSRAM heap for its largest block (~2.3 ms): the panel's frame DMA is restarted from an interrupt every frame, and
+# anything holding interrupts off past the ~0.9 ms gap is a white flash (2026-10-30, docs/P4-PORT.md). slide.c's own
+# walk is wrapped in display_p4.c (main/CMakeLists.txt).
 CONFIG_FORGE_DIAG_TASK_STATS=n
+CONFIG_FORGE_DIAG_PSRAM_LARGEST=n
