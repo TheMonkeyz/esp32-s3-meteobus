@@ -190,7 +190,7 @@ to PSRAM); since boot floor 25 KB; PSRAM's low point floor 300 KB; free PSRAM wi
 over its 7.0 limit, on v0.2.0 and on the unchanged weather firmware (v0.1.0-rc.2) alike. Timing the same 28 GeoMet
 URLs from the PC gave ~90 ms each (2.4-2.7 s); the board took ~200 ms each. ESP-IDF's default for a station
 (`WIFI_PS_MIN_MODEM`, which forge_net keeps) has the radio sleep between the router's beacons, so each reply waited
-for the next one (~100 ms). Since v0.2.0-rc.4 `netq_awake()` (`main/netq.c`) turns power save off while the radar or the
+for the next one (~100 ms). Since v0.2.0-rc.4 `netq_awake()` (`main/netq.c`; forge_net's `net_low_latency()` since v0.3.2-rc.1) turns power save off while the radar or the
 bus map is open: 3.1-3.9 s (4.9-6.6 s on rc.3 the same evening); log `netq: Wi-Fi power save off (a map is open)`.
 Downloads and decoding (~2.2 s, overlapped) are now close: the next gain would be in decoding. To check a slow
 request: time the same URL from the PC first.

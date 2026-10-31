@@ -59,6 +59,10 @@ static esp_err_t config_get(httpd_req_t *req)
     cJSON_AddStringToObject(un, "wind", u.wind == WIND_MPH ? "mph" : u.wind == WIND_MS ? "ms" : "kmh");
     cJSON_AddNumberToObject(un, "clock", u.h12 ? 12 : 24);
     cJSON_AddStringToObject(un, "lang", i18n_code(u.lang));
+#if !DISP_ROUND
+    cJSON_AddTrueToObject(j, "landscape");           // the page shows the landscape-only settings
+    cJSON_AddBoolToObject(un, "wx_below", config_wx_below());
+#endif
     cJSON *langs = cJSON_AddArrayToObject(j, "languages");      // [{code, name}] for the selector
     for (int i = 0; i < LANG_COUNT; i++) {
         cJSON *o = cJSON_CreateObject();
@@ -136,7 +140,8 @@ static esp_err_t places_post(httpd_req_t *req)
     return ESP_OK;
 }
 
-// {"temp":"c"|"f", "wind":"kmh"|"mph"|"ms", "clock":24|12, "lang":"en"|"fr"|"iu"}; any subset. The screens redraw.
+// {"temp":"c"|"f", "wind":"kmh"|"mph"|"ms", "clock":24|12, "lang":"en"|"fr"|"iu", "wx_below":true|false (landscape)};
+// any subset. The screens redraw.
 static esp_err_t units_post(httpd_req_t *req)
 {
     cJSON *j = web_read_json(req);
@@ -150,8 +155,14 @@ static esp_err_t units_post(httpd_req_t *req)
     if (cJSON_IsNumber(v = cJSON_GetObjectItem(j, "clock"))) u.h12 = v->valueint == 12;
     int old_lang = u.lang;
     if (cJSON_IsString(v = cJSON_GetObjectItem(j, "lang"))) u.lang = i18n_from_code(v->valuestring);
+    bool wx_changed = false;
+    if (cJSON_IsBool(v = cJSON_GetObjectItem(j, "wx_below")) && cJSON_IsTrue(v) != config_wx_below()) {
+        config_set_wx_below(cJSON_IsTrue(v));
+        wx_changed = true;
+    }
     cJSON_Delete(j);
     if (!config_set_units(&u)) return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "not saved");
+    if (wx_changed) ui_wx_layout_changed();
     ui_units_changed();
     if (u.lang != old_lang) { ota_check_now(); if (loc_cb) loc_cb(); }   // notes and alerts in the new language
     httpd_resp_sendstr(req, "{\"ok\":true}");
@@ -182,8 +193,8 @@ static esp_err_t location_post(httpd_req_t *req)
 }
 
 static const web_route_t routes[] = {
-    { "/api/config",    HTTP_GET,  config_get },
-    { "/api/sound",     HTTP_GET,  sound_get },
+    { "/api/config",    HTTP_GET,  config_get, .keyed = false },
+    { "/api/sound",     HTTP_GET,  sound_get, .keyed = false },
     { "/api/location",  HTTP_POST, location_post, .keyed = true },
     { "/api/units",     HTTP_POST, units_post, .keyed = true },
     { "/api/places",    HTTP_POST, places_post, .keyed = true },

@@ -54,6 +54,14 @@ static lv_obj_t *pnl, *pnl_body, *pnl_bar, *pnl_title;     // "Preparing maps" p
 static bool (*side_work)(void);         // radar_set_side_work: other downloads in the idle time
 static TaskHandle_t task;
 static volatile bool visible;
+// The radar panel (landscape weather page, layout B): a window on out565's centre, shown on another screen. While it
+// is on screen (pan_shown) the task keeps the latest frame fresh as for the full screen, but nothing plays by itself
+// and the buses' side work goes on. Its labels mirror the full screen's (lbl_set, obj_hide, bar_set).
+static lv_obj_t *pan, *pan_img, *pan_rtime, *pan_status, *pan_bar;
+static lv_image_dsc_t pdsc;
+static volatile bool pan_shown;
+static void (*pan_expand_cb)(void);      // the panel's corner control: the full-screen radar (ui.c)
+static void (*pan_dirty_cb)(void);       // the panel's picture changed while its screen isn't shown (ui.c, slide.c)
 static bool base_ok;
 static time_t last_fetch;
 static volatile bool relocate_pending;
@@ -702,14 +710,19 @@ static void start_scale_anim(int32_t from, int32_t to)     // caller holds the d
     lv_anim_delete(img, scale_cb);
     // Drawn by slide.c: scaled frames straight to the panel, ~60 fps (LVGL transforms the whole image for each
     // frame: ~10 fps). LVGL's animation when that can't run (another move going on, or the radar not shown).
-    if (slide_zoom(img, out565, from, to, ZOOM_ANIM_MS, zoom_swipe)) {
+    // The panel (zoomed from the weather page): LVGL's animation on its image, clipped by the panel.
+    lv_obj_t *target = img;
+    if (pan_shown && !visible) {
+        target = pan_img;
+        lv_anim_delete(pan_img, scale_cb);
+    } else if (slide_zoom(img, out565, from, to, ZOOM_ANIM_MS, zoom_swipe)) {
         anim_until = lv_tick_get() + ZOOM_ANIM_MS + 100;
         return;
     }
-    lv_image_set_scale(img, from);
+    lv_image_set_scale(target, from);
     lv_anim_t a;
     lv_anim_init(&a);
-    lv_anim_set_var(&a, img);
+    lv_anim_set_var(&a, target);
     lv_anim_set_exec_cb(&a, scale_cb);
     lv_anim_set_values(&a, from, to);
     lv_anim_set_duration(&a, ZOOM_ANIM_MS);
@@ -724,6 +737,33 @@ static void refresh_img(void)
     lv_image_set_scale(img, LV_SCALE_NONE);
     lv_image_cache_drop(&dsc);
     lv_obj_invalidate(img);
+    if (pan_img) {
+        lv_anim_delete(pan_img, scale_cb);
+        lv_image_set_scale(pan_img, LV_SCALE_NONE);
+        lv_image_cache_drop(&pdsc);
+        lv_obj_invalidate(pan_img);
+        if (pan_shown == false && pan_dirty_cb) pan_dirty_cb();   // its screen's cached picture is out of date
+    }
+}
+
+// A text, a hidden flag or the playback bar on the full screen and on the panel at once (when there is one)
+static void lbl_set(lv_obj_t *a, lv_obj_t *b, const char *t)
+{
+    if (strcmp(lv_label_get_text(a), t)) lv_label_set_text(a, t);
+    if (b && strcmp(lv_label_get_text(b), t)) lv_label_set_text(b, t);
+}
+static void obj_hide(lv_obj_t *a, lv_obj_t *b, bool hide)
+{
+    for (int i = 0; i < 2; i++) {
+        lv_obj_t *o = i ? b : a;
+        if (!o || lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN) == hide) continue;
+        if (hide) lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); else lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+static void bar_set(int v)
+{
+    lv_bar_set_value(bar, v, LV_ANIM_OFF);
+    if (pan_bar) lv_bar_set_value(pan_bar, v, LV_ANIM_OFF);
 }
 
 // Labels set only when they change: a redraw that changes nothing makes the screen's picture for drags (slide.c) out
@@ -734,11 +774,10 @@ static void set_status(const char *title, const char *status)
     bool changed = false;
     if (title && strcmp(lv_label_get_text(lbl_title), title)) { lv_label_set_text(lbl_title, title); changed = true; }
     if (status) {
-        if (strcmp(lv_label_get_text(lbl_status), status)) { lv_label_set_text(lbl_status, status); changed = true; }
+        if (strcmp(lv_label_get_text(lbl_status), status)) { lbl_set(lbl_status, pan_status, status); changed = true; }
         bool hide = !status[0];
         if (hide != lv_obj_has_flag(lbl_status, LV_OBJ_FLAG_HIDDEN)) {
-            if (hide) lv_obj_add_flag(lbl_status, LV_OBJ_FLAG_HIDDEN);
-            else lv_obj_remove_flag(lbl_status, LV_OBJ_FLAG_HIDDEN);
+            obj_hide(lbl_status, pan_status, hide);
             changed = true;
         }
     }
@@ -761,7 +800,7 @@ static void show_live(void)      // caller holds the display lock
     else snprintf(dist, sizeof(dist), "%d km", radius_km);
     if (f->ok) { fmt_local(f->t, when, sizeof(when)); snprintf(sub, sizeof(sub), tr(T_RADAR_AT), when, dist); }
     else snprintf(sub, sizeof(sub), tr(T_RADAR_NOTIME), dist);
-    lv_label_set_text(lbl_rtime, sub);
+    lbl_set(lbl_rtime, pan_rtime, sub);
     refresh_img();
 }
 
@@ -788,13 +827,18 @@ static void play_log_end(void)
     play_t0 = 0;
 }
 
+// The panel's play asks for low latency once (net_low_latency() counts callers; the full-screen radar's own
+// request is in radar_set_visible), and stop_play() gives it back once, whatever visibility did in between
+static bool panel_lowlat;
+
 static void stop_play(void)
 {
     if (play_timer) { lv_timer_delete(play_timer); play_timer = NULL; }
     playing = false;
     play_log_end();
-    lv_obj_add_flag(lbl_status, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(bar, LV_OBJ_FLAG_HIDDEN);
+    obj_hide(lbl_status, pan_status, true);
+    obj_hide(bar, pan_bar, true);
+    if (panel_lowlat) { net_low_latency(false); panel_lowlat = false; }   // (played in the panel)
     show_live();
 }
 
@@ -832,12 +876,9 @@ static void play_status(void)
     if (loading) {
         char msg[40];
         snprintf(msg, sizeof(msg), tr(T_LOADING_PAST), frames_ready(), NFRAMES);
-        if (strcmp(lv_label_get_text(lbl_status), msg)) lv_label_set_text(lbl_status, msg);
+        lbl_set(lbl_status, pan_status, msg);
     }
-    if (loading == lv_obj_has_flag(lbl_status, LV_OBJ_FLAG_HIDDEN)) {
-        if (loading) lv_obj_remove_flag(lbl_status, LV_OBJ_FLAG_HIDDEN);
-        else lv_obj_add_flag(lbl_status, LV_OBJ_FLAG_HIDDEN);
-    }
+    obj_hide(lbl_status, pan_status, !loading);
 }
 
 static void play_step(lv_timer_t *t)
@@ -849,7 +890,7 @@ static void play_step(lv_timer_t *t)
     play_status();
     while (play_i < NFRAMES && !frames[play_i].ok) {
         if (frame_coming(play_i)) {                            // on its way: keep the picture shown, and wait
-            lv_bar_set_value(bar, play_i, LV_ANIM_OFF);
+            bar_set(play_i);
             play_wait(t, true);
             return;
         }
@@ -867,8 +908,8 @@ static void play_step(lv_timer_t *t)
         char when[12];
         fmt_local(f->t, when, sizeof(when));
         lv_label_set_text(lbl_title, when);
-        lv_label_set_text(lbl_rtime, tr(T_PAST_3H));
-        lv_bar_set_value(bar, play_i + 1, LV_ANIM_OFF);
+        lbl_set(lbl_rtime, pan_rtime, tr(T_PAST_3H));
+        bar_set(play_i + 1);
         refresh_img();
     }
     play_i++;
@@ -884,7 +925,9 @@ static int frames_ready(void)
 static void start_play(void)     // caller holds the display lock
 {
     play_pending = false;
-    lv_obj_add_flag(lbl_status, LV_OBJ_FLAG_HIDDEN);
+    obj_hide(lbl_status, pan_status, true);
+    if (!visible && !panel_lowlat) { net_low_latency(true); panel_lowlat = true; }  // the panel plays: frames
+                                                                                   // without waiting for beacons
     if (play_timer) lv_timer_delete(play_timer);
     play_log_end();
     play_t0 = esp_timer_get_time();
@@ -895,8 +938,8 @@ static void start_play(void)     // caller holds the display lock
     playing = true;
     play_i = 0;
     play_started = lv_tick_get();
-    lv_bar_set_value(bar, 0, LV_ANIM_OFF);
-    lv_obj_remove_flag(bar, LV_OBJ_FLAG_HIDDEN);
+    bar_set(0);
+    obj_hide(bar, pan_bar, false);
     play_wait(NULL, false);                        // (the period remembered: the new timer's)
     play_timer = lv_timer_create(play_step, PLAY_STEP_MS, NULL);   // 3 frames per second
     play_step(play_timer);
@@ -1060,7 +1103,7 @@ static void pipe_load(void)
     for (int k = 0; k < NFRAMES; k++) pipe_done[k] = false;
     pipe_busy = true;
     for (;;) {
-        if (!(visible || play_pending) || relocate_pending || zoom_target != zoom) break;
+        if (!(visible || play_pending || playing) || relocate_pending || zoom_target != zoom) break;   // (playing: the panel)
         // The next missing frame: the newest while they load in the background (the recent past matters most),
         // the oldest once the animation plays (it plays oldest first from the tap; a frame takes ~0.25 s here and
         // is shown for 0.33 s, so after the first one the downloads stay ahead)
@@ -1183,7 +1226,12 @@ static void radar_task(void *arg)
             prefetch = true;
         }
         if (zoom_target != zoom) relocate_pending = true;
-        if (!prefetch && !relocate_pending) {
+        // The panel on screen: the latest frame every REFRESH_S, in between the idle rounds below go on (the buses)
+        if (pan_shown && !visible && last_fetch && time(NULL) - last_fetch >= REFRESH_S - 30) prefetch = true;
+        // Playing in the panel with frames of the plan still to fetch: straight to pipe_load() (below), no idle round
+        // (pipe_planned, not frames_ready(): a frame that failed is not fetched again and again)
+        bool pan_playing = playing && !visible && pipe_planned;
+        if (!prefetch && !relocate_pending && !pan_playing) {
             netq_set(NETQ_RADAR, false);
             if (!visible && side_work) {
                 // Idle: the other work a second at a time (the buses, the bus map), until the radar is wanted again;
@@ -1194,7 +1242,7 @@ static void radar_task(void *arg)
                     continue;
                 }
                 (void)woken;
-            } else ulTaskNotifyTake(pdTRUE, visible ? pdMS_TO_TICKS(REFRESH_S * 1000) : portMAX_DELAY);
+            } else ulTaskNotifyTake(pdTRUE, visible || pan_shown ? pdMS_TO_TICKS(REFRESH_S * 1000) : portMAX_DELAY);
             netq_set(NETQ_RADAR, true);
         }
         if (zoom_target != zoom) relocate_pending = true;
@@ -1205,7 +1253,7 @@ static void radar_task(void *arg)
             out_steps = prev_zoom > zoom ? prev_zoom - zoom : 0;   // >0 = zoomed out
             apply_view();
             display_lock(-1);
-            if (play_timer) { lv_timer_delete(play_timer); play_timer = NULL; lv_obj_add_flag(bar, LV_OBJ_FLAG_HIDDEN); }
+            if (play_timer) { lv_timer_delete(play_timer); play_timer = NULL; obj_hide(bar, pan_bar, true); }
             playing = false;
             play_log_end();
             for (int i = 0; i < NFRAMES; i++) frames[i].ok = false;
@@ -1222,7 +1270,7 @@ static void radar_task(void *arg)
             }
             prefetch = true;
         }
-        bool want_work = prefetch || visible || play_pending;
+        bool want_work = prefetch || visible || play_pending || pan_shown;
         prefetch = false;
         if (!want_work) { netq_set(NETQ_RADAR, false); continue; }
         if (!net_is_connected()) {                       // look again soon: "No Wi-Fi" stayed up to 6 min after it
@@ -1255,13 +1303,13 @@ static void radar_task(void *arg)
             last_fetch = time(NULL);
             display_lock(-1);
             if (!play_timer) show_live();
-            if (!play_pending && !playing) lv_obj_add_flag(lbl_status, LV_OBJ_FLAG_HIDDEN);
+            if (!play_pending && !playing) obj_hide(lbl_status, pan_status, true);
             display_unlock();
         }
 
         // History frames for the animation, newest first (oldest first while it plays; only while the radar is on
-        // screen)
-        if (visible || play_pending) pipe_load();
+        // screen, or playing in the panel)
+        if (visible || play_pending || playing) pipe_load();
         if (play_pending && frames_ready() >= NFRAMES - 2) {
             display_lock(-1);
             if (visible) start_play(); else play_pending = false;
@@ -1435,8 +1483,8 @@ void radar_side_wake(void)
 
 void radar_set_visible(bool v)
 {
+    if (v != visible) net_low_latency(v);       // forge_net: Wi-Fi power save off while a map is open (counted)
     visible = v;
-    netq_awake(NETQ_RADAR, v);                  // replies without waiting for a beacon while it is open
     if (!v) {
         display_lock(-1);
         play_pending = false;
@@ -1446,23 +1494,23 @@ void radar_set_visible(bool v)
     if (v && task) xTaskNotifyGive(task);
 }
 
-static void hide_status_cb(lv_timer_t *t) { lv_obj_add_flag(lbl_status, LV_OBJ_FLAG_HIDDEN); }
+static void hide_status_cb(lv_timer_t *t) { obj_hide(lbl_status, pan_status, true); }
 
 // Called from the LVGL task (gesture): +1 = zoom in (smaller radius), -1 = zoom out
 void radar_zoom(int step)
 {
     int z = zoom_target + step;
     if (preloading) {
-        lv_label_set_text(lbl_status, tr(T_MAPS_LOADING));
-        lv_obj_remove_flag(lbl_status, LV_OBJ_FLAG_HIDDEN);
+        lbl_set(lbl_status, pan_status, tr(T_MAPS_LOADING));
+        obj_hide(lbl_status, pan_status, false);
         lv_obj_move_foreground(lbl_status);
         lv_timer_t *t = lv_timer_create(hide_status_cb, 1500, NULL);
         lv_timer_set_repeat_count(t, 1);
         return;
     }
     if (z < ZOOM_MIN || z > ZOOM_MAX) {
-        lv_label_set_text(lbl_status, tr(step > 0 ? T_ZOOM_CLOSEST : T_ZOOM_WIDEST));
-        lv_obj_remove_flag(lbl_status, LV_OBJ_FLAG_HIDDEN);
+        lbl_set(lbl_status, pan_status, tr(step > 0 ? T_ZOOM_CLOSEST : T_ZOOM_WIDEST));
+        obj_hide(lbl_status, pan_status, false);
         lv_timer_t *t = lv_timer_create(hide_status_cb, 1500, NULL);
         lv_timer_set_repeat_count(t, 1);
         return;
@@ -1478,11 +1526,13 @@ void radar_zoom(int step)
     } else if (lv_image_get_scale(img) > LV_SCALE_NONE) {
         start_scale_anim(lv_image_get_scale(img), lv_image_get_scale(img) / 2);   // undo a pending zoom-in preview
     }
+    char msg[48];
     if (config_miles())                                  // as the rest of the radar (it said km in miles mode)
-        lv_label_set_text_fmt(lbl_status, "%s  ·  %d mi", tr(step > 0 ? T_ZOOM_IN : T_ZOOM_OUT),
-                              (int)(radius_at(z) / 1.609344 + 0.5));
-    else lv_label_set_text_fmt(lbl_status, "%s  ·  %d km", tr(step > 0 ? T_ZOOM_IN : T_ZOOM_OUT), radius_at(z));
-    lv_obj_remove_flag(lbl_status, LV_OBJ_FLAG_HIDDEN);
+        snprintf(msg, sizeof(msg), "%s  ·  %d mi", tr(step > 0 ? T_ZOOM_IN : T_ZOOM_OUT),
+                 (int)(radius_at(z) / 1.609344 + 0.5));
+    else snprintf(msg, sizeof(msg), "%s  ·  %d km", tr(step > 0 ? T_ZOOM_IN : T_ZOOM_OUT), radius_at(z));
+    lbl_set(lbl_status, pan_status, msg);
+    obj_hide(lbl_status, pan_status, false);
     if (task) xTaskNotifyGive(task);
 }
 
@@ -1498,4 +1548,161 @@ void radar_relocate(void)
     loc_changed = true;
     relocate_pending = true;
     if (task) xTaskNotifyGive(task);
+}
+
+/* ---------------- the panel: the radar's centre on another screen ---------------- */
+
+#define PAN_BTN 18                 // the corner control's radius (the full-screen radar)
+
+// The corner control: a circle with an "expand" arrow, drawn over the panel's top-right corner
+static void pan_draw(lv_event_t *e)
+{
+    lv_layer_t *layer = lv_event_get_layer(e);
+    lv_area_t a;
+    lv_obj_get_coords(pan, &a);
+    int cx = a.x2 - PAN_BTN - 10, cy = a.y1 + PAN_BTN + 10;
+    lv_draw_rect_dsc_t r;
+    lv_draw_rect_dsc_init(&r);
+    r.radius = LV_RADIUS_CIRCLE;
+    r.bg_color = lv_color_hex(0x11161C);
+    r.bg_opa = LV_OPA_80;
+    r.border_color = lv_color_hex(0x5AB0FF);
+    r.border_width = 2;
+    r.border_opa = LV_OPA_COVER;
+    lv_area_t ra = { cx - PAN_BTN, cy - PAN_BTN, cx + PAN_BTN, cy + PAN_BTN };
+    lv_draw_rect(layer, &r, &ra);
+    lv_draw_line_dsc_t l;
+    lv_draw_line_dsc_init(&l);
+    l.color = lv_color_hex(0x5AB0FF);
+    l.width = 2;
+    l.round_end = 1;
+    l.round_start = 1;
+    static const int8_t seg[5][4] = { {-6, 6, 6, -6}, {6, -6, -1, -6}, {6, -6, 6, 1}, {-6, 6, 1, 6}, {-6, 6, -6, -1} };
+    for (int i = 0; i < 5; i++) {               // a diagonal, an arrow head at the top right, a bracket bottom left
+        l.p1.x = cx + seg[i][0]; l.p1.y = cy + seg[i][1];
+        l.p2.x = cx + seg[i][2]; l.p2.y = cy + seg[i][3];
+        lv_draw_line(layer, &l);
+    }
+}
+
+// A tap on the panel: the corner control opens the full-screen radar, anywhere else plays / stops as the full screen
+static void pan_tap(lv_event_t *e)
+{
+    lv_indev_t *in = lv_indev_active();
+    lv_point_t p = {0, 0};
+    if (in) lv_indev_get_point(in, &p);
+    lv_area_t a;
+    lv_obj_get_coords(pan, &a);
+    if (p.x >= a.x2 - 2 * PAN_BTN - 24 && p.y <= a.y1 + 2 * PAN_BTN + 24) {
+        printf("ui: radar panel expand\n");
+        if (pan_expand_cb) pan_expand_cb();
+        return;
+    }
+    printf("ui: radar panel tap\n");
+    on_tap(e);
+}
+
+lv_obj_t *radar_panel_create(lv_obj_t *parent, int w, int h, lv_font_t *f_small, lv_font_t *f_micro,
+                             void (*expand_cb)(void), void (*dirty_cb)(void))
+{
+    pan_expand_cb = expand_cb;
+    pan_dirty_cb = dirty_cb;
+    if (w > W) w = W;
+    if (h > H) h = H;
+    int x0 = (W - w) / 2, y0 = (H - h) / 2;          // the window: out565's centre, so the place stays centred
+    pdsc.header.magic = LV_IMAGE_HEADER_MAGIC;
+    pdsc.header.cf = LV_COLOR_FORMAT_RGB565;
+    pdsc.header.w = w;
+    pdsc.header.h = h;
+    pdsc.header.stride = W * 2;                      // rows W apart: a window, not a copy
+    pdsc.data_size = W * 2 * h;
+    pdsc.data = (const uint8_t *)(out565 + y0 * W + x0);
+
+    pan = lv_obj_create(parent);
+    lv_obj_remove_style_all(pan);
+    lv_obj_set_size(pan, w, h);
+    lv_obj_set_style_bg_color(pan, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(pan, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(pan, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(pan, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_add_event_cb(pan, pan_tap, LV_EVENT_SHORT_CLICKED, NULL);
+    lv_obj_add_event_cb(pan, pan_draw, LV_EVENT_DRAW_POST, NULL);
+
+    pan_img = lv_image_create(pan);
+    lv_image_set_src(pan_img, &pdsc);
+    lv_obj_center(pan_img);
+    lv_obj_remove_flag(pan_img, LV_OBJ_FLAG_CLICKABLE);
+    lv_image_set_antialias(pan_img, false);
+
+    lv_obj_t *dot = lv_obj_create(pan);              // the place, as on the full screen
+    lv_obj_remove_style_all(dot);
+    lv_obj_set_size(dot, 12, 12);
+    lv_obj_center(dot);
+    lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(dot, lv_color_hex(0x5AB0FF), 0);
+    lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(dot, 2, 0);
+    lv_obj_set_style_border_color(dot, lv_color_white(), 0);
+    lv_obj_remove_flag(dot, LV_OBJ_FLAG_CLICKABLE);
+
+    pan_rtime = lv_label_create(pan);                // "Radar 21:18 · 429 km" / "Past 3 h"
+    lv_obj_set_style_text_font(pan_rtime, f_micro, 0);
+    lv_obj_set_style_text_color(pan_rtime, lv_color_white(), 0);
+    lv_obj_set_style_bg_color(pan_rtime, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(pan_rtime, LV_OPA_50, 0);
+    lv_obj_set_style_radius(pan_rtime, 8, 0);
+    lv_obj_set_style_pad_hor(pan_rtime, 8, 0);
+    lv_obj_set_style_pad_ver(pan_rtime, 2, 0);
+    lv_label_set_text(pan_rtime, lv_label_get_text(lbl_rtime));
+    lv_obj_align(pan_rtime, LV_ALIGN_TOP_MID, 0, 10);
+    lv_obj_remove_flag(pan_rtime, LV_OBJ_FLAG_CLICKABLE);
+
+    pan_bar = lv_bar_create(pan);                    // playback progress
+    lv_obj_set_size(pan_bar, 110, 5);
+    lv_bar_set_range(pan_bar, 0, NFRAMES);
+    lv_obj_align(pan_bar, LV_ALIGN_TOP_MID, 0, 40);
+    lv_obj_set_style_bg_color(pan_bar, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(pan_bar, LV_OPA_60, 0);
+    lv_obj_set_style_bg_color(pan_bar, lv_color_hex(0x5AB0FF), LV_PART_INDICATOR);
+    lv_obj_remove_flag(pan_bar, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(pan_bar, LV_OBJ_FLAG_HIDDEN);
+
+    pan_status = lv_label_create(pan);               // "Loading radar...", "Loading past 3 h... n/15"
+    lv_obj_set_style_text_font(pan_status, f_small, 0);
+    lv_obj_set_style_text_color(pan_status, lv_color_white(), 0);
+    lv_obj_set_style_bg_color(pan_status, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(pan_status, LV_OPA_70, 0);
+    lv_obj_set_style_radius(pan_status, 12, 0);
+    lv_obj_set_style_pad_hor(pan_status, 12, 0);
+    lv_obj_set_style_pad_ver(pan_status, 4, 0);
+    lv_label_set_text(pan_status, lv_label_get_text(lbl_status));
+    lv_obj_align(pan_status, LV_ALIGN_CENTER, 0, -50);
+    lv_obj_remove_flag(pan_status, LV_OBJ_FLAG_CLICKABLE);
+    if (lv_obj_has_flag(lbl_status, LV_OBJ_FLAG_HIDDEN)) lv_obj_add_flag(pan_status, LV_OBJ_FLAG_HIDDEN);
+
+    lv_obj_t *attr = lv_label_create(pan);
+    lv_obj_set_style_text_font(attr, f_micro, 0);
+    lv_obj_set_style_text_color(attr, lv_color_hex(0xD0D6DC), 0);
+    lv_obj_set_style_text_align(attr, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(attr, "© OpenStreetMap contributors · Radar: ECCC");
+    lv_obj_align(attr, LV_ALIGN_BOTTOM_MID, 0, -6);
+    lv_obj_remove_flag(attr, LV_OBJ_FLAG_CLICKABLE);
+    return pan;
+}
+
+void radar_panel_set_shown(bool shown)
+{
+    if (shown == pan_shown) return;
+    pan_shown = shown;
+    if (!shown && !visible) {                        // left the page while it played in the panel
+        display_lock(-1);
+        if (play_timer) stop_play();
+        display_unlock();
+    }
+    if (shown && task) xTaskNotifyGive(task);        // a frame older than REFRESH_S: fetched now
+}
+
+void radar_panel_stop(void)                          // caller holds the display lock (a drag began under it)
+{
+    if (!visible && play_timer) stop_play();
 }

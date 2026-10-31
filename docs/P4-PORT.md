@@ -12,6 +12,19 @@ Works on the board, checked on the device (log, console screenshots, the user's 
 - Every screen in landscape: weather (five forecast days as rows, full day names; a tap on a row opens its hours),
   stop pages, bus map, extras, status, settings (rows on the left, the settings page's QR code on the right), hourly
   view, radar, weather alert, update, Wi-Fi setup.
+- **The weather page's two layouts (2026-10-30, checked on the board: console screenshots in English, French and
+  Inuktitut, `pictest` 0 rows after a playback and after a screen swipe and back, PSRAM low 8.9 MB, internal 141 KB):**
+  the column divider is at the
+  screen's centre (x 512) on the weather, stop and extras pages. Settings' "Forecast below, radar beside" (NVS
+  `ui/wxlay`, the page's check box, `POST /api/units {"wx_below":true}`) switches the weather page to layout B: the
+  five days as columns under the current conditions in the left half (short day names, `f_micro` / `f_tiny`), and
+  the **radar panel** in the right half (`radar_panel_create`, radar.c): the radar picture's centre window
+  (472x490 of the 1024x600 `out565`, the LVGL image's stride is the full width: no copy, no second renderer), its
+  latest frame kept fresh every 6 min while the page is shown, the place dot, the frame-time label and the playback
+  bar. A tap plays / stops the last 3 h as on the full screen; the circle at its top-right opens the full-screen
+  radar (the icon's badge still does too). A vertical swipe of 40 px on the panel zooms (down = in, as the full
+  screen; LVGL's scale animation on the panel's image, clipped by the panel); on the left half it changes the place,
+  and a place drag stops the panel's playback. Layout A (the default) is the old one with the divider moved.
 - Moves at the panel's rate: swipes 62-64 fps, gap max 16 ms, no tearing; hourly list scrolls ~58 fps; zooms as on the
   AMOLED.
 - Wi-Fi through the board's ESP32-C6 (esp-hosted), the settings page on the home network at `https://<ip>/` (the PC
@@ -46,8 +59,8 @@ Home Assistant forum's thread on it.
 
 ## Code
 
-`main/CMakeLists.txt` picks the board files by target: `display_p4.c`, `touch_p4.c`, `audio_p4.c`, `imu_p4.c` (a stub)
-instead of `display.c`, `touch.c`, `audio.c`, `imu.c`. Everything else is shared; `display.h` says which layout:
+`main/CMakeLists.txt` picks the board files by target: `display_p4.c`, `touch_p4.c`, `imu_p4.c` (a stub) instead of
+`display.c`, `touch.c`, `imu.c` (`audio.c` holds both boards' pins for espforge's forge_audio). Everything else is shared; `display.h` says which layout:
 
 - `DISP_ROUND` 1 on the AMOLED, 0 here: `ui.c` chooses the landscape layout's sizes and positions with it (fonts ~1.3x,
   `ICON_HERO` 128, the forecast rows `FC_*`, the hourly columns `HC_*`, the bus map's pills `BM_*`, the alert's `AL_*`).
@@ -86,9 +99,10 @@ underrun counted). `flags.disable_lp` breaks this panel (streaks): keep the link
 List scrolls use the 2D-DMA too (`scroll_frame_dma()`: the frame from the picture's blocks in the buffer not shown).
 Drags go on at the finger's last speed between two GT911 reports, at most 20 ms ahead (landscape only).
 
-### Audio (`audio_p4.c`, `sound.c`)
+### Audio (`audio.c`, `sound.c`)
 
-One `esp_codec_dev` for the ES8311, both ways (`ESP_CODEC_DEV_TYPE_IN_OUT`, `WORK_MODE_BOTH`, `no_dac_ref`), opened once
+Since MeteoBus v0.3.2-rc.1 the codec code is espforge's forge_audio (its `FORGE_AUDIO_ES8311_BOTH` layout is this
+port's `audio_p4.c` of v0.3.0-v0.3.1); `main/audio.c` keeps only the pins, for both boards. One `esp_codec_dev` for the ES8311, both ways (`ESP_CODEC_DEV_TYPE_IN_OUT`, `WORK_MODE_BOTH`, `no_dac_ref`), opened once
 under a lock and kept open: `es8311_open()` rewrites the chip's set-up, so a second device opened at each chime would stop
 the microphone, and the sound and presence tasks start together (two devices were created before the lock).
 `audio_mic_open()` sets the input gain; `audio_speaker_dev()` gives `sound.c` the device, and on the P4 `sound.c` switches
@@ -111,11 +125,12 @@ P4 (the C6 has no USB of its own here):
    1500-byte pieces through `esp_hosted_slave_ota_begin/write/end`; the C6 switches only once the image checks out, then
    the P4 restarts. ~12 s for 1.2 MB.
 
-espforge needed four changes, in `p4/espforge-p4.patch` (against espforge v0.3.0, applied to `.espforge/` for the
-build; not yet in espforge): diag.c's crash summary for RISC-V, forge_net without Easy Connect when DPP isn't there
-(`FORGE_DPP`, `net_dpp_supported()`), `CONFIG_FORGE_HTTPS_PORT` (443 by default; `web_port()` adds the port to the
-addresses forge_net and ui.c write), and `CONFIG_FORGE_DIAG_TASK_STATS` (diag's per-task lines, off here). The
-P4 used 50443 for a while; it is back on 443 since the C6's update.
+espforge needed four changes, carried in `p4/espforge-p4.patch` (against espforge v0.3.0) until espforge v0.6.0 took
+them (2026-10-31; MeteoBus v0.3.2-rc.1 builds on that tag, the patch and `main/forge_compat.c` are gone): diag.c's
+crash summary for RISC-V, forge_net without Easy Connect when DPP isn't there (`net_dpp_supported()`),
+`CONFIG_FORGE_HTTPS_PORT` (443 by default; `web_port()` adds the port to the addresses forge_net and ui.c write), and
+`CONFIG_FORGE_DIAG_TASK_STATS` (diag's per-task lines, off here; v0.6.0 also has `CONFIG_FORGE_DIAG_PSRAM_LARGEST`,
+the heap line's PSRAM walk, off here too). The P4 used 50443 for a while; it is back on 443 since the C6's update.
 
 ### Radar
 
@@ -132,15 +147,21 @@ held core 0 past 5 s).
 
 ## Building
 
-There is no P4 build in CI yet: `main/idf_component.yml` lists only the AMOLED's components (it would need
-`esp_hosted`, `esp_wifi_remote`, `esp_lcd_jd9165`, and espforge with the patch). The cloud session builds with the
-component manager off, as CLAUDE.md's "Cloud build recipe", plus:
+Since MeteoBus v0.3.2-rc.1 (2026-10-31) `main/idf_component.yml` lists the P4's components (`esp_lcd_jd9165` 2.0.2,
+`esp_wifi_remote` 1.6.5, `esp_hosted` 2.12.13) under a target rule, so the PC builds it with the component manager:
+
+    idf.py -B build\p4 -D IDF_TARGET=esp32p4 -D SDKCONFIG=build\p4\sdkconfig build
+
+(the AMOLED's build skips them). Then copy `build\p4\meteobus.bin`, `bootloaderootloader.bin` and
+`partition_table\partition-table.bin` to `p4irmware\` and run `p4/flash.sh MD5 SECS`. There is no P4 build in CI
+yet. The cloud session built with the component manager off, as CLAUDE.md's "Cloud build recipe", plus:
 
 - the RISC-V toolchain (`riscv32-esp-elf`) on the PATH, `ESP_IDF_VERSION=5.5` in the environment (esp_wifi_remote's
   Kconfig needs it), `ESP_ROM_ELF_DIR` set;
 - vendored components in `EXTRA_COMPONENT_DIRS`: lvgl 9.2.2, esp_codec_dev 1.6.2, esp_hosted 2.12.13, esp_wifi_remote
   1.6.5, esp_lcd_jd9165 2.0.2 (its CMakeLists and esp_lcd_ek79007's used the component manager's version macros:
-  patched to build without it), and espforge's components with `p4/espforge-p4.patch`;
+  patched to build without it), and espforge's components at the tag in `main/idf_component.yml` (v0.6.0 or newer:
+  the patch is gone since MeteoBus v0.3.2-rc.1);
 - `p4/esp-idf-dpi-underrun.patch` on ESP-IDF (optional): the DSI bridge's interrupt counts underruns, and
   `display_p4.c` logs `panel underrun (N so far)`; ESP-IDF's own message for them goes to UART0, which nothing reads on
   this board. Without the patch the count is simply absent (a weak symbol);
@@ -171,13 +192,27 @@ the AMOLED's.
 - **The settings page says "Could not reach the display"** when the display refuses a change for a missing key (401):
   the key is kept per address, so after the address changed (port 50443 to 443) the page had none. It should say to
   scan the QR code again (espforge's page).
+- Layout B, still to see on the board: a nowcast line (none tonight) above the five columns, the alert pill under the
+  left column (no alert tonight), a place drag with two places (the panel is one object on `scr_main`, in every
+  place's picture: it moves with the page, then the new place's radar replaces it). Seen: a `shot panel` taken
+  during a playback shows two frames in bands (LVGL's partial redraw into the shown buffer, 32-line bands): the
+  panel's frame changes are not double-buffered, like every other partial redraw here.
+- The radar task has two gates that the panel's playback needed (2026-10-30): the idle rounds (`pan_playing`:
+  straight to `pipe_load()` while frames of the plan are missing, else the task spun and tripped IDLE0's watchdog)
+  and `pipe_load()`'s own `visible || play_pending || playing`. A playback in the panel loaded 14 frames in 9.5 s.
 - The alert screen's region map in landscape (no real alert yet; the sample has no map) and the update screen with a
   real update.
 - `ui_snapshot()` (the console's `shot SCREEN`) once showed a one-row black line across the weather icon that the panel
   didn't have (strip render): a test tool's flaw to look at.
 - Power: frequency scaling and a real screen-off (panel asleep) as on the AMOLED (v0.2.1).
-- CI and releases for the P4 (component manifest, espforge with the patch released, a second firmware in the flasher).
-- espforge: the patch's three changes, the backlog entries (espforge's `docs/BACKLOG.md`).
+- CI and releases for the P4 (component manifest, a second firmware in the flasher).
+- ~~espforge: the patch's changes, the backlog entries~~: in espforge v0.6.0 (2026-10-31), taken by MeteoBus v0.3.2-rc.1.
+  Run on the board the same day (the PC build above): boot clean (`diag: stats cost: task list -1 us, PSRAM largest
+  block -1 us`), `audio: microphone ready (the ES8311's input)` from forge_audio, the microphone's level line kept
+  moving across a test chime (-37 dB, -1.9 dB during the chime, -31 dB after: L212 holds on the ES8311_BOTH layout),
+  the radar turned Wi-Fi power save off and on (`net: low latency on (1 users)` / `off`, `wifi status` ps=none / min),
+  14 past frames in 4.8 s. One `Connection reset by peer` on the first GeoMet request right after power save went off,
+  recovered on the retry: to watch. White flashes were not watched long enough to say.
 
 ## Lessons (2026-10-29, 30)
 

@@ -178,6 +178,29 @@ void config_gesture_hint_done(void)
     nvs_close(h);
 }
 
+static int wx_below_cached = -1;                     // -1: not read yet
+
+bool config_wx_below(void)
+{
+    if (wx_below_cached < 0) {
+        nvs_handle_t h;
+        uint8_t v = 0;
+        if (nvs_open("ui", NVS_READONLY, &h) == ESP_OK) { nvs_get_u8(h, "wxlay", &v); nvs_close(h); }
+        wx_below_cached = v ? 1 : 0;
+    }
+    return wx_below_cached == 1;
+}
+
+void config_set_wx_below(bool below)
+{
+    wx_below_cached = below ? 1 : 0;
+    nvs_handle_t h;
+    if (nvs_open("ui", NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_check(nvs_set_u8(h, "wxlay", below ? 1 : 0), "ui/wxlay");
+    nvs_commit(h);
+    nvs_close(h);
+}
+
 int config_place_count(void) { load(); return nplaces; }
 int config_active_place(void) { load(); return active; }
 

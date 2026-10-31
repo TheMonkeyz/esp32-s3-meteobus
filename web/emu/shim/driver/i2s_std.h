@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include "esp_err.h"
 typedef struct emu_i2s_chan *i2s_chan_handle_t;
+#define I2S_GPIO_UNUSED (-1)
 typedef enum { I2S_NUM_0 = 0 } i2s_port_t;
 typedef enum { I2S_ROLE_MASTER = 0 } i2s_role_t;
 typedef enum { I2S_DATA_BIT_WIDTH_16BIT = 16 } i2s_data_bit_width_t;
