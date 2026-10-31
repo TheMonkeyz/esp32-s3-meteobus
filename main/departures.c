@@ -252,13 +252,23 @@ int deps_stalled_s(void)
 
 // One step of the polling rules (MeteoBus): at most one request, run by the caller (the radar task, while the radar
 // isn't on screen: it has the internal stack TLS needs, and never downloads at the same time). Nothing while the
-// weather loop or the bus map downloads (netq.h), nor within GAP_MS of the last request. True if it asked something.
+// weather loop downloads (netq.h) or forge_net's download slot is held (an update check or install, a service probe:
+// net_dl_busy()), nor within GAP_MS of the last request; the request holds the slot itself. True if it asked something.
+static bool step(char *buf, rtc_board_t *b);
+
 bool deps_step(void)
 {
     __atomic_store_n(&alive_us, esp_timer_get_time(), __ATOMIC_RELEASE);
-    if (!mu || !step_buf || !step_board || esp_timer_get_time() < next_ok || netq_others_busy(NETQ_RADAR)) return false;
-    char *buf = step_buf;
-    rtc_board_t *b = step_board;
+    if (!mu || !step_buf || !step_board || esp_timer_get_time() < next_ok || netq_others_busy(NETQ_RADAR) || net_dl_busy())
+        return false;
+    if (!net_dl_begin("rtc", 0)) return false;            // taken since the check: a second later
+    bool asked = step(step_buf, step_board);
+    net_dl_end("rtc");
+    return asked;
+}
+
+static bool step(char *buf, rtc_board_t *b)
+{
     xSemaphoreTake(mu, portMAX_DELAY);
     job_t *jb = job;                                      // taken: run_job now waits for it whatever happens
     job = NULL;

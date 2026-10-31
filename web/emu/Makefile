@@ -23,9 +23,10 @@ OUT := build
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
 FIRMWARE := ui.c slide.c pager.c config.c i18n.c weather.c alerts.c radar.c sound.c services.c audio.c routes.c \
-            departures.c rtc_api.c favs.c bus_routes.c forge_compat.c
+            departures.c rtc_api.c favs.c bus_routes.c
 FORGE_SRC := i18n.c png_rows.c textfit.c
 FORGE_OTA_SRC := ota_web.c
+FORGE_AUDIO_SRC := forge_audio.c       # main/audio.c's codecs (emu_audio.c's esp_codec_dev)
 # Screen dimming: espforge's forge_presence as the firmware builds it (its task, NVS settings, console commands, web
 # routes), with the board's hooks from emu_main.c (main/audio.c on emu_audio.c, emu_imu.c, emu_touch.c)
 FORGE_PRESENCE_SRC := presence.c presence_sm.c presence_json.c presence_web.c
@@ -36,6 +37,7 @@ LV_SRC := $(shell find $(LVGL)/src -name '*.c')
 MINIZ := $(OUT)/miniz
 CFLAGS := -O2 -DEMU_BUILD '-DEMU_VERSION="$(VERSION)"' -I. -Ishim -I$(MAIN) -I$(FORGE)/forge_core/include \
           -I$(FORGE)/forge_net/include -I$(FORGE)/forge_ota/include -I$(FORGE)/forge_presence/include \
+          -I$(FORGE)/forge_audio/include \
           -I$(LVGL) -I$(LVGL)/src -I$(CJSON) -I$(MINIZ) \
           -include string.h -include stdint.h '-DLV_CONF_KCONFIG_EXTERNAL_INCLUDE="lv_kconfig.h"' \
           -DLV_LVGL_H_INCLUDE_SIMPLE -Wno-unused-parameter
@@ -45,6 +47,7 @@ LDFLAGS := -sASYNCIFY -sASYNCIFY_STACK_SIZE=65536 -sALLOW_MEMORY_GROWTH -sSTACK_
 
 OBJ := $(patsubst %.c,$(OUT)/fw/%.o,$(FIRMWARE)) $(patsubst %.c,$(OUT)/forge/%.o,$(FORGE_SRC)) \
        $(patsubst %.c,$(OUT)/forge_ota/%.o,$(FORGE_OTA_SRC)) $(patsubst %.c,$(OUT)/forge_presence/%.o,$(FORGE_PRESENCE_SRC)) \
+       $(patsubst %.c,$(OUT)/forge_audio/%.o,$(FORGE_AUDIO_SRC)) \
        $(patsubst %.c,$(OUT)/emu/%.o,$(EMU)) \
        $(patsubst $(LVGL)/%.c,$(OUT)/lvgl/%.o,$(LV_SRC)) $(OUT)/cjson/cJSON.o $(OUT)/emu/fonts.o $(OUT)/miniz/miniz.o
 
@@ -75,6 +78,9 @@ $(OUT)/forge_ota/%.o: $(FORGE)/forge_ota/%.c lv_kconfig.h
 	@mkdir -p $(dir $@)
 	emcc $(CFLAGS) -c $< -o $@
 $(OUT)/forge_presence/%.o: $(FORGE)/forge_presence/%.c
+	@mkdir -p $(dir $@)
+	emcc $(CFLAGS) -c $< -o $@
+$(OUT)/forge_audio/%.o: $(FORGE)/forge_audio/%.c
 	@mkdir -p $(dir $@)
 	emcc $(CFLAGS) -c $< -o $@
 $(OUT)/emu/%.o: %.c lv_kconfig.h

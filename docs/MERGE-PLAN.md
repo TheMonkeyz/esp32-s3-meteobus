@@ -28,7 +28,14 @@ downloads (`netq.c`). How it works now: docs/ARCHITECTURE.md, "Screens and gestu
 - **Bus notices:** the pill shows the first notice's title or "N notices" (the plan's "Detour: route 800" wording was
   an example).
 - **espforge versions** (item "Foundation choice"): written 2026-10-09; on 2026-10-10 `main/idf_component.yml` pins
-  espforge v0.3.0 for all five components.
+  espforge v0.3.0 for all five components. **2026-10-31 (v0.3.2-rc.1): espforge v0.6.0 for six** (forge_audio added):
+  that release took what MeteoBus had built beside this plan, and the local copies went: `netq_awake()` is forge_net's
+  `net_low_latency()`, the RTC's requests also wait for forge_net's download slot (`net_dl_busy()`) and hold it
+  (`net_dl_begin("rtc")`), the codecs (`audio.c`, `audio_p4.c`) are forge_audio with the pins left here, the real
+  screen off is forge_presence's `screen_off` hook, and the P4's `p4/espforge-p4.patch` and `forge_compat.c` are gone.
+  Kept here on purpose: `slide.c` (not forge_lvgl's: the radar and bus map pictures, the P4's 2D-DMA frames), the
+  radar's own tile pictures (not forge_map, as above), and the RTC's requests in the radar task's idle time (not
+  `net_bg_post`, whose 8 KB internal task is what CLAUDE.md's merge lesson 2 removed).
 
 ## Context
 The user asked how the UI would work if the two apps for the Waveshare ESP32-S3-Touch-AMOLED-1.75 were merged, and whether
