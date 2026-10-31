@@ -827,6 +827,10 @@ static void play_log_end(void)
     play_t0 = 0;
 }
 
+// The panel's play asks for low latency once (net_low_latency() counts callers; the full-screen radar's own
+// request is in radar_set_visible), and stop_play() gives it back once, whatever visibility did in between
+static bool panel_lowlat;
+
 static void stop_play(void)
 {
     if (play_timer) { lv_timer_delete(play_timer); play_timer = NULL; }
@@ -834,7 +838,7 @@ static void stop_play(void)
     play_log_end();
     obj_hide(lbl_status, pan_status, true);
     obj_hide(bar, pan_bar, true);
-    if (!visible) netq_awake(NETQ_RADAR, false);   // (played in the panel)
+    if (panel_lowlat) { net_low_latency(false); panel_lowlat = false; }   // (played in the panel)
     show_live();
 }
 
@@ -922,7 +926,8 @@ static void start_play(void)     // caller holds the display lock
 {
     play_pending = false;
     obj_hide(lbl_status, pan_status, true);
-    if (!visible) netq_awake(NETQ_RADAR, true);    // the panel plays: frames without waiting for beacons
+    if (!visible && !panel_lowlat) { net_low_latency(true); panel_lowlat = true; }  // the panel plays: frames
+                                                                                   // without waiting for beacons
     if (play_timer) lv_timer_delete(play_timer);
     play_log_end();
     play_t0 = esp_timer_get_time();
