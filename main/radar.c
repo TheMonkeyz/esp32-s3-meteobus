@@ -1478,8 +1478,8 @@ void radar_side_wake(void)
 
 void radar_set_visible(bool v)
 {
+    if (v != visible) net_low_latency(v);       // forge_net: Wi-Fi power save off while a map is open (counted)
     visible = v;
-    netq_awake(NETQ_RADAR, v);                  // replies without waiting for a beacon while it is open
     if (!v) {
         display_lock(-1);
         play_pending = false;

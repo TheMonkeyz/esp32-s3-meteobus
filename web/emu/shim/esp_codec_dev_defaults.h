@@ -9,6 +9,7 @@ typedef struct {
     int pa_pin;
     bool use_mclk;
     emu_hw_gain_t hw_gain;
+    bool no_dac_ref;                        // forge_audio's single-ES8311 layout (the P4 board)
 } es8311_codec_cfg_t;
 const audio_codec_ctrl_if_t *audio_codec_new_i2c_ctrl(const audio_codec_i2c_cfg_t *cfg);
 const audio_codec_gpio_if_t *audio_codec_new_gpio(void);

@@ -42,6 +42,12 @@ bool net_setup_ap_active(void) { return false; }
 bool net_dpp_start(net_dpp_uri_cb_t on_uri, net_dpp_done_cb_t on_done) { (void)on_uri; (void)on_done; return false; }
 void net_dpp_stop(void) {}
 bool net_dpp_active(void) { return false; }
+bool net_dpp_supported(void) { return true; }       // the Easy Connect page, as on the AMOLED
+void net_low_latency(bool on) { (void)on; }
+int net_low_latency_users(void) { return 0; }
+bool net_dl_begin(const char *who, int timeout_ms) { (void)who; (void)timeout_ms; return true; }
+void net_dl_end(const char *who) { (void)who; }
+bool net_dl_busy(void) { return false; }
 
 /* ---------- updates: none in the browser (the settings page's channel picker is remembered) ---------- */
 static char channel[8] = "stable";
@@ -117,6 +123,7 @@ const char *svc_user_agent(void) { return "esp32-s3-meteobus emulator"; }   // (
 void svc_probe_stale(void) {}
 
 const char *web_key(void) { return "browser"; }
+const char *web_port(void) { return ""; }
 
 // forge_core's NVS check (config.c's saves): emu_nvs.c never fails
 // The test console (forge_core's testcon): no USB console in the browser; forge_presence registers its commands

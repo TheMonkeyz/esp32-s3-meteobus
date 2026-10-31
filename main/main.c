@@ -66,18 +66,23 @@ static bool boot_button_held(void)
 static bool mic_open(void) { return audio_mic_open(30); }        // 30 dB gain: a room's background noise
 static bool accel_open(void) { return imu_init(touch_i2c_bus()); }
 
-/* The screen "off" (presence's last fade step, 0 %) is a real off: the panel sleeps and the CPU may idle at 80 MHz
- * (display_sleep), the stop on view is polled as a hidden one (departures.c), the radar's idle round waits 10 s
- * instead of 1 (radar.c). Until v0.2.0 "off" was brightness 0 with everything else as when on.
- * The slider's preview never reaches 0 (5 % minimum), so a finger on the brightness arc can't put the panel to
- * sleep; only presence's own state can. */
 static void set_brightness(int pct)
 {
-    bool off = pct == 0 && presence_screen_off();
     display_lock(-1);                     // display_brightness() waits for LVGL's last band (CLAUDE.md 22(c))
-    if (!off && display_asleep()) display_sleep(false);   // the first step of the fade up: the panel first
     display_brightness((uint8_t)(pct * 255 / 100));
-    if (off && !display_asleep()) display_sleep(true);
+    display_unlock();
+}
+
+/* The screen "off" is a real off: the panel sleeps and the CPU may idle at 80 MHz (display_sleep), the stop on view
+ * is polled as a hidden one (departures.c), the radar's idle round waits 10 s instead of 1 (radar.c). forge_presence
+ * says when (espforge v0.6.0's screen_off hook: once the fade down has reached 0 in the OFF state, and before the fade
+ * up starts, so the panel is awake first); until MeteoBus v0.3.1 set_brightness() decided it from the 0 %. Until v0.2.0
+ * "off" was brightness 0 with everything else as when on. The slider's preview never reaches 0, so a finger on the
+ * brightness arc can't put the panel to sleep; only presence's own state can. */
+static void screen_off(bool off)
+{
+    display_lock(-1);
+    display_sleep(off);
     display_unlock();
     if (!off) radar_side_wake();          // the stop on view is due again: fetch it now, not at the next idle round
 }
@@ -86,7 +91,7 @@ static const presence_hooks_t presence_hooks = {
     .mic_open = mic_open, .mic_read = audio_mic_read,
     .accel_open = accel_open, .accel_read = imu_read,
     .touch_idle_ms = touch_idle_ms,
-    .set_brightness = set_brightness,
+    .set_brightness = set_brightness, .screen_off = screen_off,
     .settings_changed = ui_settings_changed,   // the page changed them: Settings redraws
 };
 

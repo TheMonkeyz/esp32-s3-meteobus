@@ -16,12 +16,13 @@ console · Memory budget · Known issues / TODO.
 
 **Where the code lives (since the weather display's v1.14.0).** The infrastructure is espforge's
 (github.com/TheMonkeyz/espforge), taken at a release tag by the component manager (`main/idf_component.yml` →
-`managed_components/`; v0.3.0 on 2026-10-10): forge_core (diag, test console, i18n core, NVS helpers, version,
-png_rows, textfit, http_once, utf8), forge_net (`net.c`, `web.c`, `svc.c`, `tlscert.c`), forge_ota, dns_server and,
-since v1.15.0, forge_presence (screen dimming; the board's microphones, motion sensor, touch and brightness come in
-through its hooks, `main.c`). Their sections below describe how this display uses them; espforge's
+`managed_components/`; v0.3.0 on 2026-10-10, v0.6.0 on 2026-10-31): forge_core (diag, test console, i18n core, NVS
+helpers, version, png_rows, textfit, http_once, utf8), forge_net (`net.c`, `web.c`, `svc.c`, `tlscert.c`; its
+`net_low_latency()` and download slot `net_dl_begin/end`), forge_ota, dns_server, since v1.15.0 forge_presence (screen
+dimming; the board's microphones, motion sensor, touch, brightness and the real screen off come in through its hooks,
+`main.c`) and, since v0.3.2-rc.1, forge_audio (the codecs; `audio.c` gives it the board's pins). Their sections below describe how this display uses them; espforge's
 `docs/COMPONENTS.md` and the headers are the reference. This project's glue: `routes.c` (the page's app routes),
-`audio.c` (I2S and the microphones), `console.c` (its console commands, "where", the "diag: display" line),
+`audio.c` (the pins for forge_audio), `console.c` (its console commands, "where", the "diag: display" line),
 `services.c` (its outside services; the RTC's is registered by `departures.c`), `i18n.c` (texts, Inuktitut), Kconfig
 `CONFIG_FORGE_*` in `sdkconfig.defaults` (names, update site). The buses (MeteoBus): `departures.c`, `rtc_api.c`,
 `favs.c`, `bus_routes.c` (from esp32-s3-rtcquebec) and `netq.c`. CLAUDE.md, "Shared with espforge", says how to
@@ -75,7 +76,7 @@ The panel's init sequence and pin map come from Waveshare's BSP
 ### The second board: Guition JC1060P470C (ESP32-P4, branch `port/esp32-p4`)
 
 A 7" 1024x600 landscape panel (MIPI-DSI JD9165), GT911 touch, one ES8311 for speaker and microphone, Wi-Fi through an
-ESP32-C6 (esp-hosted over SDIO), no motion sensor. Its own `display_p4.c`, `touch_p4.c`, `audio_p4.c`, `imu_p4.c`, picked
+ESP32-C6 (esp-hosted over SDIO), no motion sensor. Its own `display_p4.c`, `touch_p4.c`, `imu_p4.c`, picked
 by `IDF_TARGET` in `main/CMakeLists.txt`; `DISP_ROUND` 0 (landscape layout in `ui.c`) and `DISP_SWAP` 0 (`slide.c` copies
 without the byte swap) in `display.h`. Moves are built in a second frame buffer by the 2D-DMA and swapped at the panel's
 refresh. Its weather page has two layouts (`config_wx_below()`, Settings "Forecast below, radar beside"): A, the five
@@ -700,7 +701,7 @@ order, and ~11 ms on the bus.
   the swipe's direction); `busmap_unloaded` frees the pictures and the path's points (`bm_free()`), or `bm_draw`
   once a drawing under way ends (display lock); the log says `ui: bus map: closed, pictures freed`. The radar and
   the bus map take turns in PSRAM this way: only one is open at a time. Since v0.2.0-rc.4 Wi-Fi power save is off while
-  it is open (`netq_awake(NETQ_MAP, …)` in `busmap_open` / `busmap_unloaded`, "Network queue" below).
+  it is open (`net_low_latency()` in `busmap_open` / `busmap_unloaded`, "Network queue" below).
 - **Memory:** the requests' buffers are PSRAM and live for one request (`heap_caps_malloc(…, MALLOC_CAP_SPIRAM)`): a
   board or route reply into `step_buf` (4 KB, `RX_CAP`, allocated once in `deps_start()`), a route's notices 128 KB
   (`NOTICES_CAP`, ~13 KB for one notice naming 15 routes), the route's path 64 KB (`TRACE_CAP`; route 800: 2.4 KB)
@@ -717,14 +718,18 @@ order, and ~11 ms on the bus.
   tries again a second later. Why: each TLS download holds 10-15 KB of internal RAM while it runs (CLAUDE.md lesson
   27), and a place switch (forecast, alerts, air and the radar at once) was already at the harness's floors before the
   buses came. The bus map's tiles need no flag: they are drawn in the radar task's idle time, as `deps_step()` runs,
-  so they never overlap. `NETQ_MAP` only names the bus map for `netq_awake()`.
-- **Wi-Fi power save** (v0.2.0-rc.4, `netq_awake(who, on)`): off (`WIFI_PS_NONE`) while the radar or the bus map is open,
-  back to ESP-IDF's default for a station (`WIFI_PS_MIN_MODEM`, which forge_net keeps) when neither is. In that mode
-  each reply waits for the router's next beacon, ~100 ms a request: the radar's 14 past frames (28 GeoMet requests)
-  took 4.9-6.6 s on v0.2.0-rc.3, 3.1-3.9 s with it off (2026-10-10). Found by timing the same GeoMet URLs from the PC
-  (~90 ms each) against the board (~200 ms each). Called from the LVGL task (`radar_set_visible()`, `busmap_open` /
-  `busmap_unloaded`); left alone while Easy Connect runs (`net_dpp_active()`: forge_net sets its own). Log:
-  `netq: Wi-Fi power save off (a map is open)` / `on`.
+  so they never overlap.
+- **forge_net's download slot** (espforge v0.6.0, MeteoBus v0.3.2-rc.1): one TLS download at a time for the update
+  check and install and the service probes (`net_dl_begin/end`). `deps_step()` also asks nothing while it is held
+  (`net_dl_busy()`) and holds it as `"rtc"` for its own request (`wifi status` shows `dl=rtc`). The weather loop and
+  the radar don't take it: they may download at the same time, as before the merge, and the slot waits.
+- **Wi-Fi power save** (v0.2.0-rc.4 as `netq_awake()`, forge_net's `net_low_latency(on)` since v0.3.2-rc.1): off
+  (`WIFI_PS_NONE`) while the radar or the bus map is open, back to ESP-IDF's default for a station
+  (`WIFI_PS_MIN_MODEM`) when neither is. In that mode each reply waits for the router's next beacon, ~100 ms a request:
+  the radar's 14 past frames (28 GeoMet requests) took 4.9-6.6 s on v0.2.0-rc.3, 3.1-3.9 s with it off (2026-10-10).
+  Found by timing the same GeoMet URLs from the PC (~90 ms each) against the board (~200 ms each). Called from the
+  LVGL task (`radar_set_visible()`, guarded against a repeated value: the call is counted; `busmap_open` /
+  `busmap_unloaded`); forge_net leaves it alone while Easy Connect runs. `wifi status` shows `lowlat`.
 
 ## Radar (`radar.c`)
 
@@ -808,7 +813,7 @@ order, and ~11 ms on the bus.
   downloads D ms, decoding E ms)`; harness `radar_history_s`.
   **MeteoBus, 2026-10-09/10:** `radar_history_s` measured 7.2-8.2 s, over its 7.0 limit, on the unchanged weather
   firmware (v0.1.0-rc.2) as on v0.2.0: not the buses but Wi-Fi power save (each reply waited for a beacon, ~100 ms a
-  request). Since v0.2.0-rc.4 power save is off while the radar is open (`netq_awake()`, "Network queue"): 3.1-3.9 s
+  request). Since v0.2.0-rc.4 power save is off while the radar is open (`net_low_latency()`, "Network queue"): 3.1-3.9 s
   (4.9-6.6 s on rc.3 the same evening). Downloads and decoding (~2.2 s, overlapped) are now close, so the next gain
   would be in decoding.
 - **Animation:** 15 frames. The latest frame, plus 14 history frames on a fixed 12-minute grid (so refreshes reuse
